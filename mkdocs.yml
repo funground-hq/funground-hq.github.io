@@ -1,0 +1,108 @@
+site_name: funground
+site_description: Creative coding for learners. Draw, animate and play with sound in a few lines of Python.
+site_url: https://funground-hq.github.io/
+repo_url: https://github.com/funground-hq/funground
+repo_name: funground-hq/funground
+copyright: funground is free software (LGPL-2.1). The examples are CC0.
+
+# tools/assemble.py builds docs/ from site_src/ and a funground checkout. Do not edit docs/.
+docs_dir: docs
+site_dir: build/site
+
+theme:
+  name: material
+  language: en
+  font: false   # use the reader's own fonts: nothing is fetched from Google
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.top
+    - navigation.footer
+    - search.highlight
+    - toc.follow
+    - content.code.copy
+
+extra_css:
+  - stylesheets/gallery.css
+
+markdown_extensions:
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: false
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+
+plugins:
+  - search
+
+extra:
+  generator: false   # no "made with" line; no analytics, no tracking, no cookies
+
+# Gallery example pages (one per example) are generated and reachable from the gallery index.
+# They are left out of the navigation on purpose: there are about ninety of them.
+not_in_nav: |
+  /gallery/*/*.md
+
+nav:
+  - Home: index.md
+  - Get started: get-started.md
+  - Guide:
+      - guide/index.md
+      - "1. Getting started": guide/01_getting_started.md
+      - "2. The sketch": guide/02_the_sketch.md
+      - "3. Shapes": guide/03_shapes.md
+      - "4. Colour": guide/04_colour.md
+      - "5. Fill, stroke and lines": guide/05_fill_stroke_lines.md
+      - "6. Text": guide/06_text.md
+      - "7. Animation and time": guide/07_animation_and_time.md
+      - "8. Transforms": guide/08_transforms.md
+      - "9. Paths, clipping and pictures": guide/09_paths_and_clipping.md
+      - "10. Interaction": guide/10_interaction.md
+      - "11. Randomness and noise": guide/11_randomness_and_noise.md
+      - "12. Useful maths": guide/12_useful_maths.md
+      - "13. Saving your work": guide/13_saving_your_work.md
+      - "14. Coming from p5.js and Processing": guide/14_coming_from_p5_processing.md
+      - "15. Coming from DrawBot": guide/15_coming_from_drawbot.md
+      - "16. Sound": guide/16_sound.md
+      - "17. Ragas and talas": guide/17_ragas_and_talas.md
+      - "18. Projects": guide/18_projects.md
+      - "19. Studios": guide/19_studios.md
+      - "When something goes wrong": guide/errors.md
+      - Glossary: guide/glossary.md
+      - Projects:
+          - "1. Event poster series": guide/projects/01_event_posters.md
+          - "2. Rangoli and mandala": guide/projects/02_rangoli.md
+          - "3. Raga explorer": guide/projects/03_raga_explorer.md
+          - "4. Voice-controlled game": guide/projects/04_voice_game.md
+          - "5. Typographic portrait": guide/projects/05_typographic_portrait.md
+          - "6. Kinetic type": guide/projects/06_kinetic_type.md
+          - "7. Scratch-card reveal": guide/projects/07_scratch_card.md
+          - "8. Flow-field print": guide/projects/08_flow_field_print.md
+  - Gallery:
+      - gallery/index.md
+      - Showcase: gallery/showcase.md
+  - Reference:
+      - API reference: reference/API.md
+      - Quick reference: reference/Quick_Reference.md
+      - Compared with p5 and DrawBot: reference/Compared_with_p5_and_DrawBot.md
+  - Play: play.md
+  - About:
+      - about.md
+      - Changelog: changelog.md
