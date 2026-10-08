@@ -1,0 +1,18 @@
+/* The gallery index: pictures in a grid, each with its title underneath. */
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 1rem;
+}
+.gallery-grid p {
+  margin: 0;
+}
+.gallery-grid p a {
+  display: block;
+}
+.gallery-grid img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
