@@ -6,6 +6,7 @@ name: Deploy site
 on:
   push:
     branches: [main]
+  pull_request:              # build and check only; nothing is deployed from a pull request
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * *"      # every day at 03:17 UTC
@@ -60,6 +61,7 @@ jobs:
           path: build/site
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:
