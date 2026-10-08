@@ -1,0 +1,73 @@
+# Builds the funground website and deploys it to GitHub Pages.
+# The site is assembled from this repository and from funground-hq/funground (branch main),
+# so it is also rebuilt every day: a change to funground's docs appears without a change here.
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+  pull_request:              # build and check only; nothing is deployed from a pull request
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"      # every day at 03:17 UTC
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  NO_MKDOCS_2_WARNING: "true"   # Material prints a notice about MkDocs 2.0; --strict must not trip on it
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@v7
+
+      - name: Check out funground (the guide, reference and gallery)
+        uses: actions/checkout@v7
+        with:
+          repository: funground-hq/funground
+          ref: main
+          path: funground
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install MkDocs and Material
+        run: pip install -r requirements.txt
+
+      - name: Assemble the docs
+        run: python tools/assemble.py funground docs
+
+      - name: Check the links
+        run: python tools/check_links.py docs mkdocs.yml funground
+
+      - name: Build the site
+        run: mkdocs build --strict
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: build/site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

@@ -1,0 +1,3 @@
+# The only things the site build needs. Pinned so a build today and a build next month agree.
+mkdocs==1.6.1
+mkdocs-material==9.7.7
