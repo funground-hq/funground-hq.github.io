@@ -59,5 +59,5 @@ steps one by one.
 - [Guide](guide/index.md): nineteen short chapters that teach funground step by step.
 - [Gallery](gallery/index.md): every example, with its picture, how it works and its code.
 - [Reference](reference/Quick_Reference.md): look up a command.
-- [Play](play.md): try funground in your browser, without installing. Coming in 0.2.
+- [Play](play/index.md): run the gallery examples in your browser, without installing (a preview of 0.2).
 - [About](about.md): licence, credits and the code.
