@@ -37,6 +37,12 @@ mkdocs serve
 
 `assemble.py` and `check_links.py` use only the standard library, so they run without MkDocs.
 
+The Play page runs examples in the browser with the runner from
+[funground-web](https://github.com/funground-hq/funground-web). To include it, build the runner's
+runtime there (`tools/build_runtime.py --funground <funground checkout>`) and add
+`--runner <path to funground-web>/runner` to the `assemble.py` line. Without it, the Play page says
+the runner is not part of the build.
+
 ## Licence
 
 See [LICENSE](LICENSE). funground's own licence is on the [About page](https://funground-hq.github.io/about/).

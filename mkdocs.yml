@@ -38,6 +38,7 @@ theme:
 
 extra_css:
   - stylesheets/gallery.css
+  - stylesheets/play.css
 
 markdown_extensions:
   - attr_list
@@ -102,7 +103,7 @@ nav:
       - API reference: reference/API.md
       - Quick reference: reference/Quick_Reference.md
       - Compared with p5 and DrawBot: reference/Compared_with_p5_and_DrawBot.md
-  - Play: play.md
+  - Play: play/index.md
   - About:
       - about.md
       - Changelog: changelog.md
