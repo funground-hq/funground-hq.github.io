@@ -20,6 +20,9 @@ The site is **assembled**, not written here. Almost all of its content lives in 
    the runner and its `runtime/` (built by funground-web's `tools/build_runtime.py` from the funground
    branch the runner runs, `RUNTIME_BRANCH` in the workflow) go to `play/runner/`, the examples it can
    run to `play/examples.json`, and those gallery pages get a "Run it here" button.
+   The workflow also publishes `runtime/<version>/` (Pyodide's part and the wheels, made by funground-web's
+   `vscode-extension/build.py --site`), from which the funground extension for github.dev loads (D-081); the
+   version is `fungroundRuntime` in the extension's `package.json`.
 3. `.github/workflows/deploy.yml` does both on every push to `main`, by hand, and once a day (so changes
    to funground's docs appear without a change here), then deploys to GitHub Pages.
 

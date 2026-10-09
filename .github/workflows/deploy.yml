@@ -70,6 +70,13 @@ jobs:
       - name: Assemble the docs
         run: python tools/assemble.py funground docs --runner funground-web/runner
 
+      # The funground extension for github.dev loads Python and funground from runtime/<version>/ (D-081), the version
+      # its package.json names; GitHub Pages serves it with CORS. build.py adds the part of Pyodide the runner uses.
+      - name: Publish the extension's runtime
+        run: |
+          version=$(python -c "import json; print(json.load(open('funground-web/vscode-extension/package.json'))['fungroundRuntime'])")
+          python funground-web/vscode-extension/build.py --runtime site --site "docs/runtime/$version"
+
       - name: Check the links
         run: python tools/check_links.py docs mkdocs.yml funground
 

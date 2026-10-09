@@ -8,7 +8,7 @@ the maintainer set the goals and reviewed the work. How the AI was used is writt
 ## Licence
 
 - The funground library is free software under the GNU Lesser General Public Licence, version 2.1
-  or later (LGPL-2.1). You may use it in any project. If you change funground itself, share those
+  only (LGPL-2.1-only). You may use it in any project. If you change funground itself, share those
   changes under the same licence. The full text is in the
   [LICENSE](https://github.com/funground-hq/funground/blob/main/LICENSE) file.
 - The gallery examples and the guide's example code are CC0: public domain. Copy them, change
