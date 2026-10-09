@@ -1,0 +1,66 @@
+/* The Play page (site_src/play/): a toolbar, the running sketch, its output and its code.
+   Colours come from Material's own variables, so the page follows the light and dark schemes. */
+.play-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.play-toolbar .md-button {
+  margin: 0;
+  padding: 0.35em 1.2em;
+}
+.play-toolbar .md-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.play-toolbar select {
+  font: inherit;
+  max-width: 100%;
+  padding: 0.35em 0.5em;
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 0.2rem;
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+}
+.play-status {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.7rem;
+}
+.play-stage {
+  display: flex;
+  justify-content: center;
+  padding: 1rem;
+  border-radius: 0.2rem;
+  background: var(--md-code-bg-color);
+  overflow: hidden;
+}
+/* The runner sets the canvas's CSS size to the sketch's size; on a narrow screen it shrinks to fit
+   (keeping its shape), and the runner still maps the mouse to the sketch's own pixels. */
+.play-stage canvas {
+  display: block;
+  max-width: 100%;
+  height: auto !important;
+  background: #fff;
+  box-shadow: var(--md-shadow-z1);
+}
+.play-stage canvas:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 2px;
+}
+.play-output {
+  max-height: 12em;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 0.7rem;
+}
+.play-output:empty {
+  display: none;
+}
+.play-output .stderr {
+  color: #e53935;
+}
+.play-about {
+  margin-top: 0.5rem;
+}

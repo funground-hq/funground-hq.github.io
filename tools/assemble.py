@@ -1,6 +1,6 @@
 """Assemble the MkDocs input for the funground website (S-150, S-141).
 
-    python tools/assemble.py <funground checkout> <output docs dir>
+    python tools/assemble.py <funground checkout> <output docs dir> [--runner <funground-web runner dir>]
 
 The site is made from two places:
 
@@ -9,18 +9,24 @@ The site is made from two places:
   and the examples gallery.
 
 This script copies both into one directory, which ``mkdocs build`` then turns into the site. It
-changes nothing in the funground checkout. Three jobs:
+changes nothing in the funground checkout. Three jobs, and a fourth with ``--runner``:
 
 1. Copy the pages and pictures into their place on the site.
 2. Rewrite every link that points outside the site (``../../CREDITS.md``, ``../../examples/x.py``)
    to its address on GitHub, and every link between copied pages to the page's new place.
 3. Write the gallery: an index with a grid of pictures, and one page per example.
+4. With ``--runner`` (the ``runner/`` folder of ``funground-hq/funground-web``, its ``runtime/`` built by
+   that repository's ``tools/build_runtime.py``): copy the browser runner to ``play/runner/``, list the
+   examples it can run in ``play/examples.json``, and give each of those gallery pages a "Run it here"
+   button that opens it on the Play page (S-151 part 1).
 
 Standard library only, Python 3.11 or newer.
 """
 from __future__ import annotations
 
+import argparse
 import ast
+import json
 import posixpath
 import re
 import shutil
@@ -48,6 +54,11 @@ FILES = [
     ("docs/gallery/SHOWCASE.md", "gallery/showcase.md"),
     ("CHANGELOG.md", "changelog.md"),
 ]
+
+# The browser runner's own files (funground-web runner/); runtime/ is copied whole.
+RUNNER_FILES = ("runner.js", "worker.js", "audio.js", "microphone-worklet.js")
+# The examples that are not gallery examples, and their heading on the Play page.
+OTHER_AREAS = {"session1": "Session 1: first steps"}
 
 LINK = re.compile(r"(\]\()([^)\s]+)(\))")        # the (target) of a markdown link or image
 HAS_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
@@ -188,12 +199,19 @@ def github_url(example: Example, funground: Path) -> str:
     return f"{GITHUB}/blob/{BRANCH}/{example.path.relative_to(funground).as_posix()}"
 
 
-def example_page(example: Example, funground: Path) -> str:
+def example_page(example: Example, funground: Path, runnable: bool = False) -> str:
     lines = [
         f"# {example.title}",
         "",
         f"![{example.title}](../images/{example.id}.png)",
         "",
+    ]
+    if runnable:
+        # Plain HTML: a markdown link to play/?example= would be checked as a file. The page's address is
+        # gallery/<area>/<name>/, so the Play page is three folders up.
+        lines += [f'<a class="md-button md-button--primary" href="../../../play/?example={example.id}">'
+                  "Run it here, in your browser</a>", ""]
+    lines += [
         example.description + (" *(This one uses real time, so the picture changes from run to run.)*"
                                if example.time_dependent else ""),
         "",
@@ -242,14 +260,71 @@ def gallery_index(examples: list[Example], areas: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-def write_gallery(funground: Path, docs: Path) -> int:
+def write_gallery(funground: Path, docs: Path, runnable: frozenset[str] = frozenset()) -> int:
+    """The gallery index and pages; an example whose id is in ``runnable`` gets a "Run it here" button."""
     areas = read_areas(funground)
     examples = read_examples(funground, areas)
     (docs / "gallery" / "index.md").write_text(gallery_index(examples, areas), encoding="utf-8", newline="\n")
     for example in examples:
         page = docs / "gallery" / example.area / f"{example.name}.md"
         page.parent.mkdir(parents=True, exist_ok=True)
-        page.write_text(example_page(example, funground), encoding="utf-8", newline="\n")
+        page.write_text(example_page(example, funground, example.id in runnable), encoding="utf-8", newline="\n")
+    return len(examples)
+
+
+# ---- the Play page (S-151 part 1)
+
+def read_runner(runner: Path) -> list[dict]:
+    """The examples the runner's runtime holds (runtime/examples/index.json), checking the runner is complete."""
+    missing = [name for name in RUNNER_FILES if not (runner / name).is_file()]
+    for name in ("runtime/manifest.json", "runtime/examples/index.json"):
+        if not (runner / name).is_file():
+            missing.append(name)
+    if missing:
+        raise SystemExit(f"{runner} is not a built funground-web runner (missing {', '.join(missing)}): "
+                         "run funground-web's tools/build_runtime.py first")
+    return json.loads((runner / "runtime" / "examples" / "index.json").read_text(encoding="utf-8"))
+
+
+def readable_title(title: str) -> str:
+    """An example with no docstring is titled by its file name ("06_animation"): show it as "6. Animation"."""
+    number, underscore, words = title.partition("_")
+    if not (underscore and number.isdigit() and words):
+        return title
+    return f"{int(number)}. {words.replace('_', ' ').capitalize()}"
+
+
+def play_examples(entries: list[dict], areas: dict[str, str], funground: Path) -> list[dict]:
+    """The Play page's list: the runtime's examples in gallery order, each with its heading and gallery page.
+
+    ``entries`` come from the runtime, built from the funground branch the runner runs; the headings and
+    the gallery pages come from the funground checkout the site is built from. An example only the runtime
+    has is listed without a gallery page.
+    """
+    gallery = {f"{p.parent.name}-{p.stem}" for p in (funground / "examples" / "gallery").glob("*/*.py")}
+    headings = {**OTHER_AREAS, **areas}
+    order = list(headings)
+    listed = []
+    for entry in entries:
+        parts = entry["source"].split("/")                      # gallery/<area>/<name>.py or session1/<name>.py
+        area = parts[1] if parts[0] == "gallery" else parts[0]
+        page = f"../gallery/{area}/{Path(parts[-1]).stem}/" if entry["id"] in gallery else None
+        listed.append({**entry, "title": readable_title(entry["title"]), "area": area,
+                       "heading": headings.get(area, area.title()), "page": page})
+    rank = {area: i for i, area in enumerate(order)}
+    listed.sort(key=lambda e: (rank.get(e["area"], len(order)), e["area"], e["source"]))
+    return listed
+
+
+def write_play(runner: Path, docs: Path, entries: list[dict], funground: Path) -> int:
+    """Copy the runner and its runtime to play/runner/ and write play/examples.json."""
+    target = docs / "play" / "runner"
+    target.mkdir(parents=True, exist_ok=True)
+    for name in RUNNER_FILES:
+        shutil.copyfile(runner / name, target / name)
+    shutil.copytree(runner / "runtime", target / "runtime")
+    examples = play_examples(entries, read_areas(funground), funground)
+    (docs / "play" / "examples.json").write_text(json.dumps(examples, indent=1), encoding="utf-8", newline="\n")
     return len(examples)
 
 
@@ -262,10 +337,14 @@ def example_pages(funground: Path) -> dict[str, str]:
 # ---- main
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print(__doc__)
-        return 2
-    funground, docs = Path(argv[0]).resolve(), Path(argv[1]).resolve()
+    parser = argparse.ArgumentParser(description="Assemble the MkDocs input for the funground website.")
+    parser.add_argument("funground", type=Path, help="a funground checkout (the guide, reference and gallery)")
+    parser.add_argument("docs", type=Path, help="the output docs directory (deleted and rebuilt)")
+    parser.add_argument("--runner", type=Path,
+                        help="funground-web's runner/ folder with its runtime/ built: the Play page runs examples")
+    args = parser.parse_args(argv)
+    funground, docs = args.funground.resolve(), args.docs.resolve()
+    runner = args.runner.resolve() if args.runner else None
     if not (funground / "docs" / "guide").is_dir():
         raise SystemExit(f"{funground} does not look like a funground checkout (no docs/guide)")
     if docs == funground or docs in funground.parents or funground in docs.parents:
@@ -280,9 +359,11 @@ def main(argv: list[str]) -> int:
     link_map["docs/gallery/README.md"] = "gallery/index.md"       # the old gallery page: now the generated index
     link_map.update(example_pages(funground))                     # a link to an example's .py: its gallery page
     copy_pages(funground, docs, copies, link_map)
-    count = write_gallery(funground, docs)
+    entries = read_runner(runner) if runner else []
+    count = write_gallery(funground, docs, frozenset(entry["id"] for entry in entries))
+    playable = write_play(runner, docs, entries, funground) if runner else 0
 
-    print(f"copied {len(copies)} files, wrote {count} gallery pages -> {docs}")
+    print(f"copied {len(copies)} files, wrote {count} gallery pages, {playable} examples on the Play page -> {docs}")
     return 0
 
 
