@@ -77,6 +77,11 @@ jobs:
           version=$(python -c "import json; print(json.load(open('funground-web/vscode-extension/package.json'))['fungroundRuntime'])")
           python funground-web/vscode-extension/build.py --runtime site --site "docs/runtime/$version"
 
+      # The extension itself, for VS Code's "Developer: Install Extension from Location..." (github.dev, vscode.dev):
+      # the folder a sketchbook template carries, served with CORS at /extension/.
+      - name: Publish the extension
+        run: python funground-web/vscode-extension/build.py --runtime site --template docs/extension
+
       - name: Check the links
         run: python tools/check_links.py docs mkdocs.yml funground
 
