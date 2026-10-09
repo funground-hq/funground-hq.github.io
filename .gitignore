@@ -4,6 +4,8 @@ site/
 # The assembled MkDocs input (tools/assemble.py writes it), and the funground checkout CI makes
 docs/
 funground/
+funground-web/
+funground-runtime/
 __pycache__/
 *.pyc
 .venv/

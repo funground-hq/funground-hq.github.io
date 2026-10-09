@@ -1,6 +1,8 @@
 # Builds the funground website and deploys it to GitHub Pages.
 # The site is assembled from this repository and from funground-hq/funground (branch main),
 # so it is also rebuilt every day: a change to funground's docs appears without a change here.
+# The Play page's browser runner comes from funground-hq/funground-web; it runs a funground wheel built
+# from RUNTIME_BRANCH of funground (the 0.2 work, until 0.2 is released and main has the web runner).
 name: Deploy site
 
 on:
@@ -22,6 +24,8 @@ concurrency:
 
 env:
   NO_MKDOCS_2_WARNING: "true"   # Material prints a notice about MkDocs 2.0; --strict must not trip on it
+  RUNNER_BRANCH: main           # funground-web: the browser runner (runner/) and tools/build_runtime.py
+  RUNTIME_BRANCH: release-0.2-web   # funground: the branch the runner runs in the browser
 
 jobs:
   build:
@@ -37,6 +41,20 @@ jobs:
           ref: main
           path: funground
 
+      - name: Check out funground-web (the browser runner)
+        uses: actions/checkout@v7
+        with:
+          repository: funground-hq/funground-web
+          ref: ${{ env.RUNNER_BRANCH }}
+          path: funground-web
+
+      - name: Check out funground for the runner (the branch it runs)
+        uses: actions/checkout@v7
+        with:
+          repository: funground-hq/funground
+          ref: ${{ env.RUNTIME_BRANCH }}
+          path: funground-runtime
+
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
@@ -46,8 +64,11 @@ jobs:
       - name: Install MkDocs and Material
         run: pip install -r requirements.txt
 
+      - name: Build the runner's runtime (the wasm wheels from their release, the funground wheel, the examples)
+        run: python funground-web/tools/build_runtime.py --funground funground-runtime
+
       - name: Assemble the docs
-        run: python tools/assemble.py funground docs
+        run: python tools/assemble.py funground docs --runner funground-web/runner
 
       - name: Check the links
         run: python tools/check_links.py docs mkdocs.yml funground
