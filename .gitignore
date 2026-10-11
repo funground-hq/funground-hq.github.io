@@ -9,3 +9,8 @@ funground-runtime/
 __pycache__/
 *.pyc
 .venv/
+
+# Tool dependencies (tools/codemirror: npm install)
+node_modules/
+# Test output
+tools/out/
