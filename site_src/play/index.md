@@ -5,14 +5,18 @@ hide:
 
 # Play
 
-Pick an example and press **Run**: it runs here, in your browser, with nothing to install. Python,
-funground and its drawing library load into this page, about 12 MB the first time and then from your
-browser's cache. The pictures are drawn by the same library, Cairo, as on a computer with funground
-installed.
+Write a sketch, press **Run** and see it, with nothing to install. Pick an example to start from, or begin
+with a blank sketch. With **Auto-run** on, the sketch runs again a moment after you stop typing.
 
-This is a preview of funground 0.2, made for Chrome; Edge, Firefox and Safari are not tested yet.
-Changing the code here comes next. Until then, copy an example into a file on your computer and
-[run it there](../get-started.md), or browse the [gallery](../gallery/index.md).
+- **Share** makes a link that holds your code. Anyone who opens it sees your code and can run it.
+- Your sketches run in a separate, sandboxed website (funground-run.github.io), so a sketch can never reach
+  this site.
+- Unsaved changes stay in this browser only. **Reset** goes back to the original.
+- To keep sketches on GitHub, use the [sketchbook](https://github.com/funground-hq/sketchbook) and the
+  funground extension in github.dev.
+
+This is a preview of funground 0.2, made for Chrome; Edge, Firefox and Safari are not tested yet. Python,
+funground and its drawing library load into your browser, about 12 MB the first time and then from its cache.
 
 <div id="play" class="play">
   <noscript>The Play page needs JavaScript to run Python in your browser.</noscript>

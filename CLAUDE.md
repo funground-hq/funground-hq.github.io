@@ -1,8 +1,8 @@
 # funground-hq.github.io
 
 The public website for funground, at https://funground-hq.github.io (decision D-077). It has a home
-page, the user guide, the examples gallery, the reference and an About page. Later (story S-151) the
-browser editor from `funground-hq/funground-web` joins it as the Play page.
+page, the user guide, the examples gallery, the reference and an About page. The Play page (story S-151)
+is a browser editor that runs sketches with the runner from `funground-hq/funground-web`.
 
 **Process:** follow the `funground-sdlc` skill (`.claude/skills/funground-sdlc/SKILL.md`) in every
 session. Stories for this repository are S-150 (the site) and S-141 (the gallery pages).
@@ -35,7 +35,9 @@ comes from funground. To change the guide or the gallery text, change it in fung
 |---|---|
 | `mkdocs.yml` | The site: theme, navigation, extensions. A page named in `nav` must exist after assembly |
 | `site_src/` | Hand-written pages (home, get started, play, about) and the stylesheets |
-| `site_src/play/` | The Play page: `index.md` and `play.js`, which runs our examples with the runner. Only our own code runs on this origin; anyone's code (the editor) runs on `funground-run.github.io` (D-078) |
+| `site_src/play/` | The Play page, the editor: `index.md`, `play.js` and `vendor/codemirror.js` (the code editor, committed). It never runs Python: sketches run in an iframe from `funground-run.github.io` (D-078) |
+| `tools/codemirror/` | Builds `vendor/codemirror.js` with esbuild (`npm install`, `npm run build`; see its README) |
+| `tools/test_editor.mjs` | Headless-Chrome test of the editor and the preview together (`node tools/test_editor.mjs`) |
 | `tools/assemble.py` | Builds the MkDocs docs directory. Standard library only, Python 3.11+ |
 | `tools/check_links.py` | Checks the assembled directory: nav pages exist, relative links and images resolve |
 | `requirements.txt` | Pinned MkDocs and Material |
@@ -50,6 +52,12 @@ comes from funground. To change the guide or the gallery text, change it in fung
   <python> tools/assemble.py <funground checkout> <scratch dir>
   <python> tools/check_links.py <scratch dir> mkdocs.yml
   ```
+- Node 22 and npm are allowed for `tools/codemirror` and `tools/test_editor.mjs` (local, exact-pinned, no `-g`, no
+  browser downloads: the test uses the installed Chrome).
+- The Play page is the editor of S-151 part 2. Its iframe needs `sandbox="allow-scripts allow-same-origin"` (the
+  runner's worker cannot start in a page without an origin); the preview is a separate origin either way. The
+  messages between the editor and the preview are in the README of `funground-run.github.io`. `?preview=<origin>`
+  (testing only) is honoured only when the page is served from localhost or 127.0.0.1.
 - No analytics, trackers, cookies or fonts loaded from other sites. One exception, on the Play page only:
   the runner loads Pyodide from jsDelivr and two pure-Python packages from PyPI.
 - Learner-facing text is plain English, British spelling.
