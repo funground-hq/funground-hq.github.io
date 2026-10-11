@@ -1,4 +1,4 @@
-/* The Play page (site_src/play/): a toolbar, the running sketch, its output and its code.
+/* The Play page (site_src/play/): a toolbar, the code beside the sketch, and the output under them.
    Colours come from Material's own variables, so the page follows the light and dark schemes. */
 .play-toolbar {
   display: flex;
@@ -24,30 +24,64 @@
   background: var(--md-default-bg-color);
   color: var(--md-default-fg-color);
 }
+.play-auto {
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
 .play-status {
   color: var(--md-default-fg-color--light);
   font-size: 0.7rem;
 }
+.play-link {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 0.75rem;
+  padding: 0.35em 0.5em;
+  font: inherit;
+  font-size: 0.7rem;
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-radius: 0.2rem;
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+}
+
+/* The code above the picture; side by side when the screen is wide enough. */
+.play-workspace {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 60em) {
+  .play-workspace {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.play-editor {
+  height: 22rem;
+  border-radius: 0.2rem;
+  overflow: hidden;
+}
+.play-editor .cm-editor {
+  height: 100%;
+}
 .play-stage {
   display: flex;
   justify-content: center;
+  align-items: flex-start;
   padding: 1rem;
   border-radius: 0.2rem;
   background: var(--md-code-bg-color);
   overflow: hidden;
 }
-/* The runner sets the canvas's CSS size to the sketch's size; on a narrow screen it shrinks to fit
-   (keeping its shape), and the runner still maps the mouse to the sketch's own pixels. */
-.play-stage canvas {
+/* The page tells the frame the sketch's size; the frame shrinks to fit a narrow screen, keeping its shape. */
+.play-preview {
   display: block;
+  width: 640px;
   max-width: 100%;
-  height: auto !important;
+  aspect-ratio: 640 / 400;
+  border: 0;
   background: #fff;
   box-shadow: var(--md-shadow-z1);
-}
-.play-stage canvas:focus-visible {
-  outline: 2px solid var(--md-accent-fg-color);
-  outline-offset: 2px;
 }
 .play-output {
   max-height: 12em;

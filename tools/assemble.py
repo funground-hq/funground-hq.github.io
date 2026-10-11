@@ -18,7 +18,7 @@ changes nothing in the funground checkout. Three jobs, and a fourth with ``--run
 4. With ``--runner`` (the ``runner/`` folder of ``funground-hq/funground-web``, its ``runtime/`` built by
    that repository's ``tools/build_runtime.py``): copy the browser runner to ``play/runner/``, list the
    examples it can run in ``play/examples.json``, and give each of those gallery pages a "Run it here"
-   button that opens it on the Play page (S-151 part 1).
+   button that opens it on the Play page, the editor (S-151).
 
 Standard library only, Python 3.11 or newer.
 """
