@@ -265,6 +265,8 @@ function markErrorLine(text) {
   if (own.length) editor.markError(Number(own[own.length - 1][2]));
 }
 
+let focusOnStart = false;     // the run came from the Run button: give the sketch the keys once it starts
+
 const FINISHED = { ended: "Finished.", stopped: "Stopped.", error: "Stopped by an error: see the message below the picture." };
 
 const handlers = {
@@ -283,10 +285,13 @@ const handlers = {
     preview.style.aspectRatio = `${message.width} / ${message.height}`;
     setStatus("Running. Click the picture to give it the mouse and keys.");
     stopButton.disabled = false;
+    if (focusOnStart) preview.focus();   // so the space bar reaches the sketch instead of pressing Run again
+    focusOnStart = false;
   },
   finished(message) {
     setStatus(FINISHED[message.reason] ?? message.reason);
     stopButton.disabled = true;
+    focusOnStart = false;
   },
 };
 
@@ -310,7 +315,10 @@ function stopSketch() {
   stopButton.disabled = true;
 }
 
-runButton.addEventListener("click", runSketch);
+runButton.addEventListener("click", () => {
+  focusOnStart = true;
+  runSketch();
+});
 stopButton.addEventListener("click", stopSketch);
 choose.addEventListener("change", () => {
   if (choose.value !== SHARED) open(choose.value);
