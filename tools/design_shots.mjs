@@ -2,6 +2,7 @@
 //
 //   node tools/design_shots.mjs <site url> <output folder>
 //   node tools/design_shots.mjs http://localhost:8000 out/shots
+//   node tools/design_shots.mjs http://localhost:8000 out/shots home,guide     (only those pages)
 //
 // Prints, for every shot, the page's scroll width (a number larger than the viewport means something overflows
 // sideways) and, on the Play page, the rendered size of the picture frame (should be the sketch's own size when
@@ -12,7 +13,7 @@ import path from "node:path";
 
 const { chromium } = await import("./codemirror/node_modules/playwright-core/index.mjs");
 
-const [site = "http://localhost:8000", out = "out/shots"] = process.argv.slice(2);
+const [site = "http://localhost:8000", out = "out/shots", only] = process.argv.slice(2);
 const CHROME = process.env.CHROME ?? "C:/Users/samirj/AppData/Local/Google/Chrome/Application/chrome.exe";
 
 const PAGES = {
@@ -30,8 +31,9 @@ try {
   for (const [sizeName, [width, height]] of Object.entries(SIZES)) {
     for (const scheme of SCHEMES) {
       for (const [pageName, route] of Object.entries(PAGES)) {
+        if (only && !only.split(",").includes(pageName)) continue;
         const page = await browser.newPage({ viewport: { width, height } });
-        await page.goto(new URL(route, site).href, { waitUntil: "load" });
+        await page.goto(new URL(route, site).href, { waitUntil: pageName === "play" ? "domcontentloaded" : "load" });   // Play's preview frame may never load locally
         await page.evaluate((s) => document.body.setAttribute("data-md-color-scheme", s), scheme);
         await page.waitForTimeout(pageName === "play" ? 3000 : 600);
         const file = path.join(out, `${pageName}-${sizeName}-${scheme}.png`);
