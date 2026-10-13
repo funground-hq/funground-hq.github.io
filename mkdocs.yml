@@ -11,6 +11,7 @@ site_dir: build/site
 
 theme:
   name: material
+  custom_dir: overrides
   language: en
   logo: assets/logo/funground-mark.svg
   favicon: assets/logo/funground-mark.svg

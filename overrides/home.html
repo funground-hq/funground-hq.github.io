@@ -1,0 +1,137 @@
+{#
+  The home page (site_src/index.md sets `template: home.html` and `hide: [navigation, toc]`).
+  Markup follows design/mockups/html/home-day.html; classes come from site_src/stylesheets/funground.css.
+  Pictures are the gallery's own images, copied into gallery/images/ by tools/assemble.py.
+#}
+{% extends "main.html" %}
+
+{% block container %}
+<div class="md-content" data-md-component="content">
+  <article class="md-content__inner md-typeset fg-paper fg-playground">
+    <div class="fg-wrap">
+
+      <section class="fg-hero">
+        <div>
+          <span class="fg-kicker">Creative coding for learners and teachers</span>
+          <h1>Draw, animate and make sound with <span class="fg-mark">Python</span>.</h1>
+          <p class="fg-lead">Write a few lines, press Run, and your picture appears. Start in your browser with nothing to install, then carry on in your own editor on Windows, Mac or Linux.</p>
+          <div class="fg-hero__ctas">
+            <a class="fg-btn fg-btn--primary" href="{{ 'play/' | url }}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>Try it in your browser</a>
+            <a class="fg-btn fg-btn--secondary" href="{{ 'get-started/' | url }}">Get started</a>
+          </div>
+          <div class="fg-hero__stickers"><span class="fg-sticker fg-sticker--turq">Runs in the browser</span><span class="fg-sticker fg-sticker--gold">Works on Windows</span><span class="fg-sticker fg-sticker--pink">Knows ragas and talas</span></div>
+        </div>
+
+        <div class="fg-sketch" id="first-sketch">
+          <div class="fg-sketch__code">
+            <pre class="fg-code"><span class="ln"><span class="k">import</span> funground <span class="k">as</span> f</span><span class="ln"></span><span class="ln">f.size(<span class="n">640</span>, <span class="n">400</span>)</span><span class="ln">f.background(<span class="s">"midnightblue"</span>)</span><span class="ln">f.fill(<mark data-fill-name>"tomato"</mark>)</span><span class="ln">f.circle(<span class="n">320</span>, <span class="n">200</span>, <span class="n">120</span>)</span><span class="ln">f.show()</span></pre>
+          </div>
+          <div class="fg-sketch__stage">
+            <svg viewBox="0 0 640 400" role="img" aria-label="A coloured circle on a midnight blue background"><rect width="640" height="400" fill="#191970"/><circle cx="320" cy="200" r="120" fill="#ff6347" data-fill-circle/></svg>
+          </div>
+          <div class="fg-sketch__bar">
+            <span>Change the colour:</span>
+            <button class="fg-chip fg-chip--shapes" aria-pressed="true" data-colour="tomato">tomato</button>
+            <button class="fg-chip fg-chip--projects" aria-pressed="false" data-colour="teal">teal</button>
+            <button class="fg-chip fg-chip--colour" aria-pressed="false" data-colour="gold">gold</button>
+            <button class="fg-chip fg-chip--sound" aria-pressed="false" data-colour="hotpink">hotpink</button>
+            <span class="spacer"></span>
+            <a class="fg-btn fg-btn--run fg-btn--small" href="{{ 'play/' | url }}?example=basics/01_first_sketch"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>Open in Play</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="fg-band" style="padding-top: 24px;">
+        <div class="fg-band__head"><h2>Made with funground</h2><a href="{{ 'gallery/' | url }}">All the examples ›</a></div>
+        <div class="fg-tiles">
+          <a class="fg-tile" href="{{ 'gallery/projects/02_rangoli/' | url }}"><img class="fg-tile__img" src="{{ 'gallery/images/projects-02_rangoli.png' | url }}" alt="Rangoli"><span class="fg-tile__cap"><span class="fg-tile__title">Rangoli</span><span class="fg-tile__run">Run ›</span></span></a>
+          <a class="fg-tile" href="{{ 'gallery/projects/05_typographic_portrait/' | url }}"><img class="fg-tile__img" src="{{ 'gallery/images/projects-05_typographic_portrait.png' | url }}" alt="Typographic portrait"><span class="fg-tile__cap"><span class="fg-tile__title">Typographic portrait</span><span class="fg-tile__run">Run ›</span></span></a>
+          <a class="fg-tile" href="{{ 'gallery/projects/08_flow_field_print/' | url }}"><img class="fg-tile__img" src="{{ 'gallery/images/projects-08_flow_field_print.png' | url }}" alt="Flow field"><span class="fg-tile__cap"><span class="fg-tile__title">Flow field</span><span class="fg-tile__run">Run ›</span></span></a>
+          <a class="fg-tile" href="{{ 'gallery/music/05_tala/' | url }}"><img class="fg-tile__img" src="{{ 'gallery/images/music-05_tala.png' | url }}" alt="Teentaal"><span class="fg-tile__cap"><span class="fg-tile__title">Teentaal</span><span class="fg-tile__run">Run ›</span></span></a>
+        </div>
+      </section>
+
+      <section class="fg-band">
+        <div class="fg-band__head"><h2>Three things you can do today</h2><p class="fg-muted">Each one is a short chapter in the guide.</p></div>
+        <div class="fg-cards-3">
+          <article class="fg-card">
+            <img class="fg-card__img" src="{{ 'gallery/images/paths-01_star.png' | url }}" alt="A star drawn with a path">
+            <div class="fg-card__body">
+              <h3>Draw</h3>
+              <p>Shapes, colour, text and paths. Every picture is a few lines you can read.</p>
+              <pre class="fg-code"><span class="ln">f.fill(<span class="s">"gold"</span>)</span><span class="ln">f.square(<span class="n">80</span>, <span class="n">80</span>, <span class="n">160</span>)</span><span class="ln">f.fill(<span class="s">"hotpink"</span>)</span><span class="ln">f.circle(<span class="n">400</span>, <span class="n">200</span>, <span class="n">140</span>)</span></pre>
+              <a href="{{ 'guide/03_shapes/' | url }}">Chapter 3: Shapes ›</a>
+            </div>
+          </article>
+          <article class="fg-card">
+            <img class="fg-card__img" src="{{ 'gallery/images/animation-03_clock.png' | url }}" alt="A clock face drawn with lines">
+            <div class="fg-card__body">
+              <h3>Animate</h3>
+              <p>A <code>draw()</code> function runs sixty times a second. Change a number each time and things move.</p>
+              <pre class="fg-code"><span class="ln"><span class="k">def</span> draw():</span><span class="ln">    f.background(<span class="s">"oldlace"</span>)</span><span class="ln">    f.translate(<span class="n">320</span>, <span class="n">200</span>)</span><span class="ln">    f.rotate(f.frame_count * <span class="n">2</span>)</span><span class="ln">    f.square(<span class="n">-60</span>, <span class="n">-60</span>, <span class="n">120</span>)</span></pre>
+              <a href="{{ 'guide/07_animation_and_time/' | url }}">Chapter 7: Animation and time ›</a>
+            </div>
+          </article>
+          <article class="fg-card">
+            <img class="fg-card__img" src="{{ 'gallery/images/projects-03_raga_explorer.png' | url }}" alt="The raga explorer, showing Yaman">
+            <div class="fg-card__body">
+              <h3>Make sound</h3>
+              <p>Tunes from text, a tabla theka, and thirteen Hindustani ragas with their aroha and pakad built in.</p>
+              <pre class="fg-code"><span class="ln">yaman = f.raga(<span class="s">"Yaman"</span>)</span><span class="ln">f.melody(yaman.aroha, sa=<span class="s">"D4"</span>).play()</span><span class="ln">f.tala(<span class="s">"Teentaal"</span>, tempo=<span class="n">100</span>).loop()</span></pre>
+              <a href="{{ 'guide/17_ragas_and_talas/' | url }}">Chapter 17: Ragas and talas ›</a>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="fg-band">
+        <div class="fg-band__head"><h2>Nineteen short chapters, in order</h2><p class="fg-muted">About twenty minutes each. Start at 1.</p></div>
+        <div class="fg-trail">
+          <a href="{{ 'guide/01_getting_started/' | url }}"><b>1</b>Getting started</a><a href="{{ 'guide/02_the_sketch/' | url }}"><b>2</b>The sketch</a><a href="{{ 'guide/03_shapes/' | url }}"><b>3</b>Shapes</a><a href="{{ 'guide/04_colour/' | url }}"><b>4</b>Colour</a><a href="{{ 'guide/05_fill_stroke_lines/' | url }}"><b>5</b>Fill, stroke and lines</a><a href="{{ 'guide/06_text/' | url }}"><b>6</b>Text</a><a href="{{ 'guide/07_animation_and_time/' | url }}"><b>7</b>Animation and time</a><a href="{{ 'guide/08_transforms/' | url }}"><b>8</b>Transforms</a><a href="{{ 'guide/09_paths_and_clipping/' | url }}"><b>9</b>Paths and clipping</a><a href="{{ 'guide/10_interaction/' | url }}"><b>10</b>Interaction</a><a href="{{ 'guide/11_randomness_and_noise/' | url }}"><b>11</b>Randomness and noise</a><a class="fg-trail__more" href="{{ 'guide/' | url }}">and eight more, up to Studios ›</a>
+        </div>
+      </section>
+
+      <section class="fg-band">
+        <div class="fg-split">
+          <div class="fg-teacher">
+            <h2 style="font-size: 32px;">Teaching a class?</h2>
+            <p>Everything runs in the browser, so a lesson needs no installs. The guide ends with eight projects and a Studios chapter for running a group session.</p>
+            <ul>
+              <li>Projects with a brief, steps and a finished example: rangoli, event posters, a voice-controlled game.</li>
+              <li>Examples are original and CC0. Use them in your materials freely.</li>
+              <li>Share a sketch as a link. Nothing is stored on a server.</li>
+            </ul>
+            <a class="fg-btn" href="{{ 'guide/19_studios/' | url }}">Chapter 19: Studios</a>
+          </div>
+          <div class="fg-install">
+            <h2 style="font-size: 32px;">Works where you are</h2>
+            <div class="fg-where"><span class="fg-sticker fg-sticker--turq">Browser</span><span class="fg-sticker fg-sticker--gold">Windows</span><span class="fg-sticker">Mac</span><span class="fg-sticker">Linux</span><span class="fg-sticker fg-sticker--pink">github.dev</span></div>
+            <p>When you want funground on your own computer, with your own editor and files, install it with pip. You need Python 3.11 or newer.</p>
+            <pre class="fg-code" style="font-size: 14px;"><span class="ln">python -m pip install funground</span></pre>
+            <p class="fg-muted" style="font-size: 15px;">funground 0.1 is an alpha: a few parts are still being tested. <a href="{{ 'guide/01_getting_started/' | url }}">Chapter 1 shows the steps one by one.</a></p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </article>
+</div>
+
+<script>
+  // The hero: a chip changes the colour name in the code and the circle's fill. Nothing else moves on this page.
+  (function () {
+    var hex = { tomato: "#ff6347", teal: "#008080", gold: "#ffd700", hotpink: "#ff69b4" };
+    var panel = document.getElementById("first-sketch");
+    if (!panel) return;
+    var chips = panel.querySelectorAll("[data-colour]");
+    chips.forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        var name = chip.getAttribute("data-colour");
+        chips.forEach(function (other) { other.setAttribute("aria-pressed", String(other === chip)); });
+        panel.querySelector("[data-fill-name]").textContent = '"' + name + '"';
+        panel.querySelector("[data-fill-circle]").setAttribute("fill", hex[name]);
+      });
+    });
+  })();
+</script>
+{% endblock %}
