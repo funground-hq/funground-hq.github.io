@@ -66,7 +66,7 @@ const listen = (server) => new Promise((resolve) => server.listen(0, "127.0.0.1"
 // The editor page: the markup of site_src/play/index.md, without MkDocs. Material's colour scheme is an attribute of body.
 // The heading is there because MkDocs gives "# Play" the id "play": the editor's container must not share it (SITE-C-01).
 const EDITOR_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Play</title>
-<link rel="stylesheet" href="../stylesheets/play.css"></head>
+<link rel="stylesheet" href="../stylesheets/funground.css"><link rel="stylesheet" href="../stylesheets/play.css"></head>
 <body data-md-color-scheme="default"><h1 id="play">Play</h1><div id="funground-play" class="play"></div>
 <script type="module" src="play.js"></script></body></html>`;
 

@@ -1,100 +1,56 @@
-/* The Play page (site_src/play/): a toolbar, the code beside the sketch, and the output under them.
-   Colours come from Material's own variables, so the page follows the light and dark schemes. */
-.play-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-.play-toolbar .md-button {
-  margin: 0;
-  padding: 0.35em 1.2em;
-}
-.play-toolbar .md-button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.play-toolbar select {
-  font: inherit;
-  max-width: 100%;
-  padding: 0.35em 0.5em;
-  border: 1px solid var(--md-default-fg-color--lighter);
-  border-radius: 0.2rem;
-  background: var(--md-default-bg-color);
-  color: var(--md-default-fg-color);
-}
-.play-auto {
-  font-size: 0.75rem;
-  white-space: nowrap;
-}
-.play-status {
-  color: var(--md-default-fg-color--light);
-  font-size: 0.7rem;
-}
-.play-link {
-  box-sizing: border-box;
-  width: 100%;
-  margin-bottom: 0.75rem;
-  padding: 0.35em 0.5em;
-  font: inherit;
-  font-size: 0.7rem;
-  border: 1px solid var(--md-default-fg-color--lighter);
-  border-radius: 0.2rem;
-  background: var(--md-default-bg-color);
-  color: var(--md-default-fg-color);
-}
+/* The Play page (site_src/play/, S-187): the editor and nothing else. The layout's parts (.fg-play__*, .fg-console,
+   .fg-status, .fg-help) are in funground.css with the rest of the design; this file makes the page around them give
+   the editor the whole window, and styles what belongs to the editor alone. design/PLAY_EDITOR.md has the spec. */
 
-/* The code above the picture; side by side when the screen is wide enough. */
-.play-workspace {
-  display: grid;
-  gap: 0.75rem;
-  grid-template-columns: minmax(0, 1fr);
+/* The page: no side columns, no width limit, no padding, no footer. Scoped with :has(), so other pages are untouched. */
+.md-main:has(.fg-play) .md-grid,
+.md-main:has(.fg-play) .md-content { max-width: none; }
+.md-main:has(.fg-play) .md-main__inner { margin: 0; }
+.md-main:has(.fg-play) .md-content__inner { margin: 0; padding: 0; }
+.md-main:has(.fg-play) .md-content__inner::before { display: none; }
+.md-content__inner:has(.fg-play) > h1,
+.md-content__inner:has(.fg-play) > .headerlink {    /* the page keeps its h1 for screen readers, not on screen */
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
 }
-@media (min-width: 60em) {
-  .play-workspace {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-.play-editor {
-  height: 22rem;
-  border-radius: 0.2rem;
-  overflow: hidden;
-}
-.play-editor .cm-editor {
-  height: 100%;
-}
-.play-stage {
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding: 1rem;
-  border-radius: 0.2rem;
-  background: var(--md-code-bg-color);
-  overflow: hidden;
-}
-/* The page tells the frame the sketch's size; the frame shrinks to fit a narrow screen, keeping its shape. */
-.play-preview {
-  display: block;
-  width: 640px;
-  max-width: 100%;
-  aspect-ratio: 640 / 400;
-  border: 0;
-  background: #fff;
-  box-shadow: var(--md-shadow-z1);
-}
-.play-output {
-  max-height: 12em;
-  overflow: auto;
-  white-space: pre-wrap;
-  font-size: 0.7rem;
-}
-.play-output:empty {
-  display: none;
-}
-.play-output .stderr {
-  color: #e53935;
-}
-.play-about {
-  margin-top: 0.5rem;
-}
+body:has(.fg-play) .md-footer,
+body:has(.fg-play) .md-top { display: none; }
+body:has(.fg-play) .md-main { overflow: hidden; }
+
+/* Hidden means hidden, also for the design's buttons and chips, which set their own display. */
+.fg-play [hidden] { display: none !important; }
+
+/* The editor's box: a column whose toolbar and link take what they need and whose workspace takes the rest. */
+.fg-play { position: relative; display: flex; flex-direction: column; min-height: 0; }
+.fg-play__work { flex: 1; min-height: 0; }
+.fg-play__editor { min-height: 0; }
+.fg-play__code { flex: 1; min-height: 0; }
+.fg-play__code .cm-editor { height: 100%; }
+.fg-play__code .cm-editor .cm-error-line { background: color-mix(in srgb, var(--tomato) 25%, transparent); box-shadow: inset 4px 0 0 var(--tomato); }
+.fg-play__stage { min-height: 0; }
+.fg-play__picture { overflow: hidden; }
+.fg-play__frame iframe { width: 100%; height: 100%; }
+
+/* The toolbar's own controls. */
+.fg-play__bar { min-height: 48px; box-sizing: border-box; }
+.fg-play__bar .fg-btn { padding: 6px 14px; font-size: 14px; box-shadow: none; }
+.fg-play__bar .fg-btn:disabled { opacity: 0.45; cursor: default; }
+.fg-btn--run { background: var(--teal); color: var(--on-teal); }
+.fg-btn--run kbd { margin-left: 8px; font: 600 11px/1 var(--font-mono); padding: 2px 5px; border: 1.5px solid currentColor; border-radius: 4px; opacity: 0.85; }
+.fg-play__choose { max-width: 16rem; font: 700 14px/1.2 var(--font-body); padding: 6px 8px; color: var(--ink); background: var(--paper-raised); border: var(--outline-width) solid var(--ink); border-radius: var(--radius-sm); }
+.fg-play__how { font: 400 14px/1 var(--font-body); color: var(--link); white-space: nowrap; }
+.fg-play__auto { font: 700 14px/1 var(--font-body); color: var(--ink); white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.fg-play__link { margin: 0; padding: 6px var(--space-4); border: 0; border-bottom: var(--outline-width) solid var(--ink); font: 400 13px/1.4 var(--font-mono); color: var(--ink); background: var(--paper-code); }
+
+/* The messages: a plain line and a "Go to line" link above the full traceback. */
+.fg-console { flex: none; }
+.fg-console__head .spacer { flex: 1; }
+.fg-play__clear { font: 700 12px/1 var(--font-body); color: var(--ink-muted); background: none; border: 0; cursor: pointer; }
+.fg-console__body:empty::before { content: "print() writes here, and an error is explained here."; color: var(--ink-muted); }
+.fg-play__error { font: 700 14px/1.5 var(--font-body); color: var(--ink); margin-bottom: var(--space-2); }
+.fg-console__body .stderr { color: var(--ink-muted); font-size: 12px; }
+.fg-console__body .line-link { cursor: pointer; }
+
+/* Help: a popover under the toolbar, at its right end. */
+.fg-play__help { position: absolute; top: 52px; right: var(--space-4); z-index: 5; max-width: 26rem; }
+.fg-play__help p, .fg-play__help ul { margin: 0 0 0.6em; }
+.fg-play__help a { color: #191970; text-decoration: underline; }
