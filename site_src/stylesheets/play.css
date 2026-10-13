@@ -28,7 +28,10 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-play__code .cm-editor .cm-error-line { background: color-mix(in srgb, var(--tomato) 25%, transparent); box-shadow: inset 4px 0 0 var(--tomato); }
 .fg-play__stage { min-height: 0; }
 .fg-play__picture { overflow: hidden; }
-.fg-play__frame iframe { width: 100%; height: 100%; }
+.fg-play__picture.is-zoomed { display: block; overflow: auto; }          /* zoomed in past the room: scroll to see it all */
+.fg-play__picture.is-zoomed .fg-play__frame { margin: 0 auto; }
+.fg-play__frame { overflow: hidden; box-sizing: content-box; }
+.fg-play__frame iframe { transform-origin: 0 0; }                         /* play.js sets the size and the scale */
 
 /* The toolbar's own controls. */
 .fg-play__bar { min-height: 48px; box-sizing: border-box; }
@@ -41,14 +44,23 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-play__auto { font: 700 14px/1 var(--font-body); color: var(--ink); white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
 .fg-play__link { margin: 0; padding: 6px var(--space-4); border: 0; border-bottom: var(--outline-width) solid var(--ink); font: 400 13px/1.4 var(--font-mono); color: var(--ink); background: var(--paper-code); }
 
-/* The messages: a plain line and a "Go to line" link above the full traceback. */
-.fg-console { flex: none; }
+/* The messages, above the picture: a plain line and a "Go to line" link above the full traceback. While there are
+   none, the area is not there at all, and the picture has the room. */
+.fg-console { flex: none; border-top: 0; border-bottom: var(--outline-width) solid var(--ink); }
+.fg-console:has(.fg-console__body:empty) { display: none; }
 .fg-console__head .spacer { flex: 1; }
 .fg-play__clear { font: 700 12px/1 var(--font-body); color: var(--ink-muted); background: none; border: 0; cursor: pointer; }
-.fg-console__body:empty::before { content: "print() writes here, and an error is explained here."; color: var(--ink-muted); }
 .fg-play__error { font: 700 14px/1.5 var(--font-body); color: var(--ink); margin-bottom: var(--space-2); }
 .fg-console__body .stderr { color: var(--ink-muted); font-size: 12px; }
 .fg-console__body .line-link { cursor: pointer; }
+
+/* The caption: the size and scale, the zoom buttons, the example's title. */
+.fg-play__caption { align-items: center; }
+.fg-play__zoom { display: inline-flex; border: 1.5px solid var(--ink); border-radius: var(--radius-sm); overflow: hidden; }
+.fg-play__zoombtn { min-width: 30px; padding: 3px 8px; font: 700 13px/1 var(--font-body); color: var(--ink); background: var(--paper-raised); border: 0; cursor: pointer; }
+.fg-play__zoombtn + .fg-play__zoombtn { border-left: 1.5px solid var(--ink); }
+.fg-play__zoombtn:disabled { opacity: 0.4; cursor: default; }
+.fg-play__zoomfit[aria-pressed="true"] { background: var(--gold); color: #191970; }
 
 /* Help: a popover under the toolbar, at its right end. */
 .fg-play__help { position: absolute; top: 52px; right: var(--space-4); z-index: 5; max-width: 26rem; }

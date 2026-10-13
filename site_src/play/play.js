@@ -10,8 +10,8 @@
 //
 // ?example=<id> opens one example (the gallery pages link here that way). #code=<text> opens a shared sketch.
 //
-// The page is the editor and nothing else: a toolbar, the code beside the picture, and the messages under the
-// picture. The editor fills the window; the picture is shown at its real size when it fits. The page's own text
+// The page is the editor and nothing else: a toolbar, and the code beside the picture with the messages above it.
+// The editor fills the window; the picture fits the room, or is zoomed in or out. The page's own text
 // (index.md) becomes the help behind the "?" button.
 
 import { createEditor } from "./vendor/codemirror.js";
@@ -116,7 +116,7 @@ def draw():
 f.run()
 `;
 
-// ---- the page: a toolbar, the code beside the picture, the messages under the picture
+// ---- the page: a toolbar, and the code beside the picture with the messages above it
 
 const choose = element("select", { class: "fg-play__choose", "aria-label": "Sketch" });
 choose.append(new Option("Blank sketch", BLANK));
@@ -157,6 +157,9 @@ const frame = element("div", { class: "fg-play__frame" }, preview);
 const picture = element("div", { class: "fg-play__picture" }, frame);
 const sizeText = element("span", {});
 const aboutText = element("span", {});
+const zoomOut = element("button", { class: "fg-play__zoombtn", type: "button", "aria-label": "Zoom out", title: "Smaller" }, "−");
+const zoomFit = element("button", { class: "fg-play__zoombtn fg-play__zoomfit", type: "button", title: "As large as fits, never larger than its real size" }, "Fit");
+const zoomIn = element("button", { class: "fg-play__zoombtn", type: "button", "aria-label": "Zoom in", title: "Larger" }, "+");
 const errorCount = element("span", { class: "count", hidden: "" });
 const clearButton = element("button", { class: "fg-play__clear", type: "button" }, "Clear");
 const output = element("div", { class: "fg-console__body play-output", "aria-live": "polite" });
@@ -165,11 +168,13 @@ const work = element("div", { class: "fg-play__work" },
   element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, lineCount), editorBox),
   divider,
   element("div", { class: "fg-play__stage" },
-    picture,
-    element("div", { class: "fg-play__caption" }, sizeText, aboutText),
+    // The messages are above the picture and take no room while there are none: the rest belongs to the sketch.
     element("section", { class: "fg-console", "aria-label": "Output" },
       element("div", { class: "fg-console__head" }, "Output", errorCount, element("span", { class: "spacer" }), clearButton),
-      output)));
+      output),
+    picture,
+    element("div", { class: "fg-play__caption" }, sizeText,
+      element("span", { class: "fg-play__zoom", role: "group", "aria-label": "Zoom" }, zoomOut, zoomFit, zoomIn), aboutText)));
 
 play.classList.add("fg-play");
 play.replaceChildren(
@@ -205,23 +210,52 @@ function fillWindow() {
 window.addEventListener("resize", fillWindow);
 fillWindow();
 
-// ---- the picture at its real size when it fits, smaller (never larger) when it does not
+// ---- the picture: Fit (as large as the room allows, never larger than its real size), or zoomed in or out
+//
+// The frame holds the sketch at its own size and is scaled as a whole, so the sketch always sees its own
+// coordinates (the mouse included). A zoom larger than the room makes the picture area scroll.
 
 let sketchSize = { width: 640, height: 400 };
+let zoom = null;                                   // null: Fit; a number: the learner's choice
+const ZOOMS = [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
 
-function fitPicture() {
+function fitScale() {
   const style = getComputedStyle(picture);
   const roomX = picture.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 8;
   const roomY = picture.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) - 8;
   const { width, height } = sketchSize;
   let scale = Math.min(1, roomX / width);
   if (roomY > 0) scale = Math.min(scale, roomY / height);
-  scale = Math.max(scale, 0.1);
-  frame.style.width = `${Math.floor(width * scale)}px`;
-  frame.style.height = `${Math.floor(height * scale)}px`;
-  sizeText.textContent = `${width} × ${height}, shown at ${scale > 0.995 ? "1:1" : `${Math.round(scale * 100)}%`}`;
+  return Math.max(scale, 0.1);
+}
+
+const percent = (scale) => (Math.abs(scale - 1) < 0.005 ? "1:1" : `${Math.round(scale * 100)}%`);
+
+function fitPicture() {
+  const { width, height } = sketchSize;
+  const scale = zoom ?? fitScale();
+  preview.style.width = `${width}px`;
+  preview.style.height = `${height}px`;
+  preview.style.transform = `scale(${scale})`;
+  frame.style.width = `${Math.round(width * scale)}px`;
+  frame.style.height = `${Math.round(height * scale)}px`;
+  picture.classList.toggle("is-zoomed", zoom !== null);
+  sizeText.textContent = `${width} × ${height}, shown at ${percent(scale)}`;
+  zoomFit.setAttribute("aria-pressed", String(zoom === null));
+  zoomOut.disabled = scale <= ZOOMS[0] + 0.001;
+  zoomIn.disabled = scale >= ZOOMS[ZOOMS.length - 1] - 0.001;
 }
 new ResizeObserver(fitPicture).observe(picture);
+
+function zoomBy(direction) {
+  const now = zoom ?? fitScale();
+  const next = direction > 0 ? ZOOMS.find((z) => z > now + 0.001) : ZOOMS.findLast((z) => z < now - 0.001);
+  zoom = next ?? now;
+  fitPicture();
+}
+zoomOut.addEventListener("click", () => zoomBy(-1));
+zoomIn.addEventListener("click", () => zoomBy(1));
+zoomFit.addEventListener("click", () => { zoom = null; fitPicture(); });
 
 // ---- the divider: drag it (or use the arrow keys) to share the width; the share is remembered
 
@@ -422,6 +456,10 @@ const handlers = {
     if (status.textContent.startsWith("Loading")) setStatus("Ready. Press Run.", "ready");   // not over a more useful message
   },
   output: (message) => addOutput(message.text, message.stream),
+  // The last sketch did not stop within a second, so the preview is loading a new Python: say why the run waits.
+  restarting() {
+    setStatus("Starting Python again: the last sketch did not stop in time. This takes a few seconds...", "loading");
+  },
   error(message) {
     errorLine = showError(message.text);
   },
@@ -435,8 +473,8 @@ const handlers = {
   },
   finished(message) {
     if (message.reason === "error") {
-      setStatus(errorLine === null ? "Stopped by an error: see the message under the picture."
-        : `Stopped by an error on line ${errorLine}: see the message under the picture.`, "error");
+      setStatus(errorLine === null ? "Your sketch stopped with an error: the message is above the picture."
+        : `Your sketch stopped with an error on line ${errorLine}: the message is above the picture.`, "error");
     } else if (message.reason === "ended") {
       setStatus(`Finished in ${((performance.now() - startedAt) / 1000).toFixed(1)} s.`, "ready");
     } else {
