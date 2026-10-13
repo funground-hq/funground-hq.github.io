@@ -189,8 +189,9 @@ body:has(.fg-playground) .md-sidebar { display: none; }
 .fg-kicker { display: inline-block; font: 700 14px/1 var(--font-body); padding: 6px 12px; border: var(--outline-width) solid var(--ink); border-radius: var(--radius-pill); background: var(--paper-raised); color: var(--ink); }
 .fg-mark { background: linear-gradient(transparent 62%, var(--gold) 62%, var(--gold) 92%, transparent 92%); padding: 0 4px; }
 [data-md-color-scheme="slate"] .fg-mark { background: none; color: var(--gold); }
-.fg-sticker { display: inline-block; font: 700 13px/1 var(--font-body); color: #191970; padding: 7px 11px; border: var(--outline-width) solid var(--ink); border-radius: var(--radius-pill); background: var(--paper-raised); }
+.fg-sticker { display: inline-block; font: 700 13px/1 var(--font-body); color: var(--ink); padding: 7px 11px; border: var(--outline-width) solid var(--ink); border-radius: var(--radius-pill); background: var(--paper-raised); }
 .fg-sticker--turq { background: var(--turquoise); } .fg-sticker--gold { background: var(--gold); } .fg-sticker--pink { background: var(--hotpink); } .fg-sticker--tomato { background: var(--tomato); }
+.fg-sticker--turq, .fg-sticker--gold, .fg-sticker--pink, .fg-sticker--tomato { color: #191970; }   /* ink on a fill, day and night; a plain sticker follows the scheme */
 [data-md-color-scheme="slate"] .fg-sticker { border-color: var(--paper-raised); }
 
 /* Button */
