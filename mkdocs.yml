@@ -12,6 +12,8 @@ site_dir: build/site
 theme:
   name: material
   language: en
+  logo: assets/logo/funground-mark.svg
+  favicon: assets/logo/funground-mark.svg
   font: false   # use the reader's own fonts: nothing is fetched from Google
   palette:
     - media: "(prefers-color-scheme: light)"
@@ -37,6 +39,7 @@ theme:
     - content.code.copy
 
 extra_css:
+  - stylesheets/funground.css
   - stylesheets/gallery.css
   - stylesheets/play.css
 
