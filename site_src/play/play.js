@@ -11,7 +11,7 @@
 
 import { createEditor } from "./vendor/codemirror.js";
 
-const play = document.getElementById("play");
+const play = document.getElementById("funground-play");
 
 // ---- where the preview is, and how it is fenced in
 

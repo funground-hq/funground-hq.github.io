@@ -64,9 +64,10 @@ function fileServer(root, pages = {}) {
 const listen = (server) => new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server.address().port)));
 
 // The editor page: the markup of site_src/play/index.md, without MkDocs. Material's colour scheme is an attribute of body.
+// The heading is there because MkDocs gives "# Play" the id "play": the editor's container must not share it (SITE-C-01).
 const EDITOR_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Play</title>
 <link rel="stylesheet" href="../stylesheets/play.css"></head>
-<body data-md-color-scheme="default"><div id="play" class="play"></div>
+<body data-md-color-scheme="default"><h1 id="play">Play</h1><div id="funground-play" class="play"></div>
 <script type="module" src="play.js"></script></body></html>`;
 
 // A page on a third origin that holds the preview in a frame and sends it a run, as a stranger's page would.
@@ -197,6 +198,8 @@ try {
     const page = await openEditor();
     const text = await status(page);
     assert(text.startsWith("Ready"), `status was "${text}"`);
+    assert(await page.evaluate(() => document.querySelector("h1").textContent === "Play" && !document.querySelector("h1 .play-toolbar")),
+      "the editor was built inside the page's heading (a duplicate id)");
     assert((await editorText(page)).includes("def draw"), "the blank sketch is not in the editor");
     assert(await page.locator(".cm-gutters").count() === 1, "no line numbers");
     await page.close();
