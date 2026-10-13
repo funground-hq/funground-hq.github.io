@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>funground — gallery</title>
+<link rel="stylesheet" href="../funground.css">
+</head>
+<body>
+<style>
+body { margin: 0; }
+a { color: #b22222; } a:hover { color: #7f1d1d; }
+.only-dark { display: none; } [data-theme="dark"] .only-dark { display: inline; } [data-theme="dark"] .only-light { display: none; }
+.title { padding: 48px 0 24px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: end; }
+.title h1 { font-size: 56px; line-height: 1; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 12px; }
+.title .fg-lead { max-width: 36rem; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 0 32px; }
+.filters .find { margin-left: auto; padding: 7px 12px; width: 14rem; font: 400 15px "Atkinson Hyperlegible Next", system-ui, sans-serif; color: inherit; background: var(--paper-raised); border: 2px solid var(--ink); border-radius: 6px; }
+.section { padding-top: 40px; }
+.section h2 { font-size: 30px; line-height: 1.1; font-weight: 750; display: flex; align-items: center; gap: 12px; }
+.section h2 i { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--ink); display: inline-block; }
+.section .fg-band__head { margin-bottom: 20px; }
+@media (max-width: 700px) { .title { grid-template-columns: 1fr; } .title h1 { font-size: 40px; } .filters .find { margin-left: 0; width: 100%; } }
+</style>
+<div class="fg-paper" data-theme="light" style="min-height: 100vh;">
+
+<header class="fg-header">
+  <a class="fg-header__brand" href="Main.dc.html"><img class="only-light" src="../assets/funground-mark.svg" alt=""><img class="only-dark" src="../assets/funground-mark-on-dark.svg" alt="">funground</a>
+  <nav class="fg-header__nav" aria-label="Site">
+    <a href="Main.dc.html">Home</a><a href="Guide.dc.html">Learn</a><a href="Gallery.dc.html" aria-current="page">Gallery</a><a href="#reference">Reference</a><a href="Play.dc.html" class="is-play">Play</a>
+  </nav>
+  <input class="fg-header__search" type="search" placeholder="Search" aria-label="Search">
+  <button class="fg-header__theme" aria-label="Switch to night"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+  <button class="fg-header__menu" aria-label="Menu"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+</header>
+
+<main class="fg-wrap">
+  <section class="title">
+    <div>
+      <h1>Gallery</h1>
+      <p class="fg-lead">Every picture here is made by a short example. Open one to see how it works and read the whole code, or run it in your browser and change it.</p>
+    </div>
+    <div class="stickers"><span class="fg-sticker fg-sticker--gold">93 examples</span> <span class="fg-sticker fg-sticker--turq">All run in the browser</span></div>
+  </section>
+
+  <div class="filters" role="group" aria-label="Show topics">
+    <button class="fg-chip fg-chip--plain" aria-pressed="true">Everything</button>
+    <button class="fg-chip fg-chip--shapes" aria-pressed="false">Shapes and paths</button>
+    <button class="fg-chip fg-chip--colour" aria-pressed="false">Colour</button>
+    <button class="fg-chip fg-chip--text" aria-pressed="false">Text</button>
+    <button class="fg-chip fg-chip--motion" aria-pressed="false">Motion and interaction</button>
+    <button class="fg-chip fg-chip--sound" aria-pressed="false">Sound and ragas</button>
+    <button class="fg-chip fg-chip--projects" aria-pressed="false">Projects</button>
+    <input class="find" type="search" placeholder="Find an example" aria-label="Find an example">
+  </div>
+
+  <section>
+    <div class="fg-band__head"><h2 style="font-size: 30px; font-weight: 750;">Showcase</h2><p class="fg-muted">A dozen of the best, picked by hand.</p></div>
+    <div class="fg-tiles">
+      <a class="fg-tile fg-tile--wide" href="#rangoli"><img class="fg-tile__img" src="../assets/rangoli.webp" alt="Rangoli and mandala"><span class="fg-tile__cap"><span class="fg-tile__title">Rangoli and mandala</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile fg-tile--wide" href="#flow"><img class="fg-tile__img" src="../assets/flow-field.webp" alt="Flow-field print"><span class="fg-tile__cap"><span class="fg-tile__title">Flow-field print</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile fg-tile--wide" href="#posters"><img class="fg-tile__img" src="../assets/event-posters.webp" alt="Event poster series"><span class="fg-tile__cap"><span class="fg-tile__title">Event poster series</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile fg-tile--wide" href="#portrait"><img class="fg-tile__img" src="../assets/typographic-portrait.webp" alt="Typographic portrait"><span class="fg-tile__cap"><span class="fg-tile__title">Typographic portrait</span><span class="fg-tile__run">Run ›</span></span></a>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="fg-band__head"><h2><i style="background: #ff6347;"></i>Shapes and paths</h2><p class="fg-muted">12 examples</p></div>
+    <div class="fg-tiles">
+      <a class="fg-tile" href="#star"><img class="fg-tile__img" src="../assets/star.webp" alt="Star"><span class="fg-tile__cap"><span class="fg-tile__title">Star</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile" href="#rotating"><img class="fg-tile__img" src="../assets/rotating-squares.webp" alt="Rotating squares"><span class="fg-tile__cap"><span class="fg-tile__title">Rotating squares</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile" href="#curves"><img class="fg-tile__img" src="../assets/curves.webp" alt="Curves"><span class="fg-tile__cap"><span class="fg-tile__title">Curves</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile" href="#textpath"><img class="fg-tile__img" src="../assets/text-path.webp" alt="Letters turned into shapes"><span class="fg-tile__cap"><span class="fg-tile__title">Letters as shapes</span><span class="fg-tile__run">Run ›</span></span></a>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="fg-band__head"><h2><i style="background: #40e0d0;"></i>Motion and interaction</h2><p class="fg-muted">15 examples</p></div>
+    <div class="fg-tiles">
+      <a class="fg-tile" href="#movers"><img class="fg-tile__img" src="../assets/movers.webp" alt="Movers"><span class="fg-tile__cap"><span class="fg-tile__title">Movers</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile" href="#clock"><img class="fg-tile__img" src="../assets/clock.webp" alt="Clock"><span class="fg-tile__cap"><span class="fg-tile__title">Clock</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile" href="#confetti"><img class="fg-tile__img" src="../assets/confetti.webp" alt="Confetti"><span class="fg-tile__cap"><span class="fg-tile__title">Confetti</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile" href="#noise"><img class="fg-tile__img" src="../assets/noise.webp" alt="Noise"><span class="fg-tile__cap"><span class="fg-tile__title">Noise</span><span class="fg-tile__run">Run ›</span></span></a>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="fg-band__head"><h2><i style="background: #ff69b4;"></i>Sound and ragas</h2><p class="fg-muted">15 examples</p></div>
+    <div class="fg-tiles">
+      <a class="fg-tile" href="#tala"><img class="fg-tile__img" src="../assets/tala.webp" alt="Teentaal"><span class="fg-tile__cap"><span class="fg-tile__title">Tala</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile" href="#raga"><img class="fg-tile__img" src="../assets/raga-explorer.webp" alt="Raga explorer"><span class="fg-tile__cap"><span class="fg-tile__title">Raga explorer</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile" href="#visualiser"><img class="fg-tile__img" src="../assets/visualiser.webp" alt="Visualiser"><span class="fg-tile__cap"><span class="fg-tile__title">Visualiser</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile" href="#hsb"><img class="fg-tile__img" src="../assets/hsb.webp" alt="HSB and HSL colour"><span class="fg-tile__cap"><span class="fg-tile__title">See a chord</span><span class="fg-tile__run">Run ›</span></span></a>
+    </div>
+  </section>
+</main>
+
+<footer class="fg-footer" style="margin-top: 64px;">
+  <div class="fg-wrap">
+    <span>funground is free software (LGPL-2.1). The examples are CC0.</span>
+    <nav><a href="#about">About</a><a href="#changelog">Changelog</a><a href="https://github.com/funground-hq/funground">GitHub</a></nav>
+  </div>
+</footer>
+</div>
+</body>
+</html>

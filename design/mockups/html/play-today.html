@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Play today, at 1366 × 768, with the problems marked</title>
+<link rel="stylesheet" href="../funground.css">
+</head>
+<body>
+<style>
+body { margin: 0; }
+a { color: #b22222; } a:hover { color: #7f1d1d; }
+.shot { position: relative; width: 1366px; height: 768px; overflow: hidden; background: #fff; }
+.shot > img { position: absolute; left: 0; top: 0; width: 1366px; height: 768px; display: block; }
+.zone { position: absolute; border: 3px dashed #ff6347; border-radius: 6px; background: rgba(255, 99, 71, 0.10); }
+.note { position: absolute; display: inline-flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; background: #ffd700; color: #191970; border: 2px solid #191970; border-radius: 999px; box-shadow: 4px 4px 0 0 #191970; font: 700 15px/1.2 "Atkinson Hyperlegible Next", system-ui, sans-serif; white-space: nowrap; }
+.note b { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #191970; color: #ffd700; font: 800 15px/1 "Bricolage Grotesque", system-ui, sans-serif; }
+</style>
+<div class="shot">
+  <img src="../assets/play-today-laptop.png" alt="The Play page as it is today on a 1366 by 768 laptop screen">
+  <div class="zone" style="left: 0; top: 0; width: 1360px; height: 93px;"></div>
+  <div class="zone" style="left: 0; top: 99px; width: 333px; height: 666px;"></div>
+  <div class="zone" style="left: 339px; top: 146px; width: 938px; height: 141px;"></div>
+  <div class="zone" style="left: 836px; top: 322px; width: 422px; height: 263px;"></div>
+  <div class="zone" style="left: 1283px; top: 99px; width: 80px; height: 666px;"></div>
+  <div class="note" style="left: 600px; top: 28px;"><b>1</b>Two header bars: 12% of the screen</div>
+  <div class="note" style="left: 40px; top: 400px;"><b>2</b>Empty column: 16%</div>
+  <div class="note" style="left: 420px; top: 262px;"><b>3</b>Toolbar rendered inside the h1 (a bug): 13%, at 2× size</div>
+  <div class="note" style="left: 860px; top: 600px;"><b>4</b>The picture: 11%, shown at 66% of its size</div>
+  <div class="note" style="left: 400px; top: 712px;"><b>5</b>Instructions and output are below the fold</div>
+</div>
+</body>
+</html>

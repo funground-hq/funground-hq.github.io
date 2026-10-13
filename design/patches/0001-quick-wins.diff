@@ -1,0 +1,49 @@
+diff --git a/mkdocs.yml b/mkdocs.yml
+index 8bb3492..6cd6642 100644
+--- a/mkdocs.yml
++++ b/mkdocs.yml
+@@ -11,7 +11,10 @@ site_dir: build/site
+ 
+ theme:
+   name: material
++  custom_dir: overrides
+   language: en
++  logo: assets/logo/funground-mark.svg
++  favicon: assets/logo/funground-mark.svg
+   font: false   # use the reader's own fonts: nothing is fetched from Google
+   palette:
+     - media: "(prefers-color-scheme: light)"
+@@ -37,6 +40,7 @@ theme:
+     - content.code.copy
+ 
+ extra_css:
++  - stylesheets/funground.css
+   - stylesheets/gallery.css
+   - stylesheets/play.css
+ 
+diff --git a/site_src/play/index.md b/site_src/play/index.md
+index 751a7cc..a1804af 100644
+--- a/site_src/play/index.md
++++ b/site_src/play/index.md
+@@ -18,7 +18,7 @@ with a blank sketch. With **Auto-run** on, the sketch runs again a moment after
+ This is a preview of funground 0.2, made for Chrome; Edge, Firefox and Safari are not tested yet. Python,
+ funground and its drawing library load into your browser, about 12 MB the first time and then from its cache.
+ 
+-<div id="play" class="play">
++<div id="funground-play" class="play">
+   <noscript>The Play page needs JavaScript to run Python in your browser.</noscript>
+ </div>
+ 
+diff --git a/site_src/play/play.js b/site_src/play/play.js
+index 47bb65a..0f9c94f 100644
+--- a/site_src/play/play.js
++++ b/site_src/play/play.js
+@@ -11,7 +11,7 @@
+ 
+ import { createEditor } from "./vendor/codemirror.js";
+ 
+-const play = document.getElementById("play");
++const play = document.getElementById("funground-play");
+ 
+ // ---- where the preview is, and how it is fenced in
+ 

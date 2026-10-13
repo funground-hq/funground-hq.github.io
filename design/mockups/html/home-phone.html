@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>funground — home on a phone</title>
+<link rel="stylesheet" href="../funground.css">
+</head>
+<body>
+<style>
+body { margin: 0; }
+a { color: #b22222; } a:hover { color: #7f1d1d; }
+.only-dark { display: none; } [data-theme="dark"] .only-dark { display: inline; } [data-theme="dark"] .only-light { display: none; }
+.hero { padding: 28px 0 8px; display: flex; flex-direction: column; gap: 16px; }
+.hero h1 { font-size: 42px; line-height: 0.98; font-weight: 800; letter-spacing: -0.02em; }
+.hero .fg-lead { font-size: 18px; }
+.ctas { display: flex; gap: 12px; flex-wrap: wrap; }
+.stickers { display: flex; gap: 8px; flex-wrap: wrap; }
+.stickers .fg-sticker:nth-child(1) { transform: rotate(-1.5deg); } .stickers .fg-sticker:nth-child(3) { transform: rotate(1.2deg); }
+.fg-band { padding-top: 40px; } .fg-band h2 { font-size: 28px; }
+.fg-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.fg-tile__title { font-size: 15px; }
+.fg-sketch { grid-template-columns: minmax(0, 1fr); }
+.fg-sketch__code { border-right: 0; border-bottom: 2px solid var(--ink); }
+.fg-sketch__code .fg-code { font-size: 13px; }
+</style>
+<div class="fg-paper" data-theme="light" style="min-height: 100vh;">
+
+<header class="fg-header" style="padding: 10px 16px; gap: 12px;">
+  <a class="fg-header__brand" href="Main.dc.html" style="font-size: 22px;"><img class="only-light" src="../assets/funground-mark.svg" alt="" style="width: 28px; height: 28px;"><img class="only-dark" src="../assets/funground-mark-on-dark.svg" alt="" style="width: 28px; height: 28px;">funground</a>
+  <a class="fg-sticker fg-sticker--turq" href="Play-phone.dc.html" style="margin-left: auto; text-decoration: none;">Play</a>
+  <button class="fg-header__menu" aria-label="Menu" style="display: inline-grid; margin-left: 0;"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+</header>
+
+<main class="fg-wrap">
+  <section class="hero">
+    <span class="fg-kicker" style="align-self: flex-start;">Creative coding for learners</span>
+    <h1>Draw, animate and make sound with <span class="fg-mark">Python</span>.</h1>
+    <p class="fg-lead">Write a few lines, press Run, and your picture appears. Nothing to install.</p>
+    <div class="ctas">
+      <a class="fg-btn fg-btn--primary" href="Play-phone.dc.html"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>Try it in your browser</a>
+      <a class="fg-btn fg-btn--secondary" href="Guide.dc.html">Get started</a>
+    </div>
+    <div class="stickers"><span class="fg-sticker fg-sticker--turq">Runs in the browser</span><span class="fg-sticker fg-sticker--gold">Works on Windows</span><span class="fg-sticker fg-sticker--pink">Knows ragas and talas</span></div>
+
+    <div class="fg-sketch" style="margin-top: 12px;">
+      <div class="fg-sketch__code">
+        <pre class="fg-code"><span class="ln"><span class="k">import</span> funground <span class="k">as</span> f</span><span class="ln"></span><span class="ln">f.size(<span class="n">640</span>, <span class="n">400</span>)</span><span class="ln">f.background(<span class="s">"midnightblue"</span>)</span><span class="ln">f.fill(<mark>"tomato"</mark>)</span><span class="ln">f.circle(<span class="n">320</span>, <span class="n">200</span>, <span class="n">120</span>)</span><span class="ln">f.show()</span></pre>
+      </div>
+      <div class="fg-sketch__stage">
+        <svg viewBox="0 0 640 400" role="img" aria-label="A tomato circle on a midnight blue background"><rect width="640" height="400" fill="#191970"/><circle cx="320" cy="200" r="120" fill="#ff6347"/></svg>
+      </div>
+      <div class="fg-sketch__bar">
+        <button class="fg-chip fg-chip--shapes" aria-pressed="true">tomato</button>
+        <button class="fg-chip fg-chip--projects" aria-pressed="false">teal</button>
+        <button class="fg-chip fg-chip--colour" aria-pressed="false">gold</button>
+        <button class="fg-chip fg-chip--sound" aria-pressed="false">hotpink</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="fg-band">
+    <div class="fg-band__head"><h2>Made with funground</h2></div>
+    <div class="fg-tiles">
+      <a class="fg-tile" href="Gallery.dc.html"><img class="fg-tile__img" src="../assets/rangoli.webp" alt="Rangoli"><span class="fg-tile__cap"><span class="fg-tile__title">Rangoli</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile" href="Gallery.dc.html"><img class="fg-tile__img" src="../assets/typographic-portrait.webp" alt="Typographic portrait"><span class="fg-tile__cap"><span class="fg-tile__title">Portrait</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile" href="Gallery.dc.html"><img class="fg-tile__img" src="../assets/flow-field.webp" alt="Flow field"><span class="fg-tile__cap"><span class="fg-tile__title">Flow field</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile" href="Gallery.dc.html"><img class="fg-tile__img" src="../assets/tala.webp" alt="Teentaal"><span class="fg-tile__cap"><span class="fg-tile__title">Teentaal</span><span class="fg-tile__run">Run ›</span></span></a>
+    </div>
+    <p style="margin-top: 16px;"><a href="Gallery.dc.html">All ninety examples ›</a></p>
+  </section>
+
+  <section class="fg-band">
+    <div class="fg-band__head"><h2>Three things you can do today</h2></div>
+    <div class="fg-cards-3">
+      <article class="fg-card">
+        <img class="fg-card__img" src="../assets/star.webp" alt="A star drawn with a path">
+        <div class="fg-card__body"><h3>Draw</h3><p>Shapes, colour, text and paths. Every picture is a few lines you can read.</p><a href="Guide.dc.html">Chapter 3: Shapes ›</a></div>
+      </article>
+      <article class="fg-card">
+        <img class="fg-card__img" src="../assets/clock.webp" alt="A clock face drawn with lines">
+        <div class="fg-card__body"><h3>Animate</h3><p>A <code>draw()</code> function runs sixty times a second. Change a number each time and things move.</p><a href="Guide.dc.html">Chapter 7: Animation ›</a></div>
+      </article>
+      <article class="fg-card">
+        <img class="fg-card__img" src="../assets/raga-explorer.webp" alt="The raga explorer, showing Yaman">
+        <div class="fg-card__body"><h3>Make sound</h3><p>Tunes from text, a tabla theka, and thirteen ragas built in.</p><a href="Guide.dc.html">Chapter 17: Ragas and talas ›</a></div>
+      </article>
+    </div>
+  </section>
+
+  <section class="fg-band">
+    <div class="fg-band__head"><h2>Nineteen short chapters</h2></div>
+    <div class="fg-trail">
+      <a href="Guide.dc.html"><b>1</b>Getting started</a><a href="Guide.dc.html"><b>2</b>The sketch</a><a href="Guide.dc.html"><b>3</b>Shapes</a><a href="Guide.dc.html"><b>4</b>Colour</a><a class="fg-trail__more" href="Guide.dc.html">and fifteen more ›</a>
+    </div>
+  </section>
+
+  <section class="fg-band">
+    <div class="fg-install">
+      <h2 style="font-size: 26px;">On your own computer</h2>
+      <div class="fg-where"><span class="fg-sticker fg-sticker--gold">Windows</span><span class="fg-sticker">Mac</span><span class="fg-sticker">Linux</span></div>
+      <p>Install it with pip when you want your own editor and files. Python 3.11 or newer.</p>
+      <pre class="fg-code" style="font-size: 12px;"><span class="ln">pip install funground</span></pre>
+    </div>
+  </section>
+</main>
+
+<footer class="fg-footer" style="margin-top: 48px;">
+  <div class="fg-wrap">
+    <span>Free software (LGPL-2.1). Examples CC0.</span>
+    <nav><a href="#about">About</a><a href="https://github.com/funground-hq/funground">GitHub</a></nav>
+  </div>
+</footer>
+</div>
+</body>
+</html>
