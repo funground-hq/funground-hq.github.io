@@ -21,7 +21,7 @@
             <a class="fg-btn fg-btn--primary" href="{{ 'play/' | url }}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>Try it in your browser</a>
             <a class="fg-btn fg-btn--secondary" href="{{ 'get-started/' | url }}">Get started</a>
           </div>
-          <p class="fg-claims">In the spirit of Processing, p5.js and DrawBot · Runs in the browser · Windows, Mac and Linux · Free and open source</p>
+          <p class="fg-claims">In the spirit of Processing, p5.js and DrawBot · Runs in the browser · On Windows: try it now · Mac and Linux: coming soon · Free and open source</p>
         </div>
 
         <div class="fg-sketch" id="first-sketch">
@@ -114,7 +114,7 @@
       </section>
 
       <section class="fg-band">
-        <div class="fg-band__head"><h2>The guide, in order</h2><p class="fg-muted">Nineteen short chapters. Start at 1; each one builds on the last.</p></div>
+        <div class="fg-band__head"><h2>The guide</h2></div>
         <ol class="fg-chapters">
           <li><a href="{{ 'guide/01_getting_started/' | url }}">Getting started</a></li>
           <li><a href="{{ 'guide/02_the_sketch/' | url }}">The sketch</a></li>
@@ -139,24 +139,58 @@
       </section>
 
       <section class="fg-band">
+        <div class="fg-band__head"><h2>Three ways to run it</h2></div>
+        <div class="fg-cards-3">
+          <article class="fg-card">
+            <div class="fg-card__body">
+              <span class="fg-label">In your browser</span>
+              <h3>Play</h3>
+              <p>Open Play, pick an example or start blank, and press Run. Nothing to install: Python loads into the page the first time. Share a sketch as a link.</p>
+              <a href="{{ 'play/' | url }}">Open Play ›</a>
+            </div>
+          </article>
+          <article class="fg-card">
+            <div class="fg-card__body">
+              <span class="fg-label">On GitHub, in your browser</span>
+              <h3>Your own sketchbook</h3>
+              <p>Make a copy of the funground sketchbook and open it in github.dev, the VS Code editor in the browser, with the funground extension. Your sketches are saved in your own repository.</p>
+              <a href="https://github.com/funground-hq/sketchbook">The sketchbook ›</a>
+            </div>
+          </article>
+          <article class="fg-card">
+            <div class="fg-card__body">
+              <span class="fg-label">On your own computer</span>
+              <h3>Install with pip</h3>
+              <p>On Windows, try it now; on Mac and Linux it is coming soon. You need Python 3.11 or newer.</p>
+              <pre class="fg-code fg-code--plain" style="font-size: 14px;"><span class="ln">python -m pip install funground</span></pre>
+              <a href="{{ 'guide/01_getting_started/' | url }}">Chapter 1 shows the steps ›</a>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="fg-band">
         <div class="fg-split">
           <div class="fg-install">
-            <span class="fg-label">For teachers</span>
-            <h2 style="font-size: 32px;">Teaching a class?</h2>
-            <p>Everything runs in the browser, so a lesson needs no installs. The guide ends with eight projects and a Studios chapter for running a group session.</p>
-            <ul style="margin: 0; padding-left: 22px;">
-              <li>Projects with a brief, steps and a finished example: rangoli, event posters, a voice-controlled game.</li>
-              <li>Examples are original and CC0. Use them in your materials freely.</li>
-              <li>Share a sketch as a link. Nothing is stored on a server.</li>
-            </ul>
-            <a href="{{ 'guide/19_studios/' | url }}">Chapter 19: Studios, on running a group session ›</a>
+            <span class="fg-label">A course</span>
+            <h2 style="font-size: 32px;">Creative practice with funground</h2>
+            <p>Learn to see, choose and make with code. The lessons go from a single circle in a frame to colour, type,
+              covers and posters, motion and generative work, and end with a small visual world of your own. Each one
+              has runnable code, experiments, an assignment and questions for review.</p>
+            <a href="{{ 'course/' | url }}">Start the course ›</a>
           </div>
           <div class="fg-install">
-            <span class="fg-label">On your own computer</span>
-            <h2 style="font-size: 32px;">When you want your own editor and files</h2>
-            <p>Install funground with pip. You need Python 3.11 or newer. Windows needs nothing else; on Linux, install Cairo's development files first. The funground extension in github.dev gives you the same editor as Play.</p>
-            <pre class="fg-code fg-code--plain" style="font-size: 14px;"><span class="ln">python -m pip install funground</span></pre>
-            <p class="fg-muted" style="font-size: 15px;">funground 0.1 is an alpha: a few parts are still being tested. <a href="{{ 'guide/01_getting_started/' | url }}">Chapter 1 shows the steps one by one.</a></p>
+            <span class="fg-label">For teachers</span>
+            <h2 style="font-size: 32px;">Made for teaching</h2>
+            <p>funground was made to make learning and teaching Python engaging: a few lines draw a picture, play a
+              tune or move on screen, so every lesson has something to look at and talk about.</p>
+            <ul style="margin: 0; padding-left: 22px;">
+              <li><a href="{{ 'guide/' | url }}">The guide</a>: short chapters, each building on the last, with projects and a chapter on running a group session.</li>
+              <li><a href="{{ 'course/' | url }}">The course</a>: lessons in looking and making, with assignments.</li>
+              <li><a href="{{ 'gallery/' | url }}">The examples</a> are original and CC0: copy them into your own materials freely.</li>
+            </ul>
+            <p>Teaching with funground? Tell us what works and what is missing, share a lesson, or help shape what comes
+              next: <a href="https://github.com/funground-hq/funground/issues">join in on GitHub ›</a></p>
           </div>
         </div>
       </section>
