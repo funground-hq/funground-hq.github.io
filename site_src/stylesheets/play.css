@@ -13,7 +13,8 @@
   position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
 }
 body:has(.fg-play) .md-footer,
-body:has(.fg-play) .md-top { display: none; }
+body:has(.fg-play) .md-top,
+body:has(.fg-play) .md-tabs { display: none; }      /* no tab row either: the header's logo goes home */
 body:has(.fg-play) .md-main { overflow: hidden; }
 
 /* Hidden means hidden, also for the design's buttons and chips, which set their own display. */
