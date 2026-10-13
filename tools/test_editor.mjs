@@ -105,6 +105,9 @@ async function editorText(page) {
 }
 
 // Replaces the code the way typing does (select all, then insert text).
+// A small sketch that runs at once (check 12).
+const BLANK_TEXT_FOR_TEST = "import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    f.background(\"gold\")\n\n\nf.run()\n";
+
 async function typeCode(page, text) {
   await page.locator(".cm-content").click();
   await page.keyboard.press("Control+A");
@@ -356,6 +359,45 @@ try {
     assert((await picture(frame)).sum === stopped.sum, "the picture still changes after Stop");
     assert((await status(page)).startsWith("Stopped"), `status "${await status(page)}"`);
     await page.close();
+  });
+
+  await check(11, "zoom in and out, and Fit goes back (S-187)", async () => {
+    const page = await openEditor(`&example=${FIRST_SKETCH}`);
+    await clearDrafts(page);
+    await runButton(page).click();
+    await page.locator(".play-preview").waitFor();
+    const width = async () => (await page.locator(".play-preview").boundingBox()).width;
+    const fitted = await width();
+    await page.getByRole("button", { name: "Zoom in" }).click();
+    const bigger = await width();
+    await page.getByRole("button", { name: "Zoom out" }).click();
+    await page.getByRole("button", { name: "Zoom out" }).click();
+    const smaller = await width();
+    await page.getByRole("button", { name: "Fit" }).click();
+    const back = await width();
+    assert(bigger > fitted && smaller < fitted && Math.abs(back - fitted) < 1, `widths ${fitted} ${bigger} ${smaller} ${back}`);
+    const caption = await page.locator(".fg-play__caption").innerText();
+    assert(/640 × 400, shown at/.test(caption), `caption "${caption}"`);
+    await page.close();
+    return `fit ${Math.round(fitted)}px, in ${Math.round(bigger)}px, out ${Math.round(smaller)}px`;
+  });
+
+  await check(12, "a sketch that cannot stop in time: the status says Python starts again, then the next run works", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await page.locator(".fg-play__auto input").uncheck();
+    // Every frame takes three seconds, so 'stop' cannot be answered within the runner's one second.
+    await typeCode(page, "import time\nimport funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    time.sleep(3)\n\n\nf.run()\n");
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 30000 });
+    await sleep(500);
+    await typeCode(page, BLANK_TEXT_FOR_TEST);
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Starting Python again"), null, { timeout: 10000 });
+    const restarted = Date.now();
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 90000 });
+    await page.close();
+    return `the next run started ${((Date.now() - restarted) / 1000).toFixed(1)} s after the notice`;
   });
 } finally {
   await browser.close();
