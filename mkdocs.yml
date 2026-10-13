@@ -108,7 +108,7 @@ nav:
             - "6. Kinetic type": guide/projects/06_kinetic_type.md
             - "7. Scratch-card reveal": guide/projects/07_scratch_card.md
             - "8. Flow-field print": guide/projects/08_flow_field_print.md
-  - Gallery: gallery/index.md      # one page, no sidebar; the showcase's picks open it as "At a glance"
+  - Gallery: gallery/index.md      # one page, no sidebar
   - Play: play/index.md
   - Reference:
       - API reference: reference/API.md
