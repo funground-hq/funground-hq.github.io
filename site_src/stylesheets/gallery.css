@@ -1,18 +1,52 @@
-/* The gallery index: pictures in a grid, each with its title underneath. */
+/* The gallery index: the pictures as tiles. Works on the markup tools/assemble.py writes today: inside
+   .gallery-grid every example is one paragraph holding the picture link and then the title link.
+   Tokens and the sticker shadow come from funground.css. */
 .gallery-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: var(--space-6);
+  align-items: stretch;
 }
-.gallery-grid p {
+.md-typeset .gallery-grid p {
   margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper-raised);
+  border: var(--outline-width) solid var(--ink);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sticker);
+  overflow: hidden;
+  transition: transform 140ms ease, box-shadow 140ms ease;
 }
-.gallery-grid p a {
-  display: block;
+.md-typeset .gallery-grid p:hover,
+.md-typeset .gallery-grid p:focus-within {
+  transform: translate(-3px, -3px) rotate(var(--tilt-right));
+  box-shadow: var(--shadow-lift);
 }
-.gallery-grid img {
+.md-typeset .gallery-grid p:nth-child(3n):hover,
+.md-typeset .gallery-grid p:nth-child(3n):focus-within {
+  transform: translate(-3px, -3px) rotate(var(--tilt-left));
+}
+.md-typeset .gallery-grid p > a:first-child { display: block; }
+.md-typeset .gallery-grid img {
   display: block;
   width: 100%;
-  height: auto;
-  border-radius: 4px;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-bottom: var(--outline-width) solid var(--ink);
+  border-radius: 0;
+  background: var(--paper-code);
+}
+.md-typeset .gallery-grid p > a:last-child {
+  display: block;
+  padding: var(--space-3);
+  font: 650 17px/1.25 var(--font-display);
+  color: var(--ink);
+  text-decoration: none;
+}
+.md-typeset .gallery-grid p > a:last-child:hover { color: var(--link); }
+@media (prefers-reduced-motion: reduce) {
+  .md-typeset .gallery-grid p { transition: none; }
+  .md-typeset .gallery-grid p:hover, .md-typeset .gallery-grid p:focus-within,
+  .md-typeset .gallery-grid p:nth-child(3n):hover, .md-typeset .gallery-grid p:nth-child(3n):focus-within { transform: none; }
 }
