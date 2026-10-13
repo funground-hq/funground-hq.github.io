@@ -34,6 +34,11 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-play__frame { overflow: hidden; box-sizing: content-box; }
 .fg-play__frame iframe { transform-origin: 0 0; }                         /* play.js sets the size and the scale */
 
+/* While Python loads (or starts again), the status dot is a spinning ring, so the wait is visibly a wait. */
+.fg-play .fg-status--loading::before { background: transparent; border: 2px solid var(--gold); border-top-color: var(--ink); animation: fg-spin 0.9s linear infinite; }
+@keyframes fg-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .fg-play .fg-status--loading::before { animation: none; } }
+
 /* The toolbar's own controls. */
 .fg-play__bar { min-height: 48px; box-sizing: border-box; }
 .fg-play__bar .fg-btn { padding: 6px 14px; font-size: 14px; box-shadow: none; }
