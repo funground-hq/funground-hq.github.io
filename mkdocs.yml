@@ -108,6 +108,21 @@ nav:
             - "6. Kinetic type": guide/projects/06_kinetic_type.md
             - "7. Scratch-card reveal": guide/projects/07_scratch_card.md
             - "8. Flow-field print": guide/projects/08_flow_field_print.md
+            - "9. Generative posters": guide/projects/09_generative_posters.md
+    - Creative practice with funground:
+        - course/index.md
+        - "1. Look, frame and compose": course/01_look_frame_compose.md
+        - "2. Visual weight, balance and hierarchy": course/02_weight_balance_hierarchy.md
+        - "3. Contrast and colour": course/03_contrast_colour.md
+        - "4. Shape, figure and ground": course/04_shape_figure_ground.md
+        - "5. Repetition, rhythm and variation": course/05_rhythm_variation.md
+        - "6. Type, words and hierarchy": course/06_type_hierarchy.md
+        - "7. Make a cover": course/07_cover.md
+        - "8. Poster systems and messages": course/08_poster_systems.md
+        - "9. Motion and interaction": course/09_motion_interaction.md
+        - "10. Rules, chance and generative work": course/10_rules_chance.md
+        - "11. Make a small visual world": course/11_capstone.md
+        - "Epilogue": course/epilogue.md
   - Gallery: gallery/index.md      # one page, no sidebar
   - Play: play/index.md
   - Reference:
