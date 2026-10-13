@@ -35,7 +35,11 @@ canvas. Everything visual is derived from one set of tokens.
 6. Fonts come from `site_src/assets/fonts/` only; nothing is loaded from another site.
 7. Pictures are made by funground; the gallery's images are at `gallery/images/<area>-<nn>_<name>.png` in the
    assembled site.
-8. Copy: plain English, British spelling, sentence case, lower-case `funground`.
+8. Copy: plain English, British spelling, sentence case, lower-case `funground`. No numbers the site cannot keep
+   true; say each fact once.
+9. A shadow means "press me". Only buttons and tiles carry `--shadow-sticker`; cards, panels and code blocks are
+   outlined and flat; labels and claims are plain text. Count islands after a change (below): the home page is at
+   most 26 outlined or shadowed boxes and 6 shadows.
 
 ## How to check a change
 
@@ -50,6 +54,20 @@ It screenshots the home page, a guide chapter, the gallery index and Play at 136
 390 × 844, in both schemes, and prints the page's scroll width (must equal the viewport width) and, on Play, the
 rendered size of the picture. Compare with `design/mockups/`. Use the installed Chrome through
 `tools/codemirror/node_modules/playwright-core`, as `tools/test_editor.mjs` does; install nothing.
+
+Islands, run on any page you changed (in the page's console, or through design_shots' Playwright):
+
+```js
+(() => { const out = []; document.querySelectorAll('body *').forEach(e => { const cs = getComputedStyle(e);
+  const outlined = cs.borderTopStyle === 'solid' && parseFloat(cs.borderTopWidth) >= 1.5 && cs.borderTopColor !== 'rgba(0, 0, 0, 0)';
+  const shadowed = cs.boxShadow && cs.boxShadow !== 'none'; if (!(outlined || shadowed)) return;
+  const r = e.getBoundingClientRect(); if (r.width < 20 || r.height < 12) return;
+  out.push({ clickable: !!e.closest('a,button,input'), shadowed }); });
+  return { boxes: out.length, clickable: out.filter(o => o.clickable).length, shadowed: out.filter(o => o.shadowed).length }; })()
+```
+
+Every shadowed element must be clickable. If `boxes` grows past the page's number in `design/DESIGN.md`, something
+got a border that should be plain text.
 
 Contrast, run after any token change (Python, standard library):
 

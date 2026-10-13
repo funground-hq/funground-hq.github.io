@@ -29,6 +29,9 @@ listed in `design/BACKLOG.md` under SITE-C-01, SITE-C-02 and SITE-C-03; make the
 > compare the shots with `design/mockups/`. Record differences and fix the ones that are bugs; list the ones that
 > are judgement calls for me.
 >
+> The template's links are not read by `check_links.py`; check them with: every `{{ '<path>' | url }}` in
+> `overrides/home.html` must exist under `build/site/` (as a file or a folder with index.html).
+>
 > Then build SITE-C-04 (the Play layout) from `design/PLAY_EDITOR.md`: keep the preview protocol, the share link and
 > `tools/test_editor.mjs` green. After that, SITE-C-07 and SITE-C-08 (gallery index and example pages), which change
 > `tools/assemble.py`.

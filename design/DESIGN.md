@@ -27,8 +27,21 @@ The site has two registers:
    (`"gold"`), never give hex values.
 3. **One thing moves.** Each playground page has one moving thing (on Home, the colour swap in the hero). Everything
    else is still. All motion stops under `prefers-reduced-motion`.
-4. **Placed by hand, not childish.** Two-pixel ink outlines, hard offset shadows (`--shadow-sticker`, never blurred),
-   a slight tilt on hover, dot-grid paper. No mascots, no emoji, no bubble fonts.
+4. **Placed by hand, not childish, and a shadow means "press me".** Two-pixel ink outlines, hard offset shadows
+   (`--shadow-sticker`, never blurred), a slight tilt on hover, dot-grid paper. No mascots, no emoji, no bubble
+   fonts. The sticker look is the identity, so it must be rationed, or every label looks like a button. Four
+   levels, and nothing in between:
+
+   | Level | Treatment | Used for |
+   |---|---|---|
+   | Action | outline + hard shadow + fill; lifts on hover | buttons, gallery tiles: the only things with a shadow |
+   | Toggle | outline, no shadow; `gold` fill when pressed | chips |
+   | Container | outline only, flat | sketch panels, cards, code blocks, the install card |
+   | Label or claim | plain text, no box | kickers, the claims line under the hero, platform names, "For teachers" |
+
+   Measured on the first draft of the home page: 48 outlined or shadowed boxes, 26 of them clickable, 7 islands
+   in the hero for 2 buttons. With the levels applied: 26 boxes, 6 shadows (two buttons, four tiles), 2 islands in
+   the hero. Keep it there. A new element that is not an action gets no shadow; a label gets no box.
 5. **Calm where people read.** In the Guide and Reference: body text on paper, Material's layout, the mapped colours
    and fonts, and nothing else from the playground except the sketch panel and the "Try this" note.
 
@@ -41,8 +54,16 @@ The site has two registers:
 - Lower-case `funground` everywhere, including at the start of a sentence and in the logo.
 - Keep the teaching line on first sketches: "Change `"tomato"` to `"teal"` and run it again." Put it in a
   "Try this" note (`.fg-try`, or Material's `!!! tip` admonition, which is styled the same).
-- The Indian content is part of the identity: "Knows ragas and talas" is on the home page, and "Sound and ragas"
+- The Indian content is part of the identity: ragas and talas are named on the home page, and "Sound and ragas"
   is a gallery topic of its own.
+- Say each fact once, where it is useful. The platforms are named in the claims line and explained in the install
+  card, nowhere else. Never write a number the site cannot keep true ("ninety examples", "twenty minutes each");
+  counts come from `assemble.py` or are left out.
+- The origin story is told fairly, in the voice of the reference page "Compared with p5 and DrawBot": what each
+  tool is good at, what funground kept, what it changed. Facts used: Processing is Java and p5.js is JavaScript;
+  p5.js runs in the browser; DrawBot is Python and macOS-only, strong at PDF, pages and real text; funground draws
+  with Cairo, opens its window with pygame-ce, runs in the browser through Pyodide, and is LGPL-2.1 like p5.js,
+  Processing and pygame-ce; the examples are CC0.
 
 ## Colour
 
@@ -92,8 +113,11 @@ apart, which matters when a learner is comparing code with an error message.
 - Spacing steps: 4, 8, 12, 16, 24, 32, 48, 64 (`--space-1` … `--space-16`). The dot grid pitch is 24px; line things
   up to it where you can.
 - Radii: 6 (inline code, inputs), 12 (buttons, code blocks, tiles), 20 (sketch panels, hero cards), pill (chips).
-- Interactive and framed things have a 2px `ink` border and `--shadow-sticker` (4px 4px, no blur). On hover they
-  move up-left by 3px and take `--shadow-lift`; pressed, they move down-right and take `--shadow-pressed`.
+- Buttons and tiles have a 2px `ink` border and `--shadow-sticker` (4px 4px, no blur). On hover they move up-left
+  by 3px and take `--shadow-lift`; pressed, they move down-right and take `--shadow-pressed`. Nothing that is not a
+  button or a tile has a shadow (principle 4). Containers have the border only.
+- Inline code in prose is a tint (`rgba(25, 25, 112, 0.08)`), not a box: a bordered `code` in a sentence reads as
+  a button too.
 - Every control shows a 3px solid `focus` ring with a 2px offset when reached by keyboard.
 
 ## Layout
@@ -140,7 +164,7 @@ apart, which matters when a learner is comparing code with an error message.
 | `.fg-sketch` | Code beside its picture, with a toolbar row | Home, guide chapters, gallery example pages |
 | `.fg-tile` / `.fg-tiles` | Gallery tile and grid | Home, Gallery |
 | `.fg-try` | The gold "Try this" note | Guide; same look as `!!! tip` |
-| `.fg-hero`, `.fg-band`, `.fg-card`, `.fg-trail`, `.fg-teacher`, `.fg-install` | Home page bands | Home |
+| `.fg-hero`, `.fg-claims`, `.fg-band`, `.fg-card`, `.fg-origin`, `.fg-chapters`, `.fg-label`, `.fg-install` | Home page bands: the hero and its claims line, tiles, the three cards, the origin band (three flat cards with Kept / Changed), the chapter list, the two labelled cards | Home |
 | `.fg-play*`, `.fg-picker`, `.fg-switch`, `.fg-status`, `.fg-console`, `.fg-iconbtn`, `.fg-seg` | The editor | Play (see `PLAY_EDITOR.md`) |
 
 Material's own components are restyled by the mapping block in `funground.css`: header, tabs, search, buttons

@@ -35,15 +35,20 @@ Each one is small enough for a builder subagent with a pinned design, and each l
 
 ### SITE-C-03 The home page
 
-- Value: the first screen shows the first sketch beside its picture, says the three reasons funground exists
-  (browser, Windows, ragas and talas), and puts "Try it in your browser" first.
+- Value: the first screen shows the first sketch beside its picture, says what funground is in the spirit of and
+  what it changed, and puts "Try it in your browser" first. The page follows the four-level rule in `DESIGN.md`
+  (shadow = action), so the two buttons are the only islands in the hero.
 - Tasks: add `overrides/home.html` and `theme.custom_dir: overrides`; `site_src/index.md` becomes front matter
   (`template: home.html`, `hide: [navigation, toc, footer]`) plus a one-line body; the pictures are the gallery's own
   (`gallery/images/…`, already copied by `assemble.py`); the colour chips swap the fill (one small inline script,
   no library); check every link in the template resolves in the assembled site (`check_links.py` reads markdown,
   so add the template's targets to its list or test them in `test_editor.mjs`).
 - Acceptance: screenshots at 1366 and 390 match `mockups/home-day.png`, `home-night.png` and `home-phone.png`; no
-  horizontal scroll at 390; Lighthouse accessibility ≥ 95; a chip click changes both the code and the circle.
+  horizontal scroll at 390; Lighthouse accessibility ≥ 95; a chip click changes both the code and the circle; the
+  island count from the skill's check is at most 26 boxes and 6 shadows on the page; every link target in the
+  template exists in the assembled site (34 at the time of writing; a check is in the kickoff).
+- The tiles say "See how ›" because the template cannot know which examples run in the browser; once the gallery
+  story (SITE-C-07) makes `assemble.py` emit the runnable set, the home tiles can say "Run ›" where true.
 - Note: the template in this package was built and screenshotted on an assembled site; it works as delivered.
 
 ### SITE-C-04 The Play page layout (the editor fills the window)
