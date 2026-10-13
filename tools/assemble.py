@@ -17,7 +17,7 @@ changes nothing in the funground checkout. Three jobs, and a fourth with ``--run
 3. Write the gallery: an index with a grid of pictures, and one page per example.
 4. With ``--runner`` (the ``runner/`` folder of ``funground-hq/funground-web``, its ``runtime/`` built by
    that repository's ``tools/build_runtime.py``): copy the browser runner to ``play/runner/``, list the
-   examples it can run in ``play/examples.json``, and give each of those gallery pages a "Run it here"
+   examples it can run in ``play/examples.json``, and give each of those gallery pages a "Play with it online"
    button that opens it on the Play page, the editor (S-151).
 
 Standard library only, Python 3.11 or newer.
@@ -206,11 +206,12 @@ def example_page(example: Example, funground: Path, runnable: bool = False) -> s
         f"![{example.title}](../images/{example.id}.png)",
         "",
     ]
+    # Plain HTML: a markdown link to play/?example= would be checked as a file. The page's address is
+    # gallery/<area>/<name>/, so the Play page is three folders up.
+    play = f'<a href="../../../play/?example={example.id}">Play with it online</a>'
     if runnable:
-        # Plain HTML: a markdown link to play/?example= would be checked as a file. The page's address is
-        # gallery/<area>/<name>/, so the Play page is three folders up.
         lines += [f'<a class="md-button md-button--primary" href="../../../play/?example={example.id}">'
-                  "Run it here, in your browser</a>", ""]
+                  "Play with it online</a>", ""]
     lines += [
         example.description + (" *(This one uses real time, so the picture changes from run to run.)*"
                                if example.time_dependent else ""),
@@ -230,7 +231,8 @@ def example_page(example: Example, funground: Path, runnable: bool = False) -> s
         code,
         "```",
         "",
-        f"[View on GitHub]({github_url(example, funground)}) · [Back to the gallery](../index.md)",
+        (f"{play} · " if runnable else "This one needs funground on a computer: it does not run in the browser. ")
+        + f"[View on GitHub]({github_url(example, funground)}) · [Back to the gallery](../index.md)",
         "",
     ]
     return "\n".join(lines)
@@ -261,7 +263,7 @@ def gallery_index(examples: list[Example], areas: dict[str, str]) -> str:
 
 
 def write_gallery(funground: Path, docs: Path, runnable: frozenset[str] = frozenset()) -> int:
-    """The gallery index and pages; an example whose id is in ``runnable`` gets a "Run it here" button."""
+    """The gallery index and pages; an example whose id is in ``runnable`` gets a "Play with it online" button and link."""
     areas = read_areas(funground)
     examples = read_examples(funground, areas)
     (docs / "gallery" / "index.md").write_text(gallery_index(examples, areas), encoding="utf-8", newline="\n")

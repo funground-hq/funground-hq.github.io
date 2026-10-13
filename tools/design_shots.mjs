@@ -20,7 +20,7 @@ const PAGES = {
   home: "/",
   guide: "/guide/03_shapes/",
   gallery: "/gallery/",
-  play: "/play/?example=basics/01_first_sketch",
+  play: "/play/?example=basics-01_first_sketch",
 };
 const SIZES = { laptop: [1366, 768], desktop: [1920, 1080], phone: [390, 844] };
 const SCHEMES = ["default", "slate"];
