@@ -43,6 +43,7 @@ BRANCH = "main"
 # (folder in funground, folder on the site). Every .md and .png inside is copied.
 FOLDERS = [
     ("docs/guide", "guide"),
+    ("docs/course", "course"),
     ("docs/reference/images", "reference/images"),
     ("docs/gallery/images", "gallery/images"),
 ]
