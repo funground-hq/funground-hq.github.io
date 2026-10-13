@@ -18,7 +18,7 @@ with a blank sketch. With **Auto-run** on, the sketch runs again a moment after 
 This is a preview of funground 0.2, made for Chrome; Edge, Firefox and Safari are not tested yet. Python,
 funground and its drawing library load into your browser, about 12 MB the first time and then from its cache.
 
-<div id="play" class="play">
+<div id="funground-play" class="play">
   <noscript>The Play page needs JavaScript to run Python in your browser.</noscript>
 </div>
 
