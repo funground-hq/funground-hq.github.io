@@ -61,6 +61,7 @@ The messages (the same table is in the preview repository's README):
 | preview to editor | `{type: "error", text}` | A Python traceback (it is not sent again as `output`) |
 | preview to editor | `{type: "started", width, height}` | `setup()` has run: the sketch's size in pixels, so the editor can size the iframe |
 | preview to editor | `{type: "finished", reason}` | `"ended"`, `"stopped"` or `"error"`. Sent after `started` |
+| preview to editor | `{type: "restarting"}` | The last sketch did not stop within a second, so a new Python is loading; the next run waits for it (seconds). An editor that does not know this message can ignore it |
 
 The iframe is sandboxed with `allow-scripts allow-same-origin`: without `allow-same-origin` Chrome does not start the
 runner's worker. The preview is on another origin from this site either way.

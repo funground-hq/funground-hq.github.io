@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>funground Play — night, stopped by an error</title>
+<link rel="stylesheet" href="../funground.css">
+</head>
+<body>
+<style>
+body { margin: 0; }
+a { color: #ffa07a; } a:hover { color: #ffc4a8; }
+.only-dark { display: none; } [data-theme="dark"] .only-dark { display: inline; } [data-theme="dark"] .only-light { display: none; }
+.thumb { width: 30px; height: 30px; border-radius: 6px; border: 1.5px solid var(--ink); display: inline-grid; place-items: center; background: #fdf5e6; }
+.thumb svg { width: 100%; height: 100%; display: block; border-radius: 4px; }
+.how { font: 400 14px/1 "Atkinson Hyperlegible Next", system-ui, sans-serif; margin: 0 8px 0 2px; }
+.badge { position: absolute; top: 12px; right: 12px; font: 700 13px/1 "Atkinson Hyperlegible Next", system-ui, sans-serif; padding: 6px 10px; border-radius: 999px; background: #ff6347; color: #191970; border: 2px solid #191970; }
+</style>
+<div class="fg-paper fg-play" data-theme="dark">
+
+<header class="fg-header fg-header--compact">
+  <a class="fg-header__brand" href="Home-night.dc.html"><img class="only-light" src="../assets/funground-mark.svg" alt=""><img class="only-dark" src="../assets/funground-mark-on-dark.svg" alt="">funground</a>
+  <nav class="fg-header__nav" aria-label="Site">
+    <a href="Home-night.dc.html">Home</a><a href="Guide.dc.html">Learn</a><a href="Gallery.dc.html">Gallery</a><a href="#reference">Reference</a><a href="Play-night.dc.html" class="is-play" aria-current="page">Play</a>
+  </nav>
+  <button class="fg-header__theme" aria-label="Switch to day"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg></button>
+  <button class="fg-header__menu" aria-label="Menu"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+</header>
+
+<div class="fg-play__bar" role="toolbar" aria-label="Sketch">
+  <button class="fg-picker" aria-haspopup="dialog"><span class="thumb"><svg viewBox="0 0 64 40" aria-hidden="true"><rect width="64" height="40" fill="#fdf5e6"/><circle cx="40" cy="14" r="7" fill="#ff6347"/><circle cx="20" cy="28" r="7" fill="#ff6347"/></svg></span>1. Bounce <small>Animation</small><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6l4 4 4-4"/></svg></button>
+  <a class="how" href="Gallery.dc.html">How it works ›</a>
+  <button class="fg-btn fg-btn--run fg-btn--small"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>Run <kbd>Ctrl ↵</kbd></button>
+  <button class="fg-btn fg-btn--secondary fg-btn--small" disabled="disabled"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1.5" fill="currentColor"/></svg>Stop</button>
+  <label class="fg-switch"><i></i>Auto-run</label>
+  <span class="spacer"></span>
+  <span class="fg-status fg-status--error">Stopped by an error on line 11</span>
+  <button class="fg-btn fg-btn--secondary fg-btn--small fg-btn--quiet"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M12 9.5v4H2.5V4H6"/></svg>Share</button>
+  <button class="fg-btn fg-btn--secondary fg-btn--small fg-btn--quiet"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a5 5 0 1 1 1.5 3.6M3 3.5V7h3.5"/></svg>Reset</button>
+  <span class="fg-seg" role="group" aria-label="Layout">
+    <button class="fg-iconbtn" aria-pressed="true" aria-label="Code beside the picture"><svg viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="14" height="12" rx="2"/><path d="M9 3v12"/></svg></button>
+    <button class="fg-iconbtn" aria-pressed="false" aria-label="Picture above the code"><svg viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="14" height="12" rx="2"/><path d="M2 9h14"/></svg></button>
+    <button class="fg-iconbtn" aria-pressed="false" aria-label="Picture only"><svg viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="14" height="12" rx="2"/></svg></button>
+  </span>
+  <button class="fg-iconbtn" aria-label="How Play works"><svg viewBox="0 0 18 18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="9" cy="9" r="7"/><path d="M7 7.2a2 2 0 1 1 3 1.7c-.8.5-1 .9-1 1.8M9 13.4v.1"/></svg></button>
+</div>
+
+<div class="fg-play__work">
+  <section class="fg-play__editor" aria-label="Code">
+    <div class="fg-play__tab"><b>animation/01_bounce.py</b><span>17 lines · edited</span><span class="spacer" style="flex: 1;"></span><span>Changes stay in this browser</span></div>
+    <pre class="fg-code"><span class="ln"><span class="k">import</span> funground <span class="k">as</span> f</span><span class="ln"></span><span class="ln">x, y = <span class="n">100</span>, <span class="n">100</span></span><span class="ln">dx, dy = <span class="n">4</span>, <span class="n">3</span></span><span class="ln"></span><span class="ln"><span class="k">def</span> setup():</span><span class="ln">    f.size(<span class="n">640</span>, <span class="n">400</span>)</span><span class="ln"></span><span class="ln"><span class="k">def</span> draw():</span><span class="ln">    <span class="k">global</span> x, y, dx, dy</span><span class="ln is-error">    f.circl(x, y, <span class="n">40</span>)</span><span class="ln">    x += dx</span><span class="ln">    y += dy</span><span class="ln">    <span class="k">if</span> x &lt; <span class="n">20</span> <span class="k">or</span> x &gt; <span class="n">620</span>: dx = -dx</span><span class="ln">    <span class="k">if</span> y &lt; <span class="n">20</span> <span class="k">or</span> y &gt; <span class="n">380</span>: dy = -dy</span><span class="ln"></span><span class="ln">f.run()</span></pre>
+  </section>
+  <div class="fg-play__divider" role="separator" aria-orientation="vertical" aria-label="Resize"></div>
+  <section class="fg-play__stage" aria-label="The picture">
+    <div class="fg-play__picture">
+      <div class="fg-play__frame" style="width: 640px;">
+        <svg viewBox="0 0 640 400" role="img" aria-label="The last frame before the error: a trail of tomato circles on oldlace"><rect width="640" height="400" fill="#fdf5e6"/><circle cx="100" cy="100" r="20" fill="#ff6347" opacity="0.25"/><circle cx="120" cy="115" r="20" fill="#ff6347" opacity="0.4"/><circle cx="140" cy="130" r="20" fill="#ff6347" opacity="0.6"/><circle cx="160" cy="145" r="20" fill="#ff6347"/></svg>
+        <span class="badge">Stopped at frame 12</span>
+      </div>
+    </div>
+    <div class="fg-play__caption"><span>640 × 400, shown at 1:1</span><span>The last frame stays on screen so you can see what happened</span></div>
+    <div class="fg-console">
+      <div class="fg-console__head">Output<span class="count">1 error</span><span class="spacer" style="flex: 1;"></span><a href="#clear" style="font-weight: 400;">Clear</a></div>
+      <div class="fg-console__body"><span class="err">AttributeError: funground has no function called 'circl'. Did you mean 'circle'?</span><a class="line-link" href="#line-11">Go to line 11</a>
+<span class="fg-muted">File "animation/01_bounce.py", line 11, in draw</span></div>
+    </div>
+  </section>
+</div>
+</div>
+</body>
+</html>

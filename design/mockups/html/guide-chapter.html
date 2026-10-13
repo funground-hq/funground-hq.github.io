@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>funground guide — 3. Shapes</title>
+<link rel="stylesheet" href="../funground.css">
+</head>
+<body>
+<style>
+body { margin: 0; }
+a { color: #b22222; } a:hover { color: #7f1d1d; }
+.only-dark { display: none; } [data-theme="dark"] .only-dark { display: inline; } [data-theme="dark"] .only-light { display: none; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1.5px solid var(--dot); vertical-align: top; }
+th { font-family: "Bricolage Grotesque", system-ui, sans-serif; font-weight: 700; }
+.calm { background-image: none; }
+</style>
+<div class="fg-paper calm" data-theme="light" style="min-height: 100vh;">
+
+<header class="fg-header">
+  <a class="fg-header__brand" href="Main.dc.html"><img class="only-light" src="../assets/funground-mark.svg" alt=""><img class="only-dark" src="../assets/funground-mark-on-dark.svg" alt="">funground</a>
+  <nav class="fg-header__nav" aria-label="Site">
+    <a href="Main.dc.html">Home</a><a href="Guide.dc.html" aria-current="page">Learn</a><a href="Gallery.dc.html">Gallery</a><a href="#reference">Reference</a><a href="Play.dc.html" class="is-play">Play</a>
+  </nav>
+  <input class="fg-header__search" type="search" placeholder="Search" aria-label="Search">
+  <button class="fg-header__theme" aria-label="Switch to night"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+  <button class="fg-header__menu" aria-label="Menu"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+</header>
+
+<div class="fg-wrap fg-guide">
+  <nav class="fg-guide__nav" aria-label="Chapters">
+    <h4>The guide</h4>
+    <ol>
+      <li><a href="#c1"><b>1</b>Getting started</a></li>
+      <li><a href="#c2"><b>2</b>The sketch</a></li>
+      <li><a href="Guide.dc.html" aria-current="page"><b>3</b>Shapes</a></li>
+      <li><a href="#c4"><b>4</b>Colour</a></li>
+      <li><a href="#c5"><b>5</b>Fill, stroke and lines</a></li>
+      <li><a href="#c6"><b>6</b>Text</a></li>
+      <li><a href="#c7"><b>7</b>Animation and time</a></li>
+      <li><a href="#c8"><b>8</b>Transforms</a></li>
+      <li><a href="#c9"><b>9</b>Paths, clipping and pictures</a></li>
+      <li><a href="#c10"><b>10</b>Interaction</a></li>
+      <li><a href="#c11"><b>11</b>Randomness and noise</a></li>
+      <li><a href="#c12"><b>12</b>Useful maths</a></li>
+      <li><a href="#c13"><b>13</b>Saving your work</a></li>
+      <li><a href="#c14"><b>14</b>Coming from p5.js</a></li>
+      <li><a href="#c15"><b>15</b>Coming from DrawBot</a></li>
+      <li><a href="#c16"><b>16</b>Sound</a></li>
+      <li><a href="#c17"><b>17</b>Ragas and talas</a></li>
+      <li><a href="#c18"><b>18</b>Projects</a></li>
+      <li><a href="#c19"><b>19</b>Studios</a></li>
+    </ol>
+    <h4 style="margin-top: 20px;">Help</h4>
+    <ol><li><a href="#errors"><b>?</b>When something goes wrong</a></li><li><a href="#glossary"><b>A</b>Glossary</a></li></ol>
+  </nav>
+
+  <article class="fg-prose">
+    <p class="fg-muted" style="font-size: 14px;">Chapter 3 of 19 · about 20 minutes</p>
+    <h1>Shapes</h1>
+    <p class="fg-lead">Rectangles, circles, ellipses, lines and points, and where each one is measured from. Run the sketch, then change a number and watch where the shape goes.</p>
+
+    <div class="fg-sketch">
+      <div class="fg-sketch__code">
+        <pre class="fg-code"><span class="ln"><span class="k">def</span> draw():</span><span class="ln">    f.background(<span class="s">"white"</span>)</span><span class="ln">    f.fill(<span class="s">"skyblue"</span>)</span><span class="ln">    f.rect(<span class="n">40</span>, <span class="n">60</span>, <span class="n">160</span>, <span class="n">100</span>)      <span class="c"># x, y, width, height</span></span><span class="ln">    f.fill(<span class="s">"tomato"</span>)</span><span class="ln">    f.circle(<span class="n">320</span>, <span class="n">110</span>, <span class="n">100</span>)       <span class="c"># centre x, y, diameter</span></span><span class="ln">    f.fill(<span class="s">"gold"</span>)</span><span class="ln">    f.ellipse(<span class="n">520</span>, <span class="n">110</span>, <span class="n">160</span>, <span class="n">80</span>)  <span class="c"># centre, width, height</span></span><span class="ln">    f.stroke(<span class="s">"navy"</span>)</span><span class="ln">    f.stroke_width(<span class="n">4</span>)</span><span class="ln">    f.line(<span class="n">40</span>, <span class="n">260</span>, <span class="n">600</span>, <span class="n">340</span>)</span></pre>
+      </div>
+      <div class="fg-sketch__stage">
+        <svg viewBox="0 0 640 400" role="img" aria-label="A sky-blue rectangle, a tomato circle, a gold ellipse and a navy line"><rect width="640" height="400" fill="#ffffff"/><rect x="40" y="60" width="160" height="100" fill="#87ceeb"/><circle cx="320" cy="110" r="50" fill="#ff6347"/><ellipse cx="520" cy="110" rx="80" ry="40" fill="#ffd700"/><line x1="40" y1="260" x2="600" y2="340" stroke="#000080" stroke-width="4"/><g fill="#000080"><circle cx="60" cy="230" r="6"/><circle cx="120" cy="230" r="6"/><circle cx="180" cy="230" r="6"/><circle cx="240" cy="230" r="6"/><circle cx="300" cy="230" r="6"/><circle cx="360" cy="230" r="6"/><circle cx="420" cy="230" r="6"/><circle cx="480" cy="230" r="6"/><circle cx="540" cy="230" r="6"/></g></svg>
+      </div>
+      <div class="fg-sketch__bar">
+        <span>shapes/01_basic_shapes.py · <a href="Gallery.dc.html">whole file</a></span>
+        <span class="spacer"></span>
+        <a class="fg-btn fg-btn--secondary fg-btn--small" href="#copy"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 10.5V3.5A1 1 0 0 1 4 2.5h6.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>Copy</a>
+        <a class="fg-btn fg-btn--run fg-btn--small" href="Play.dc.html"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>Run it here</a>
+      </div>
+    </div>
+
+    <table>
+      <thead><tr><th>Function</th><th>Placed by</th></tr></thead>
+      <tbody>
+        <tr><td><code>f.rect(x, y, w, h)</code></td><td>its <b>top-left</b> corner</td></tr>
+        <tr><td><code>f.circle(x, y, d)</code></td><td>its <b>centre</b>; <code>d</code> is the diameter, not the radius</td></tr>
+        <tr><td><code>f.ellipse(x, y, w, h)</code></td><td>its <b>centre</b></td></tr>
+        <tr><td><code>f.line(x1, y1, x2, y2)</code></td><td>its two ends; uses the stroke colour only</td></tr>
+        <tr><td><code>f.point(x, y)</code></td><td>a dot, as wide as the stroke</td></tr>
+      </tbody>
+    </table>
+    <p>Coordinates can have decimals, so <code>f.circle(100.5, 80.25, 40)</code> is fine, and edges are smoothed.</p>
+
+    <div class="fg-try"><svg viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="11" r="8" fill="#ff6347" stroke="#191970" stroke-width="2"/><rect x="9" y="20" width="8" height="4" rx="2" fill="#191970"/></svg><span class="fg-try__title">Try this</span>Change <code>100</code> in <code>f.circle</code> to <code>200</code>. Which way does the circle grow? Now change the <code>40</code> in <code>f.rect</code>.</div>
+
+    <h2 id="more">More shapes</h2>
+    <p>Squares, triangles, quads, polygons and arcs follow the same idea: a few numbers say where the corners or the centre are. The picture under each example shows exactly what the numbers do.</p>
+    <table>
+      <thead><tr><th>Function</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>f.square(x, y, size)</code></td><td>Placed by its top-left corner, like <code>rect</code></td></tr>
+        <tr><td><code>f.triangle(...)</code>, <code>f.quad(...)</code></td><td>Corners in order; the shape is closed and filled</td></tr>
+        <tr><td><code>f.polygon(points)</code></td><td>A list of <code>(x, y)</code> points; closed and filled</td></tr>
+        <tr><td><code>f.arc(x, y, w, h, start, stop, mode)</code></td><td>Part of an ellipse. Angles are in <b>degrees</b>, starting at 3 o'clock and turning clockwise</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="centre">Placing shapes by their centre or corners</h2>
+    <p>A rectangle is placed by its top-left corner and a circle by its centre. When you would rather place a rectangle by its centre, say so once with <code>f.rect_mode("center")</code>, and every rectangle after it is placed that way.</p>
+
+    <nav class="fg-pager" aria-label="Chapters">
+      <a href="#c2"><small>Previous</small><span>← 2. The sketch</span></a>
+      <a href="#c4" style="text-align: right;"><small>Next</small><span>4. Colour →</span></a>
+    </nav>
+  </article>
+
+  <nav class="fg-guide__toc" aria-label="On this page">
+    <h4 style="margin: 0 0 8px; font: 700 12px/1 inherit; letter-spacing: 0.06em; text-transform: uppercase;">On this page</h4>
+    <a href="#top" class="is-here">The basic shapes</a>
+    <a href="#more">More shapes</a>
+    <a href="#centre">Placing by centre or corners</a>
+  </nav>
+</div>
+
+<footer class="fg-footer" style="margin-top: 64px;">
+  <div class="fg-wrap">
+    <span>funground is free software (LGPL-2.1). The examples are CC0.</span>
+    <nav><a href="#about">About</a><a href="#changelog">Changelog</a><a href="https://github.com/funground-hq/funground">GitHub</a></nav>
+  </div>
+</footer>
+</div>
+</body>
+</html>

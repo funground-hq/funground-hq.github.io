@@ -49,7 +49,8 @@ const darkColours = [oneDark];
  * @param {boolean} [options.dark]  dark colours (default light)
  * @param {() => void} [options.onChange]  the learner changed the text (not setText)
  * @returns {{getText: () => string, setText: (text: string) => void, setDark: (dark: boolean) => void,
- *            markError: (line: number) => void, clearError: () => void, focus: () => void}}
+ *            markError: (line: number) => void, clearError: () => void, goToLine: (line: number) => void,
+ *            focus: () => void}}
  */
 export function createEditor({ parent, text = "", dark = false, onChange }) {
   const colours = new Compartment();
@@ -86,6 +87,12 @@ export function createEditor({ parent, text = "", dark = false, onChange }) {
       view.dispatch({ effects: showError.of(view.state.doc.line(number).from) });
     },
     clearError: () => view.dispatch({ effects: showError.of(null) }),
+    // Select a line (counted from 1), scroll it into view and give the editor the keys: "Go to line 11".
+    goToLine(line) {
+      const at = view.state.doc.line(Math.min(Math.max(line, 1), view.state.doc.lines));
+      view.dispatch({ selection: { anchor: at.from, head: at.to }, scrollIntoView: true });
+      view.focus();
+    },
     focus: () => view.focus(),
   };
 }

@@ -1,4 +1,5 @@
-// The Play page, the funground editor (S-151 part 2): write a sketch, run it, share it.
+// The Play page, the funground editor (S-151 part 2; the layout is S-187, design/PLAY_EDITOR.md): write a sketch,
+// run it, share it.
 //
 // This page never runs Python. A sketch runs in an iframe from funground-run.github.io (preview.html there), a
 // separate origin (D-078); this page sends it the code by postMessage and shows what it sends back. The messages
@@ -8,10 +9,14 @@
 // this folder. The code editor is CodeMirror, bundled into vendor/codemirror.js (tools/codemirror/).
 //
 // ?example=<id> opens one example (the gallery pages link here that way). #code=<text> opens a shared sketch.
+//
+// The page is the editor and nothing else: a toolbar, and the code beside the picture with the messages above it.
+// The editor fills the window; the picture fits the room, or is zoomed in or out. The page's own text
+// (index.md) becomes the help behind the "?" button.
 
 import { createEditor } from "./vendor/codemirror.js";
 
-const play = document.getElementById("play");
+const play = document.getElementById("funground-play");
 
 // ---- where the preview is, and how it is fenced in
 
@@ -111,9 +116,9 @@ def draw():
 f.run()
 `;
 
-// ---- the page: a toolbar, the code beside the picture, the output
+// ---- the page: a toolbar, and the code beside the picture with the messages above it
 
-const choose = element("select", { "aria-label": "Sketch" });
+const choose = element("select", { class: "fg-play__choose", "aria-label": "Sketch" });
 choose.append(new Option("Blank sketch", BLANK));
 let group = null;
 for (const example of examples) {
@@ -122,35 +127,182 @@ for (const example of examples) {
 }
 const sharedOption = new Option("Shared sketch", SHARED);
 
-const runButton = element("button", { class: "md-button md-button--primary", disabled: "" }, "Run");
-const stopButton = element("button", { class: "md-button", disabled: "", title: "Stops a sketch that animates" }, "Stop");
+const howLink = element("a", { class: "fg-play__how", hidden: "" }, "How it works ›");
+// The accessible name stays "Run"; the key is shown beside it.
+const runButton = element("button", { class: "fg-btn fg-btn--run", "aria-label": "Run", title: "Run (Ctrl+Enter)", disabled: "" },
+  "▶ Run", element("kbd", {}, "Ctrl ↵"));
+const stopButton = element("button", { class: "fg-btn", disabled: "", title: "Stop (Esc)" }, "Stop");
 const autoRun = element("input", { type: "checkbox", checked: "" });
-const shareButton = element("button", { class: "md-button" }, "Share");
-const resetButton = element("button", { class: "md-button", hidden: "", title: "Go back to the original code" }, "Reset");
-const status = element("span", { class: "play-status", role: "status" }, "Loading Python. The first time takes a little while...");
-const linkField = element("input", { class: "play-link", type: "text", readonly: "", "aria-label": "Link to share", hidden: "" });
-const editorBox = element("div", { class: "play-editor" });
-const preview = element("iframe", {
-  class: "play-preview", title: "The sketch", sandbox: SANDBOX, allow: "autoplay; microphone",
-});
-const output = element("pre", { class: "play-output", "aria-live": "polite" });
-const about = element("p", { class: "play-about" });
+const shareButton = element("button", { class: "fg-btn", title: "Copy a link that holds the code (Ctrl+S)" }, "Share");
+const resetButton = element("button", { class: "fg-btn", hidden: "", title: "Go back to the original code" }, "Reset");
+const helpButton = element("button", { class: "fg-iconbtn", "aria-label": "Help", "aria-expanded": "false",
+  "aria-controls": "fg-play-help", title: "How the Play page works" }, "?");
+const status = element("span", { class: "fg-status fg-status--loading play-status", role: "status" },
+  "Loading Python. The first time takes a little while...");
+const linkField = element("input", { class: "fg-play__link play-link", type: "text", readonly: "", "aria-label": "Link to share", hidden: "" });
 
+const help = element("div", { id: "fg-play-help", class: "fg-help fg-play__help", role: "dialog", "aria-label": "How Play works", hidden: "" });
+const pageText = document.querySelector(".fg-play-help");      // index.md's text, written there so it stays prose
+if (pageText) help.append(...pageText.childNodes);
+pageText?.remove();
+
+const fileName = element("b", {}, "sketch.py");
+const lineCount = element("span", {});
+const editorBox = element("div", { class: "fg-play__code play-editor" });
+const divider = element("div", { class: "fg-play__divider", role: "separator", tabindex: "0", "aria-orientation": "vertical",
+  "aria-label": "Share of the width between the code and the picture (arrow keys move it)" });
+
+const preview = element("iframe", { class: "play-preview", title: "The sketch", sandbox: SANDBOX, allow: "autoplay; microphone" });
+const frame = element("div", { class: "fg-play__frame" }, preview);
+const picture = element("div", { class: "fg-play__picture" }, frame);
+const sizeText = element("span", {});
+const aboutText = element("span", {});
+const zoomOut = element("button", { class: "fg-play__zoombtn", type: "button", "aria-label": "Zoom out", title: "Smaller" }, "−");
+const zoomFit = element("button", { class: "fg-play__zoombtn fg-play__zoomfit", type: "button", title: "As large as fits, never larger than its real size" }, "Fit");
+const zoomIn = element("button", { class: "fg-play__zoombtn", type: "button", "aria-label": "Zoom in", title: "Larger" }, "+");
+const errorCount = element("span", { class: "count", hidden: "" });
+const clearButton = element("button", { class: "fg-play__clear", type: "button" }, "Clear");
+const output = element("div", { class: "fg-console__body play-output", "aria-live": "polite" });
+
+const work = element("div", { class: "fg-play__work" },
+  element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, lineCount), editorBox),
+  divider,
+  element("div", { class: "fg-play__stage" },
+    // The messages are above the picture and take no room while there are none: the rest belongs to the sketch.
+    element("section", { class: "fg-console", "aria-label": "Output" },
+      element("div", { class: "fg-console__head" }, "Output", errorCount, element("span", { class: "spacer" }), clearButton),
+      output),
+    picture,
+    element("div", { class: "fg-play__caption" }, sizeText,
+      element("span", { class: "fg-play__zoom", role: "group", "aria-label": "Zoom" }, zoomOut, zoomFit, zoomIn), aboutText)));
+
+play.classList.add("fg-play");
 play.replaceChildren(
-  element("div", { class: "play-toolbar" }, choose, runButton, stopButton,
-    element("label", { class: "play-auto" }, autoRun, " Auto-run"), shareButton, resetButton, status),
+  element("div", { class: "fg-play__bar play-toolbar" }, choose, howLink, runButton, stopButton,
+    element("label", { class: "fg-play__auto" }, autoRun, " Auto-run"),
+    element("span", { class: "spacer" }), status, shareButton, resetButton, helpButton),
   linkField,
-  element("div", { class: "play-workspace" }, editorBox, element("div", { class: "play-stage" }, preview)),
-  output,
-  about,
+  help,
+  work,
 );
 
-const setStatus = (text) => { status.textContent = text; };
+// The status: one line with a coloured dot (loading gold, ready teal, running turquoise, an error tomato).
+function setStatus(text, kind) {
+  status.textContent = text;
+  if (kind) status.className = `fg-status fg-status--${kind} play-status`;
+}
 const isDark = () => document.body.getAttribute("data-md-color-scheme") === "slate";
 
 const editor = createEditor({ parent: editorBox, dark: isDark(), onChange: edited });
 new MutationObserver(() => editor.setDark(isDark()))
   .observe(document.body, { attributes: true, attributeFilter: ["data-md-color-scheme"] });
+
+function showLineCount() {
+  const lines = editor.getText().split("\n").length;
+  lineCount.textContent = `${lines} line${lines === 1 ? "" : "s"}`;
+}
+
+// ---- the page fills the window: everything under the site's header and tabs belongs to the editor
+
+function fillWindow() {
+  play.style.height = `${Math.max(320, window.innerHeight - play.getBoundingClientRect().top - window.scrollY)}px`;
+}
+window.addEventListener("resize", fillWindow);
+fillWindow();
+
+// ---- the picture: Fit (as large as the room allows, never larger than its real size), or zoomed in or out
+//
+// The frame holds the sketch at its own size and is scaled as a whole, so the sketch always sees its own
+// coordinates (the mouse included). A zoom larger than the room makes the picture area scroll.
+
+let sketchSize = { width: 640, height: 400 };
+let zoom = null;                                   // null: Fit; a number: the learner's choice
+const ZOOMS = [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
+
+function fitScale() {
+  const style = getComputedStyle(picture);
+  const roomX = picture.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 8;
+  const roomY = picture.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) - 8;
+  const { width, height } = sketchSize;
+  let scale = Math.min(1, roomX / width);
+  if (roomY > 0) scale = Math.min(scale, roomY / height);
+  return Math.max(scale, 0.1);
+}
+
+const percent = (scale) => (Math.abs(scale - 1) < 0.005 ? "1:1" : `${Math.round(scale * 100)}%`);
+
+function fitPicture() {
+  const { width, height } = sketchSize;
+  const scale = zoom ?? fitScale();
+  preview.style.width = `${width}px`;
+  preview.style.height = `${height}px`;
+  preview.style.transform = `scale(${scale})`;
+  frame.style.width = `${Math.round(width * scale)}px`;
+  frame.style.height = `${Math.round(height * scale)}px`;
+  picture.classList.toggle("is-zoomed", zoom !== null);
+  sizeText.textContent = `${width} × ${height}, shown at ${percent(scale)}`;
+  zoomFit.setAttribute("aria-pressed", String(zoom === null));
+  zoomOut.disabled = scale <= ZOOMS[0] + 0.001;
+  zoomIn.disabled = scale >= ZOOMS[ZOOMS.length - 1] - 0.001;
+}
+new ResizeObserver(fitPicture).observe(picture);
+
+function zoomBy(direction) {
+  const now = zoom ?? fitScale();
+  const next = direction > 0 ? ZOOMS.find((z) => z > now + 0.001) : ZOOMS.findLast((z) => z < now - 0.001);
+  zoom = next ?? now;
+  fitPicture();
+}
+zoomOut.addEventListener("click", () => zoomBy(-1));
+zoomIn.addEventListener("click", () => zoomBy(1));
+zoomFit.addEventListener("click", () => { zoom = null; fitPicture(); });
+
+// ---- the divider: drag it (or use the arrow keys) to share the width; the share is remembered
+
+const SPLIT_NAME = "funground.play.split";
+
+function setSplit(share) {
+  const clamped = Math.min(0.8, Math.max(0.2, share));
+  work.style.setProperty("--editor-share", `${clamped / (1 - clamped)}fr`);      // the picture's column is 1fr
+  remember(SPLIT_NAME, clamped);
+  return clamped;
+}
+
+let split = recall(SPLIT_NAME);
+if (typeof split === "number") split = setSplit(split);
+else split = 0.86 / 1.86;
+
+divider.addEventListener("pointerdown", (event) => {
+  divider.setPointerCapture(event.pointerId);
+  const move = (e) => {
+    const box = work.getBoundingClientRect();
+    split = setSplit((e.clientX - box.left) / box.width);
+  };
+  divider.addEventListener("pointermove", move);
+  divider.addEventListener("pointerup", () => divider.removeEventListener("pointermove", move), { once: true });
+});
+divider.addEventListener("keydown", (event) => {
+  const step = { ArrowLeft: -0.05, ArrowRight: 0.05 }[event.key];
+  if (step) {
+    event.preventDefault();
+    split = setSplit(split + step);
+  }
+});
+
+// ---- help: the page's text in a popover, shown by itself on the first visit only
+
+const HELP_SEEN = "funground.play.helpSeen";
+
+function showHelp(open) {
+  help.hidden = !open;
+  helpButton.setAttribute("aria-expanded", String(open));
+  if (open) remember(HELP_SEEN, true);
+}
+helpButton.addEventListener("click", () => showHelp(help.hidden));
+document.addEventListener("pointerdown", (event) => {
+  if (!help.hidden && !help.contains(event.target) && event.target !== helpButton) showHelp(false);
+});
+if (!recall(HELP_SEEN)) showHelp(true);
 
 // ---- the sketch on the page: where it came from, what it was, and the data files it reads
 
@@ -206,12 +358,15 @@ async function open(wanted) {
   const useDraft = draft && typeof draft.text === "string" && (key !== SHARED || draft.base === sharedBase);
   editor.setText(useDraft ? draft.text : original);
   showReset();
+  showLineCount();
   writeAddress();
-  about.replaceChildren(current ? current.title : "");
-  if (current?.page) about.append(" · ", element("a", { href: current.page }, "How it works, on its gallery page"));
+  fileName.textContent = current ? current.source.split("/").pop() : "sketch.py";
+  aboutText.textContent = current ? current.title : "";
+  howLink.hidden = !current?.page;
+  if (current?.page) howLink.href = current.page;
   if (useDraft) setStatus("Your unsaved changes are back. Reset goes back to the original.");
   else if (key === SHARED) setStatus("Shared sketch: press Run.");
-  else if (previewReady) setStatus("Ready. Press Run.");
+  else if (previewReady) setStatus("Ready. Press Run.", "ready");
 }
 
 // ---- editing: drafts are kept in this browser, and Auto-run runs again after a pause
@@ -222,6 +377,7 @@ function edited() {
   const text = editor.getText();
   remember(draftName(), text === original ? null : { text, base: key === SHARED ? sharedBase : undefined });
   showReset();
+  showLineCount();
   clearTimeout(autoTimer);
   if (autoRun.checked && previewReady) autoTimer = setTimeout(runSketch, AUTO_RUN_MS);
 }
@@ -230,6 +386,7 @@ resetButton.addEventListener("click", () => {
   remember(draftName(), null);
   editor.setText(original);
   showReset();
+  showLineCount();
   setStatus("Back to the original.");
 });
 
@@ -237,6 +394,8 @@ resetButton.addEventListener("click", () => {
 
 let previewReady = false;
 let ranFilename = "sketch.py";
+let errors = 0;
+let startedAt = 0;
 const address = previewAddress();
 
 // A message is trusted only if it comes from the iframe's own window and from the preview's origin.
@@ -256,40 +415,71 @@ function addOutput(text, stream) {
 
 function clearOutput() {
   output.replaceChildren();
+  errors = 0;
+  errorCount.hidden = true;
   editor.clearError();
 }
+clearButton.addEventListener("click", clearOutput);
 
-// A traceback names the sketch file and a line: mark the last such line that is in the learner's own file.
-function markErrorLine(text) {
+// A traceback names the sketch file and a line: the last such line that is in the learner's own file, or null.
+function errorLineOf(text) {
   const own = [...text.matchAll(/File "([^"]+)", line (\d+)/g)].filter((match) => match[1] === ranFilename);
-  if (own.length) editor.markError(Number(own[own.length - 1][2]));
+  return own.length ? Number(own[own.length - 1][2]) : null;
+}
+
+// The message in one plain line (the traceback's last line), with a link to the line in the code.
+function showError(text) {
+  const line = errorLineOf(text);
+  if (line !== null) editor.markError(line);
+  const plain = text.trim().split("\n").filter((l) => l.trim()).pop() ?? "The sketch stopped with an error.";
+  const summary = element("div", { class: "fg-play__error" }, plain);
+  if (line !== null) {
+    const go = element("button", { class: "line-link", type: "button" }, `Go to line ${line}`);
+    go.addEventListener("click", () => editor.goToLine(line));
+    summary.append(" ", go);
+  }
+  output.append(summary);
+  addOutput(text, "stderr");
+  errors += 1;
+  errorCount.textContent = String(errors);
+  errorCount.hidden = false;
+  return line;
 }
 
 let focusOnStart = false;     // the run came from the Run button: give the sketch the keys once it starts
-
-const FINISHED = { ended: "Finished.", stopped: "Stopped.", error: "Stopped by an error: see the message below the picture." };
+let errorLine = null;
 
 const handlers = {
   ready() {
     previewReady = true;
     runButton.disabled = false;
-    if (status.textContent.startsWith("Loading")) setStatus("Ready. Press Run.");   // not over a more useful message
+    if (status.textContent.startsWith("Loading")) setStatus("Ready. Press Run.", "ready");   // not over a more useful message
   },
   output: (message) => addOutput(message.text, message.stream),
+  // The last sketch did not stop within a second, so the preview is loading a new Python: say why the run waits.
+  restarting() {
+    setStatus("Starting Python again: the last sketch did not stop in time. This takes a few seconds...", "loading");
+  },
   error(message) {
-    addOutput(message.text, "stderr");
-    markErrorLine(message.text);
+    errorLine = showError(message.text);
   },
   started(message) {
-    preview.style.width = `${message.width}px`;
-    preview.style.aspectRatio = `${message.width} / ${message.height}`;
-    setStatus("Running. Click the picture to give it the mouse and keys.");
+    sketchSize = { width: message.width, height: message.height };
+    fitPicture();
+    setStatus("Running. Click the picture to give it the mouse and keys.", "running");
     stopButton.disabled = false;
     if (focusOnStart) preview.focus();   // so the space bar reaches the sketch instead of pressing Run again
     focusOnStart = false;
   },
   finished(message) {
-    setStatus(FINISHED[message.reason] ?? message.reason);
+    if (message.reason === "error") {
+      setStatus(errorLine === null ? "Your sketch stopped with an error: the message is above the picture."
+        : `Your sketch stopped with an error on line ${errorLine}: the message is above the picture.`, "error");
+    } else if (message.reason === "ended") {
+      setStatus(`Finished in ${((performance.now() - startedAt) / 1000).toFixed(1)} s.`, "ready");
+    } else {
+      setStatus("Stopped.", "ready");
+    }
     stopButton.disabled = true;
     focusOnStart = false;
   },
@@ -303,8 +493,10 @@ function runSketch() {
   clearTimeout(autoTimer);
   if (!previewReady) return;
   clearOutput();
+  errorLine = null;
   ranFilename = current ? current.source.split("/").pop() : "sketch.py";
-  setStatus("Starting...");
+  startedAt = performance.now();
+  setStatus("Starting...", "running");
   tell({ type: "run", source: editor.getText(), filename: ranFilename, files });
 }
 
@@ -322,6 +514,22 @@ runButton.addEventListener("click", () => {
 stopButton.addEventListener("click", stopSketch);
 choose.addEventListener("change", () => {
   if (choose.value !== SHARED) open(choose.value);
+});
+
+// ---- the keyboard: Ctrl+Enter runs (the keys stay in the code), Esc stops (or closes the help), Ctrl+S shares
+
+document.addEventListener("keydown", (event) => {
+  const command = event.ctrlKey || event.metaKey;
+  if (command && event.key === "Enter") {
+    event.preventDefault();
+    runSketch();
+  } else if (command && event.key.toLowerCase() === "s") {
+    event.preventDefault();                // not the browser's "save page" dialog
+    shareButton.click();
+  } else if (event.key === "Escape") {
+    if (!help.hidden) showHelp(false);
+    else if (!stopButton.disabled) stopSketch();
+  }
 });
 
 // ---- Share: the link holds the code; it is copied, and shown in case copying is not allowed
@@ -368,3 +576,4 @@ async function openFromAddress() {
 window.addEventListener("hashchange", () => { if (sharedCode()) openFromAddress(); });
 preview.src = address.href;
 await openFromAddress();
+fitPicture();

@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>funground — home, night</title>
+<link rel="stylesheet" href="../funground.css">
+</head>
+<body>
+<style>
+body { margin: 0; }
+a { color: #ffa07a; } a:hover { color: #ffc4a8; }
+.only-dark { display: none; } [data-theme="dark"] .only-dark { display: inline; } [data-theme="dark"] .only-light { display: none; }
+.hero { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.25fr); gap: 40px; align-items: center; padding: 64px 0 40px; }
+.hero h1 { font-size: 68px; line-height: 0.95; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 20px; }
+.hero .fg-lead { max-width: 30rem; margin-bottom: 26px; }
+.ctas { display: flex; gap: 16px; flex-wrap: wrap; }
+@media (max-width: 900px) { .hero { grid-template-columns: 1fr; padding: 32px 0; } .hero h1 { font-size: 44px; } }
+</style>
+<div class="fg-paper" data-theme="dark" style="min-height: 100vh;">
+
+<header class="fg-header">
+  <a class="fg-header__brand" href="Home-night.dc.html"><img class="only-light" src="../assets/funground-mark.svg" alt=""><img class="only-dark" src="../assets/funground-mark-on-dark.svg" alt="">funground</a>
+  <nav class="fg-header__nav" aria-label="Site">
+    <a href="Home-night.dc.html" aria-current="page">Home</a><a href="Guide.dc.html">Learn</a><a href="Gallery.dc.html">Gallery</a><a href="#reference">Reference</a><a href="Play-night.dc.html" class="is-play">Play</a>
+  </nav>
+  <input class="fg-header__search" type="search" placeholder="Search" aria-label="Search">
+  <button class="fg-header__theme" aria-label="Switch to day"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg></button>
+  <button class="fg-header__menu" aria-label="Menu"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+</header>
+
+<main class="fg-wrap">
+  <section class="hero">
+    <div>
+      <h1>Draw, animate and make sound with <span class="fg-mark">Python</span>.</h1>
+      <p class="fg-lead">Write a few lines, press Run, and your picture appears. Nothing to install.</p>
+      <div class="ctas">
+        <a class="fg-btn fg-btn--primary" href="Play-night.dc.html"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>Try it in your browser</a>
+        <a class="fg-btn fg-btn--secondary" href="Guide.dc.html">Get started</a>
+      </div>
+      <p class="fg-claims">In the spirit of Processing, p5.js and DrawBot · Runs in the browser · Windows, Mac and Linux · Free and open source</p>
+    </div>
+
+    <div class="fg-sketch">
+      <div class="fg-sketch__code">
+        <pre class="fg-code"><span class="ln"><span class="k">import</span> funground <span class="k">as</span> f</span><span class="ln"></span><span class="ln">f.size(<span class="n">640</span>, <span class="n">400</span>)</span><span class="ln">f.background(<span class="s">"oldlace"</span>)</span><span class="ln">f.fill(<mark>"tomato"</mark>)</span><span class="ln">f.circle(<span class="n">320</span>, <span class="n">200</span>, <span class="n">120</span>)</span><span class="ln">f.show()</span></pre>
+      </div>
+      <div class="fg-sketch__stage">
+        <svg viewBox="0 0 640 400" role="img" aria-label="A coloured circle on an oldlace background"><rect width="640" height="400" fill="#fdf5e6"/><circle cx="320" cy="200" r="120" fill="#ff6347"/></svg>
+      </div>
+      <div class="fg-sketch__bar">
+        <span>Change the colour:</span>
+        <button class="fg-chip" style="--chip-dot: #ff6347;" aria-pressed="true">tomato</button>
+        <button class="fg-chip" style="--chip-dot: #008080;" aria-pressed="false">teal</button>
+        <button class="fg-chip" style="--chip-dot: #ffd700;" aria-pressed="false">gold</button>
+        <button class="fg-chip" style="--chip-dot: #ff69b4;" aria-pressed="false">hotpink</button>
+        <span class="spacer"></span>
+        <a href="Play-night.dc.html">Open this sketch in Play ›</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="fg-band" style="padding-top: 24px;">
+    <div class="fg-band__head"><h2>Made with funground</h2><a href="Gallery.dc.html">All the examples ›</a></div>
+    <div class="fg-tiles">
+      <a class="fg-tile" href="Gallery.dc.html"><img class="fg-tile__img" src="../assets/rangoli.webp" alt="Rangoli"><span class="fg-tile__cap"><span class="fg-tile__title">Rangoli</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile" href="Gallery.dc.html"><img class="fg-tile__img" src="../assets/typographic-portrait.webp" alt="Typographic portrait"><span class="fg-tile__cap"><span class="fg-tile__title">Typographic portrait</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile" href="Gallery.dc.html"><img class="fg-tile__img" src="../assets/flow-field.webp" alt="Flow field"><span class="fg-tile__cap"><span class="fg-tile__title">Flow field</span><span class="fg-tile__run">Run ›</span></span></a>
+      <a class="fg-tile" href="Gallery.dc.html"><img class="fg-tile__img" src="../assets/tala.webp" alt="Teentaal"><span class="fg-tile__cap"><span class="fg-tile__title">Teentaal</span><span class="fg-tile__run">Run ›</span></span></a>
+    </div>
+  </section>
+
+  <section class="fg-band">
+    <div class="fg-band__head"><h2>Three things you can do today</h2><p class="fg-muted">Each one is a short chapter in the guide.</p></div>
+    <div class="fg-cards-3">
+      <article class="fg-card">
+        <img class="fg-card__img" src="../assets/star.webp" alt="A star drawn with a path">
+        <div class="fg-card__body">
+          <h3>Draw</h3>
+          <p>Shapes, colour, text and paths. Every picture is a few lines you can read.</p>
+          <pre class="fg-code"><span class="ln">f.fill(<span class="s">"gold"</span>)</span><span class="ln">f.square(<span class="n">80</span>, <span class="n">80</span>, <span class="n">160</span>)</span><span class="ln">f.fill(<span class="s">"hotpink"</span>)</span><span class="ln">f.circle(<span class="n">400</span>, <span class="n">200</span>, <span class="n">140</span>)</span></pre>
+          <a href="Guide.dc.html">Chapter 3: Shapes ›</a>
+        </div>
+      </article>
+      <article class="fg-card">
+        <img class="fg-card__img" src="../assets/rotating-squares.webp" alt="Squares turning from blue to pink">
+        <div class="fg-card__body">
+          <h3>Animate</h3>
+          <p>A <code>draw()</code> function runs sixty times a second. Change a number each time and things move.</p>
+          <pre class="fg-code"><span class="ln"><span class="k">def</span> draw():</span><span class="ln">    f.background(<span class="s">"oldlace"</span>)</span><span class="ln">    f.translate(<span class="n">320</span>, <span class="n">200</span>)</span><span class="ln">    f.rotate(f.frame_count * <span class="n">2</span>)</span><span class="ln">    f.square(<span class="n">-60</span>, <span class="n">-60</span>, <span class="n">120</span>)</span></pre>
+          <a href="Guide.dc.html">Chapter 7: Animation and time ›</a>
+        </div>
+      </article>
+      <article class="fg-card">
+        <img class="fg-card__img" src="../assets/raga-explorer.webp" alt="The raga explorer, showing Yaman">
+        <div class="fg-card__body">
+          <h3>Make sound</h3>
+          <p>Tunes from text, a tabla theka, and thirteen Hindustani ragas with their aroha and pakad built in.</p>
+          <pre class="fg-code"><span class="ln">yaman = f.raga(<span class="s">"Yaman"</span>)</span><span class="ln">f.melody(yaman.aroha, sa=<span class="s">"D4"</span>).play()</span><span class="ln">f.tala(<span class="s">"Teentaal"</span>, tempo=<span class="n">100</span>).loop()</span></pre>
+          <a href="Guide.dc.html">Chapter 17: Ragas and talas ›</a>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="fg-band">
+    <div class="fg-band__head"><h2>Where funground comes from</h2><p class="fg-muted">It borrows from the tools that came before it, and tries to remove what kept a learner out of each.</p></div>
+    <div class="fg-origin">
+      <article class="fg-card">
+        <div class="fg-card__body">
+          <h3>Processing and p5.js</h3>
+          <p>The sketch: <code>setup()</code> runs once, <code>draw()</code> runs sixty times a second, and the picture moves. p5.js runs in any browser with nothing to install.</p>
+          <dl><dt>Kept</dt><dd>The sketch, and running in the browser.</dd><dt>Changed</dt><dd>You write Python, not JavaScript or Java.</dd></dl>
+        </div>
+      </article>
+      <article class="fg-card">
+        <div class="fg-card__body">
+          <h3>DrawBot</h3>
+          <p>The script: a Python file that makes a poster, a PDF with real text, or a booklet of pages. It runs on a Mac only.</p>
+          <dl><dt>Kept</dt><dd>Scripts, PDF and SVG with real text, pages.</dd><dt>Changed</dt><dd>It runs on Windows, Mac and Linux, and in the browser.</dd></dl>
+        </div>
+      </article>
+      <article class="fg-card">
+        <div class="fg-card__body">
+          <h3>How it is built</h3>
+          <p>Cairo draws the picture and pygame-ce opens the window. In the browser, the same Python runs through Pyodide. Free software under the LGPL-2.1, the licence family of p5.js, Processing and pygame-ce. The examples are CC0.</p>
+          <a href="#compared">The full comparison, checked against each tool's own documentation ›</a>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="fg-band">
+    <div class="fg-band__head"><h2>The guide, in order</h2><p class="fg-muted">Nineteen short chapters. Start at 1; each one builds on the last.</p></div>
+    <ol class="fg-chapters">
+      <li><a href="Guide.dc.html">Getting started</a></li><li><a href="Guide.dc.html">The sketch</a></li><li><a href="Guide.dc.html">Shapes</a></li><li><a href="Guide.dc.html">Colour</a></li><li><a href="Guide.dc.html">Fill, stroke and lines</a></li><li><a href="Guide.dc.html">Text</a></li><li><a href="Guide.dc.html">Animation and time</a></li><li><a href="Guide.dc.html">Transforms</a></li><li><a href="Guide.dc.html">Paths, clipping and pictures</a></li><li><a href="Guide.dc.html">Interaction</a></li><li><a href="Guide.dc.html">Randomness and noise</a></li><li><a href="Guide.dc.html">Useful maths</a></li><li><a href="Guide.dc.html">Saving your work</a></li><li><a href="Guide.dc.html">Coming from p5.js and Processing</a></li><li><a href="Guide.dc.html">Coming from DrawBot</a></li><li><a href="Guide.dc.html">Sound</a></li><li><a href="Guide.dc.html">Ragas and talas</a></li><li><a href="Guide.dc.html">Projects</a></li><li><a href="Guide.dc.html">Studios</a></li>
+    </ol>
+  </section>
+
+  <section class="fg-band">
+    <div class="fg-split">
+      <div class="fg-install">
+        <span class="fg-label">For teachers</span>
+        <h2 style="font-size: 32px;">Teaching a class?</h2>
+        <p>Everything runs in the browser, so a lesson needs no installs. The guide ends with eight projects and a Studios chapter for running a group session.</p>
+        <ul style="margin: 0; padding-left: 22px;">
+          <li>Projects with a brief, steps and a finished example: rangoli, event posters, a voice-controlled game.</li>
+          <li>Examples are original and CC0. Use them in your materials freely.</li>
+          <li>Share a sketch as a link. Nothing is stored on a server.</li>
+        </ul>
+        <a href="Guide.dc.html">Chapter 19: Studios, on running a group session ›</a>
+      </div>
+      <div class="fg-install">
+        <span class="fg-label">On your own computer</span>
+        <h2 style="font-size: 32px;">When you want your own editor and files</h2>
+        <p>Install funground with pip. You need Python 3.11 or newer. Windows needs nothing else; on Linux, install Cairo's development files first. The funground extension in github.dev gives you the same editor as Play.</p>
+        <pre class="fg-code fg-code--plain" style="font-size: 14px;"><span class="ln">python -m pip install git+https://github.com/funground-hq/funground</span></pre>
+        <p class="fg-muted" style="font-size: 15px;">funground 0.1 is not on PyPI yet. Once it is, <code>pip install funground</code> will do. <a href="Guide.dc.html">Chapter 1 shows the steps one by one.</a></p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="fg-footer" style="margin-top: 64px;">
+  <div class="fg-wrap">
+    <span>funground is free software (LGPL-2.1). The examples are CC0.</span>
+    <nav><a href="#about">About</a><a href="#changelog">Changelog</a><a href="https://github.com/funground-hq/funground">GitHub</a></nav>
+  </div>
+</footer>
+</div>
+</body>
+</html>
