@@ -51,7 +51,6 @@ FILES = [
     ("docs/reference/API.md", "reference/API.md"),
     ("docs/reference/Quick_Reference.md", "reference/Quick_Reference.md"),
     ("docs/reference/Compared_with_p5_and_DrawBot.md", "reference/Compared_with_p5_and_DrawBot.md"),
-    ("docs/gallery/SHOWCASE.md", "gallery/showcase.md"),
     ("CHANGELOG.md", "changelog.md"),
 ]
 
@@ -238,16 +237,38 @@ def example_page(example: Example, funground: Path, runnable: bool = False) -> s
     return "\n".join(lines)
 
 
-def gallery_index(examples: list[Example], areas: dict[str, str]) -> str:
+def showcase_ids(funground: Path) -> list[str]:
+    """The examples funground's docs/gallery/SHOWCASE.md picks, in its order (each section's picture names one)."""
+    showcase = funground / "docs" / "gallery" / "SHOWCASE.md"
+    if not showcase.exists():
+        return []
+    return re.findall(r"!\[[^\]]*\]\(images/([^)]+)\.png\)", showcase.read_text(encoding="utf-8"))
+
+
+def gallery_index(examples: list[Example], areas: dict[str, str], glance: list[str] = ()) -> str:
+    # A playground page: pictures across the whole width, no sidebar (the maintainer, 13 Oct). The showcase's picks
+    # open the page as "At a glance", instead of being a page of their own.
     lines = [
+        "---",
+        "hide:",
+        "  - navigation",
+        "  - toc",
+        "---",
+        "",
         "# Gallery",
         "",
         "Every picture is made by running the example beside it. Click a picture to see how it works",
         "and to read the whole code. Each example is a complete sketch: copy it into a file and run it.",
         "",
-        "Short on time? See the [showcase](showcase.md): a dozen of the best pictures on one page.",
-        "",
     ]
+    by_id = {example.id: example for example in examples}
+    picks = [by_id[i] for i in glance if i in by_id]
+    if picks:
+        lines += ["## At a glance", "", '<div class="gallery-grid" markdown>', ""]
+        for example in picks:
+            link = f"{example.area}/{example.name}.md"
+            lines += [f"[![{example.title}](images/{example.id}.png)]({link})", f"[{example.title}]({link})", ""]
+        lines += ["</div>", ""]
     current = None
     for example in examples:
         if example.area != current:
@@ -266,7 +287,7 @@ def write_gallery(funground: Path, docs: Path, runnable: frozenset[str] = frozen
     """The gallery index and pages; an example whose id is in ``runnable`` gets a "Play with it online" button and link."""
     areas = read_areas(funground)
     examples = read_examples(funground, areas)
-    (docs / "gallery" / "index.md").write_text(gallery_index(examples, areas), encoding="utf-8", newline="\n")
+    (docs / "gallery" / "index.md").write_text(gallery_index(examples, areas, showcase_ids(funground)), encoding="utf-8", newline="\n")
     for example in examples:
         page = docs / "gallery" / example.area / f"{example.name}.md"
         page.parent.mkdir(parents=True, exist_ok=True)
