@@ -3,16 +3,18 @@
 // Nothing here is written by hand about the API. The learner's own variables are not suggested, except through
 // CodeMirror's local words from lang-python, which keep working beside this source.
 //
-// Three places give suggestions:
+// Four places give suggestions:
 //   1. after `f.`            every funground name (f is whatever `import funground as ...` says; the default is f)
 //   2. a bare word           with `from funground import *`, the names marked "star" (two letters or more)
 //   3. inside a string       the words that funground call takes there: colour names, or an option list
+//   4. inside a namespace    after `f.COLORS.` the colour names, after `f.CONSTANTS.` the groups and after
+//                            `f.CONSTANTS.ALIGN.` the group's words (with `from funground import *`: no `f.`)
 import { autocompletion } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 const SITE = "https://funground-hq.github.io/";
-const KIND_TYPE = { function: "function", class: "class", value: "variable" };
+const KIND_TYPE = { function: "function", class: "class", value: "variable", namespace: "namespace" };
 
 // The data names the reference's Markdown file ("reference/API.md#fn-circle"); MkDocs publishes it as a folder.
 const pageUrl = (url) => SITE + url.replace(/\.md(#|$)/, "/$1");
@@ -42,8 +44,31 @@ function parameterNames(signature) {
   return inside.split(",").map((part) => part.trim().split("=")[0].trim()).filter((p) => p && p !== "/" && !p.startsWith("*"));
 }
 
+// What stands after a namespace's dot: COLORS gives colour names (with a swatch), CONSTANTS gives its groups,
+// and CONSTANTS.GROUP gives the words of one group. Keyed "COLORS", "CONSTANTS", "CONSTANTS.ALIGN".
+function namespaceOptions(entry) {
+  const found = new Map();
+  if (entry.name === "COLORS") {
+    found.set("COLORS", entry.members.map((c) => ({
+      label: c.name, detail: `"${c.value}" ${c.hex}`, type: "constant", swatch: c.hex,
+    })));
+    return found;
+  }
+  found.set(entry.name, entry.members.map((group) => ({
+    label: group.name, detail: `for ${group.used_by.join(", ")}`, type: "namespace",
+  })));
+  for (const group of entry.members) {
+    found.set(`${entry.name}.${group.name}`, group.members.map((word) => ({
+      label: word.name, detail: `"${word.value}"`, type: "enum", info: word.meaning,
+    })));
+  }
+  return found;
+}
+
 export function prepare(data) {
   const stars = [];
+  const inside = new Map();
+  for (const entry of data.names) if (entry.kind === "namespace") for (const [k, v] of namespaceOptions(entry)) inside.set(k, v);
   const all = data.names.map((entry) => {
     const completion = {
       label: entry.name, detail: entry.detail, type: KIND_TYPE[entry.kind] ?? "variable", info: () => infoNode(entry),
@@ -54,6 +79,7 @@ export function prepare(data) {
   return {
     all,
     star: stars,
+    inside,
     byName: new Map(data.names.map((entry) => [entry.name, entry])),
     parameters: new Map(data.names.map((entry) => [entry.name, parameterNames(entry.signature)])),
     colourParams: new Set(data.color_params.map((p) => `${p.function}.${p.parameter}`)),
@@ -142,10 +168,17 @@ function fungroundSource(getData) {
       return { from, validFor: WORD, options: words.map((w) => ({ label: w.word, type: "enum", info: w.meaning })) };
     }
 
-    const member = context.matchBefore(/[A-Za-z_]\w*\.\w*/);     // f.cir
+    const member = context.matchBefore(/[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\.\w*/);     // f.cir, f.COLORS.TOM
     if (member && text[member.from - 1] !== ".") {
-      const dot = member.text.indexOf(".");
-      if (aliases.has(member.text.slice(0, dot))) return { from: member.from + dot + 1, options: data.all, validFor: /^\w*$/ };
+      const parts = member.text.split(".");
+      const partial = parts.pop();
+      let path = null;                                           // the names between f and the cursor: [] or ["COLORS"]
+      if (aliases.has(parts[0])) path = parts.slice(1);
+      else if (usesStar(text) && data.inside.has(parts.join("."))) path = parts;
+      if (path) {
+        const options = path.length ? data.inside.get(path.join(".")) : data.all;
+        if (options) return { from: member.to - partial.length, options, validFor: /^\w*$/ };
+      }
     }
 
     if (usesStar(text)) {                                        // a bare word, after `from funground import *`

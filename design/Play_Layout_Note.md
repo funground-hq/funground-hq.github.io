@@ -59,3 +59,11 @@ It is one more source beside lang-python's, so CodeMirror's local words keep wor
 
 The learner's own variables and functions are not suggested, beyond CodeMirror's local words. The popup is styled
 with the page's variables in `completion.js`. **Tests:** checks 13 to 17 in `tools/test_editor.mjs`.
+
+**The namespaces (S-174).** `COLORS` and `CONSTANTS` are entries of kind `namespace` in `completions.json`, so they
+appear after `f.` like any name. A dotted name is also read: after `f.COLORS.` the editor offers the colour names (with
+the swatch, the word such as `"tomato"` and the hex), after `f.CONSTANTS.` the groups (each says which functions use it,
+"for text_align"), and after `f.CONSTANTS.ALIGN.` the words of that group, with their meaning when there is one. With
+`from funground import *` the same works without the `f.` (`COLORS.TOM`). Filtering ignores case, and accepting a word
+inserts the capital name. The lists are built in `prepare()` from the `members` of the two entries; nothing is written
+by hand. **Tests:** checks 18 to 21.
