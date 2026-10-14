@@ -476,6 +476,51 @@ try {
     assert(!(await popupLabels(page)).includes("ellipse"), "a bare word was completed without the star import");
     await page.close();
   });
+  // ---- suggestions inside the namespaces COLORS and CONSTANTS (S-174)
+
+  // ---- suggestions inside the namespaces COLORS and CONSTANTS (S-174)
+  await check(18, "f.COLORS.TOM offers TOMATO with a swatch, and the namespaces are offered after f.", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "f.CONST");
+    await waitForOption(page, "CONSTANTS");
+    await page.keyboard.press("Escape");
+    await typeSlowly(page, "\nf.COLORS.TOM");
+    await waitForOption(page, "TOMATO");
+    assert(await page.locator(".cm-tooltip-autocomplete .fg-swatch").count() > 0, "no colour swatch");
+    const detail = await page.locator(".cm-tooltip-autocomplete li", { hasText: "TOMATO" }).first().innerText();
+    assert(detail.includes("tomato") && detail.includes("#ff6347"), `the detail is ${JSON.stringify(detail)}`);
+    await sleep(300);
+    await page.keyboard.press("Enter");
+    const text = await editorText(page);
+    assert(text.endsWith("\nf.COLORS.TOMATO"), `the text is ${JSON.stringify(text)}`);
+    await page.close();
+  });
+
+  await check(19, "f.CONSTANTS. offers the groups, with the functions that use them", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "f.CONSTANTS.");
+    await waitForOption(page, "ALIGN");
+    const row = await page.locator(".cm-tooltip-autocomplete li", { hasText: "ALIGN" }).first().innerText();
+    assert(row.includes("text_align"), `the row is ${JSON.stringify(row)}`);
+    await page.close();
+  });
+
+  await check(20, "f.CONSTANTS.ALIGN.CE offers CENTER", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "f.CONSTANTS.ALIGN.CE");
+    await waitForOption(page, "CENTER");
+    await page.close();
+  });
+
+  await check(21, "with from funground import * , CONSTANTS.BLEND.MUL offers MULTIPLY", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "from funground import *\nCONSTANTS.BLEND.MUL");
+    await waitForOption(page, "MULTIPLY");
+    await page.keyboard.press("Escape");
+    await typeSlowly(page, "from funground import *\nCOLORS.TOM");
+    await waitForOption(page, "TOMATO");
+    await page.close();
+  });
 } finally {
   await browser.close();
   for (const server of [editorServer, previewServer, strangerServer]) server.close();
