@@ -31,7 +31,7 @@ console under the picture: it pushed tall sketches' output off the screen until 
 competes with the picture.
 
 **Limits.** Phones (S-189), the alternative layouts (picture only, stacked) and the picker with thumbnails (S-188)
-are not built. The editor's colours at night are still CodeMirror's One Dark, not the code tokens. A sketch that
+are not built. A sketch that
 does not answer "stop" within the runner's second still costs a new Python (a few seconds); the status says so.
 
 **Tests.** `tools/test_editor.mjs`, 12 checks: the ten it had (check 1 now also checks the editor is not built
@@ -67,3 +67,43 @@ the swatch, the word such as `"tomato"` and the hex), after `f.CONSTANTS.` the g
 `from funground import *` the same works without the `f.` (`COLORS.TOM`). Filtering ignores case, and accepting a word
 inserts the capital name. The lists are built in `prepare()` from the `members` of the two entries; nothing is written
 by hand. **Tests:** checks 18 to 21.
+
+## The arguments while typing and help on hover (S-201)
+
+Both come from `completions.json`, in `tools/codemirror/completion.js`, and need no new package.
+
+- **The hint.** While the cursor is inside the brackets of a funground call (`f.circle(`, with the alias the code
+  imports, or a bare name after `from funground import *`), a small box above the cursor shows the learner signature
+  (`circle(x, y, diameter)`) with the current part in bold. It reuses `readCode()`, the reader that string suggestions
+  use: it counts the commas of the open bracket and ignores those in strings and nested brackets. If the cursor is in
+  another bracket inside the call (`f.circle(10, int(`), the hint is for the outer funground call. A keyword
+  (`color=`) bolds that name; past the positional parts `*radii` is bold. It is a CodeMirror tooltip from a state
+  field (`showTooltip`), so it moves with the cursor, goes after the closing bracket, and the suggestion popup (below
+  the cursor) and the hint (above) do not cover each other. Escape closes the suggestions first, then the hint, until
+  the text changes.
+- **Hover.** Holding the mouse on a funground name (after `f.` or a star name, not in a string or comment) shows the same
+  box as the suggestions (`infoNode()`: typed signature, summary, Reference link), by `hoverTooltip`.
+- Both are styled with the page's variables in `popupTheme`, so they follow day and night.
+
+**Tests:** checks 22 to 24 in `tools/test_editor.mjs`.
+
+## Night colours (S-204)
+
+One Dark is gone (the package `@codemirror/theme-one-dark` is removed; `@lezer/highlight` 1.2.5, already installed
+beneath lang-python, is now named in `package.json` for its tags). `tools/codemirror/entry.js` has one highlight style,
+built from the code tokens through the page's variables, so day and night come from the same list: keywords orchid
+(bold), strings link, numbers and `True`/`None` code-number, comments code-comment (italic), operators and brackets
+ink-muted, names ink. The background was already `--md-code-bg-color` (paper-code); One Dark had overridden it. `setDark`
+adds a small night theme: the editor says it is dark, and the cursor and selection use ink. Day now uses the tokens
+too, not CodeMirror's default colours.
+
+`tools/check_code_contrast.py` reads `design/tokens.json` and checks each code colour against paper-code (WCAG AA,
+4.5:1); all twelve pass (lowest: day keyword 5.48, day comment 5.42; night lowest: comment 7.50).
+
+**A fault found and fixed in `funground.css`:** `--code-keyword` and `--code-string` were declared only in the day
+block, as `var(--orchid)` and `var(--link)`. A `var()` is resolved where it is declared, so at night they kept day
+colours (and so did `--md-code-hl-keyword-color`, `--md-code-hl-string-color` and the home page's `.fg-code .k` and
+`.s`). The night block now declares them again. The editor uses `--orchid` and `--link` directly.
+
+**Tests:** check 25 in `tools/test_editor.mjs` (the night background is the token and not `#282c34`; keyword, string,
+number, comment and plain text have the night token values).

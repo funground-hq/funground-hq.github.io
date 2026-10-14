@@ -523,6 +523,96 @@ try {
     await waitForOption(page, "TOMATO");
     await page.close();
   });
+
+  // ---- the arguments while typing and help on hover (S-201), the night colours (S-204)
+  const hintBold = (page) => page.locator(".fg-hint strong").allInnerTexts();
+
+  await check(22, "inside f.circle(10, the hint shows circle(x, y, diameter) with y in bold", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "f.circle(10, ");
+    await page.locator(".fg-hint").waitFor({ timeout: 5000 });
+    assert((await page.locator(".fg-hint").innerText()) === "circle(x, y, diameter)", `the hint is ${await page.locator(".fg-hint").innerText()}`);
+    assert(JSON.stringify(await hintBold(page)) === '["y"]', `bold is ${JSON.stringify(await hintBold(page))}`);
+    await page.keyboard.type("5, 7", { delay: 20 });
+    await page.waitForFunction(() => document.querySelector(".fg-hint strong")?.textContent === "diameter", null, { timeout: 5000 })
+      .catch(async () => { throw new Error(`hint ${await page.evaluate(() => document.querySelector(".fg-hint")?.innerHTML)}; text ${await editorText(page)}`); });
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "hint.png") });
+    // The first Escape may close a suggestion CodeMirror is still working on; the hint goes with the next one.
+    for (let tries = 0; tries < 3 && await page.locator(".fg-hint").count(); tries++) { await page.keyboard.press("Escape"); await sleep(150); }
+    await page.waitForFunction(() => !document.querySelector(".fg-hint"), null, { timeout: 5000 })
+      .catch(async () => { throw new Error(`Escape left the hint; tooltips: ${await page.evaluate(() => [...document.querySelectorAll(".cm-tooltip")].map((t) => t.className))}`); });
+    await page.close();
+  });
+
+  await check(23, "the hint follows a keyword argument, ignores nested brackets, and goes after the closing bracket", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, 'f.text("a, b", (2, 3), 4, color=');             // commas in a string and in brackets do not count
+    await page.waitForFunction(() => document.querySelector(".fg-hint strong")?.textContent.startsWith("color"), null, { timeout: 5000 });
+    await typeSlowly(page, "f.rect(1, 2, 3, 4, 5");
+    await page.waitForFunction(() => document.querySelector(".fg-hint strong")?.textContent === "*radii", null, { timeout: 5000 });
+    await typeSlowly(page, "f.circle(10, 20, 30");
+    await page.locator(".fg-hint").waitFor();
+    await page.keyboard.type(")", { delay: 20 });
+    await page.waitForFunction(() => !document.querySelector(".fg-hint"), null, { timeout: 5000 });
+    await typeSlowly(page, "from funground import *\ncircle(");
+    await page.waitForFunction(() => document.querySelector(".fg-hint strong")?.textContent === "x", null, { timeout: 5000 });
+    await page.close();
+  });
+
+  await check(24, "hovering circle shows its signature, sentence and Reference link", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "f.circle(10, 20, 30)");
+    await page.keyboard.press("Escape");
+    const spot = await page.evaluate(() => {
+      const walker = document.createTreeWalker(document.querySelector(".cm-line"), NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (!node.textContent.includes("circle")) node = walker.nextNode();
+      const at = node.textContent.indexOf("circle") + 2;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + 1);
+      const box = range.getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    });
+    await page.mouse.move(5, 5);
+    await page.mouse.move(spot.x, spot.y, { steps: 4 });
+    await page.locator(".cm-tooltip-hover .fg-complete-info").waitFor({ timeout: 5000 });
+    const box = await page.locator(".cm-tooltip-hover").innerText();
+    assert(box.includes("circle(x: float, y: float, diameter: float)") && box.includes("Draw a circle."), `the box is ${JSON.stringify(box)}`);
+    const link = await page.locator(".cm-tooltip-hover a").getAttribute("href");
+    assert(link.startsWith("https://funground-hq.github.io/reference/API/#fn-circle"), `the link is ${link}`);
+    await page.close();
+  });
+
+  await check(25, "at night the editor uses the code tokens, not One Dark", async () => {
+    const page = await openEditor();
+    await page.evaluate(() => document.body.setAttribute("data-md-color-scheme", "slate"));
+    await typeSlowly(page, '# note\nimport funground as f\nf.fill("tomato")\nf.circle(12, 2, 3)');
+    await page.keyboard.press("Escape");
+    const seen = await page.evaluate(() => {
+      const colourOf = (word) => {                       // the colour of the text node that holds the word
+        const walker = document.createTreeWalker(document.querySelector(".cm-content"), NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n.textContent.includes(word)) return getComputedStyle(n.parentElement).color;
+        return null;
+      };
+      return {
+        background: getComputedStyle(document.querySelector(".cm-editor")).backgroundColor,
+        keyword: colourOf("import"), comment: colourOf("# note"), string: colourOf('"tomato"'), number: colourOf("12"), plain: colourOf("funground"),
+      };
+    });
+    // The night values of design/tokens.json: paper-code, orchid, link, code-number, code-comment, ink.
+    const expected = {
+      background: "rgb(16, 16, 74)", keyword: "rgb(238, 130, 238)", string: "rgb(255, 160, 122)", number: "rgb(64, 224, 208)",
+      comment: "rgb(169, 164, 214)", plain: "rgb(253, 245, 230)",
+    };
+    assert(seen.background !== "rgb(40, 44, 52)", "the background is One Dark's #282c34");
+    for (const [part, colour] of Object.entries(expected)) assert(seen[part] === colour, `${part} is ${seen[part]}, the token says ${colour}`);
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "night.png") });
+    // And back to day: the day tokens (a day page must not keep night colours).
+    await page.evaluate(() => document.body.setAttribute("data-md-color-scheme", "default"));
+    await page.waitForFunction(() => getComputedStyle(document.querySelector(".cm-editor")).backgroundColor === "rgb(255, 250, 240)", null, { timeout: 5000 });
+    await page.close();
+  });
 } finally {
   await browser.close();
   for (const server of [editorServer, previewServer, strangerServer]) server.close();
