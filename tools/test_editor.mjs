@@ -613,6 +613,15 @@ try {
     await page.waitForFunction(() => getComputedStyle(document.querySelector(".cm-editor")).backgroundColor === "rgb(255, 250, 240)", null, { timeout: 5000 });
     await page.close();
   });
+
+  await check(26, "a long line scrolled sideways does not show through the line numbers", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, `# ${"a long comment ".repeat(20)}`);
+    await page.evaluate(() => { document.querySelector(".cm-scroller").scrollLeft = 200; });
+    const colours = await page.evaluate(() => [".cm-gutters", ".cm-editor"].map((s) => getComputedStyle(document.querySelector(s)).backgroundColor));
+    assert(colours[0] === colours[1], `the gutter is ${colours[0]}, the editor ${colours[1]}`);
+    await page.close();
+  });
 } finally {
   await browser.close();
   for (const server of [editorServer, previewServer, strangerServer]) server.close();
