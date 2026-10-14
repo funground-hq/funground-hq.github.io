@@ -305,6 +305,8 @@ try {
     await page.waitForFunction(() => !document.querySelector(".play-toolbar button").disabled, null, { timeout: 60000 });
     assert((await editorText(page)).includes("orchid"), "the draft did not come back");
     assert((await status(page)).includes("unsaved changes"), `status "${await status(page)}"`);
+    // Python is ready (Run is enabled), so the loading spinner has stopped even though the line kept its message.
+    assert(!(await page.locator(".play-status").getAttribute("class")).includes("fg-status--loading"), "the spinner kept turning");
     await page.getByRole("button", { name: "Reset" }).click();
     assert((await editorText(page)) === original, "Reset did not restore the example");
     assert(!(await page.getByRole("button", { name: "Reset" }).isVisible()), "Reset is still shown");
