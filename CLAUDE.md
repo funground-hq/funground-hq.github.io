@@ -36,7 +36,7 @@ comes from funground. To change the guide or the gallery text, change it in fung
 | `mkdocs.yml` | The site: theme, navigation, extensions. A page named in `nav` must exist after assembly |
 | `site_src/` | Hand-written pages (home, get started, play, about) and the stylesheets |
 | `site_src/play/` | The Play page, the editor: `index.md`, `play.js` and `vendor/codemirror.js` (the code editor, committed). It never runs Python: sketches run in an iframe from `funground-run.github.io` (D-078) |
-| `tools/codemirror/` | Builds `vendor/codemirror.js` with esbuild (`npm install`, `npm run build`; see its README) |
+| `tools/codemirror/` | Builds `vendor/codemirror.js` with esbuild (`npm install`, `npm run build`; see its README): `entry.js` (the editor) and `completion.js` (suggestions from funground's `completions.json`, copied to `play/` by `assemble.py`; S-196, D-102) |
 | `tools/test_editor.mjs` | Headless-Chrome test of the editor and the preview together (`node tools/test_editor.mjs`) |
 | `tools/assemble.py` | Builds the MkDocs docs directory. Standard library only, Python 3.11+ |
 | `tools/check_links.py` | Checks the assembled directory: nav pages exist, relative links and images resolve |

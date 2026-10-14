@@ -19,6 +19,8 @@ changes nothing in the funground checkout. Three jobs, and a fourth with ``--run
    that repository's ``tools/build_runtime.py``): copy the browser runner to ``play/runner/``, list the
    examples it can run in ``play/examples.json``, and give each of those gallery pages a "Play with it online"
    button that opens it on the Play page, the editor (S-151).
+5. Copy funground's ``funground/completions.json`` (the editor's suggestions, S-196) to ``play/completions.json``,
+   if the checkout has it.
 
 Standard library only, Python 3.11 or newer.
 """
@@ -95,6 +97,20 @@ def copy_pages(funground: Path, docs: Path, copies: dict[str, str], link_map: di
             target.write_text(text, encoding="utf-8", newline="\n")
         else:
             shutil.copyfile(funground / source, target)
+
+
+def copy_completions(funground: Path, docs: Path) -> bool:
+    """Copy funground's list of names for the Play editor's suggestions (S-196) to ``play/completions.json``.
+
+    An older funground has no such file: say so and carry on, the editor then works without suggestions.
+    """
+    source = funground / "funground" / "completions.json"
+    if not source.is_file():
+        print(f"note: {source} not found (an older funground): the Play editor will have no suggestions")
+        return False
+    (docs / "play").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, docs / "play" / "completions.json")
+    return True
 
 
 # ---- fixing one page
@@ -366,6 +382,7 @@ def main(argv: list[str]) -> int:
     link_map["docs/gallery/README.md"] = "gallery/index.md"       # the old gallery page: now the generated index
     link_map.update(example_pages(funground))                     # a link to an example's .py: its gallery page
     copy_pages(funground, docs, copies, link_map)
+    copy_completions(funground, docs)
     entries = read_runner(runner) if runner else []
     count = write_gallery(funground, docs, frozenset(entry["id"] for entry in entries))
     playable = write_play(runner, docs, entries, funground) if runner else 0
