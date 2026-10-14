@@ -32,6 +32,8 @@
   --ink: #fdf5e6; --ink-muted: #c4c0e6; --link: #ffa07a;
   --orchid: #ee82ee; --focus: #ffd700;
   --code-number: #40e0d0; --code-comment: #a9a4d6;
+  /* Redeclared here: an alias resolves where it is declared, so the day block's var() would keep day colours. */
+  --code-string: var(--link); --code-keyword: var(--orchid);
   --shadow-sticker: 4px 4px 0 0 #05052e; --shadow-lift: 7px 7px 0 0 #05052e; --shadow-pressed: 1px 1px 0 0 #05052e;
 }
 :root {
