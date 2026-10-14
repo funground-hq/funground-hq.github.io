@@ -9,6 +9,7 @@
 //
 // --scripts-only  run with the iframe sandboxed as just "allow-scripts" (the runner cannot start then: this shows it)
 // --only 3,4      run only those checks (numbers as in the list below)
+// --shots <dir>  save a picture of the suggestions popup (checks 13 and 14) in that folder
 // --debug         print what every page and frame writes to the console, and every failed request
 //
 // Needs `npm install` in tools/codemirror (playwright-core), Chrome, and a built funground-web runner/runtime.
@@ -27,13 +28,14 @@ const { chromium } = await import("./codemirror/node_modules/playwright-core/ind
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE = path.resolve(HERE, "..");
 const PREVIEW_REPO = "C:/Projects/funground-run.github.io";
-const FUNGROUND = "C:/Projects/playground-0.2";
+const FUNGROUND = "C:/Projects/playground";      // a checkout with funground/completions.json (S-196)
 const RUNNER = "C:/Projects/funground-web/runner";
 const PYTHON = "C:/Projects/playground/.venv/Scripts/python.exe";
 const CHROME = "C:/Users/samirj/AppData/Local/Google/Chrome/Application/chrome.exe";
 
 const scriptsOnly = process.argv.includes("--scripts-only");
 const debug = process.argv.includes("--debug");
+const shotsDir = process.argv.includes("--shots") ? process.argv[process.argv.indexOf("--shots") + 1] : null;
 const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1].split(",").map(Number) : null;
 
 // ---- the servers: plain files with a length, in 64 KB writes, open to every origin (as GitHub Pages is)
@@ -192,6 +194,23 @@ async function openEditor(query = "", hash = "") {
   return page;
 }
 
+// Types like a learner (key by key, so the editor offers suggestions) at the end of an empty sketch, then waits for the popup.
+async function typeSlowly(page, text) {
+  await typeCode(page, "");
+  await page.keyboard.type(text, { delay: 20 });
+}
+
+const popupLabels = (page) => page.locator(".cm-tooltip-autocomplete .cm-completionLabel").allInnerTexts();
+
+async function waitForOption(page, word) {
+  try {
+    await page.waitForFunction((w) => [...document.querySelectorAll(".cm-tooltip-autocomplete .cm-completionLabel")].some((e) => e.textContent === w),
+      word, { timeout: 5000 });
+  } catch {
+    throw new Error(`"${word}" is not in the popup; it shows [${(await popupLabels(page)).slice(0, 8)}]`);
+  }
+}
+
 async function clearDrafts(page) {
   await page.evaluate(() => localStorage.clear());
 }
@@ -286,6 +305,8 @@ try {
     await page.waitForFunction(() => !document.querySelector(".play-toolbar button").disabled, null, { timeout: 60000 });
     assert((await editorText(page)).includes("orchid"), "the draft did not come back");
     assert((await status(page)).includes("unsaved changes"), `status "${await status(page)}"`);
+    // Python is ready (Run is enabled), so the loading spinner has stopped even though the line kept its message.
+    assert(!(await page.locator(".play-status").getAttribute("class")).includes("fg-status--loading"), "the spinner kept turning");
     await page.getByRole("button", { name: "Reset" }).click();
     assert((await editorText(page)) === original, "Reset did not restore the example");
     assert(!(await page.getByRole("button", { name: "Reset" }).isVisible()), "Reset is still shown");
@@ -398,6 +419,109 @@ try {
     await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 90000 });
     await page.close();
     return `the next run started ${((Date.now() - restarted) / 1000).toFixed(1)} s after the notice`;
+  });
+  // ---- suggestions (S-196)
+  await check(13, "after f. the popup lists funground names, with a signature and a Reference link", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "f.cir");
+    await waitForOption(page, "circle");
+    assert(await page.locator(".cm-completionDetail").first().innerText() !== "", "no signature beside the name");
+    await page.locator(".cm-tooltip-autocomplete li", { hasText: "circle" }).first().waitFor();
+    await page.waitForSelector(".cm-completionInfo a");
+    const link = await page.locator(".cm-completionInfo a").first().getAttribute("href");
+    assert(link.startsWith("https://funground-hq.github.io/reference/API/#fn-circle"), `the link is ${link}`);
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "suggest_names.png") });
+    await page.close();
+  });
+
+  await check(14, "inside f.fill(\" the popup offers colour names with swatches, and accepting keeps the quote", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, 'f.fill("tom');
+    await waitForOption(page, "tomato");
+    assert(await page.locator(".cm-tooltip-autocomplete .fg-swatch").count() > 0, "no colour swatch");
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "suggest_colours.png") });
+    await sleep(300);
+    await page.keyboard.press("Enter");
+    const text = await editorText(page);
+    assert(text === 'f.fill("tomato', `the text is ${JSON.stringify(text)}`);
+    await page.close();
+  });
+
+  await check(15, "inside f.blend_mode(\" the popup offers the mode words with their meaning", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, 'f.blend_mode("');
+    await waitForOption(page, "multiply");
+    await page.waitForSelector(".cm-completionInfo");
+    assert((await page.locator(".cm-completionInfo").first().innerText()).length > 10, "no meaning beside the word");
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "suggest_options.png") });
+    await page.close();
+  });
+
+  await check(16, "with from funground import * a bare word is completed", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "from funground import *\ncirc");
+    await waitForOption(page, "circle");
+    await sleep(300);                                   // the editor ignores Enter in the first moments of a popup
+    await page.keyboard.press("Enter");
+    const text = await editorText(page);
+    assert(text.endsWith("\ncircle"), `the text is ${JSON.stringify(text)}`);
+    await page.close();
+  });
+
+  await check(17, "without the star import a bare word gets no funground names, and the editor still works", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "import funground as g\ng.rec");
+    await waitForOption(page, "rect");                  // the alias is read from the import
+    await page.keyboard.press("Escape");
+    await typeSlowly(page, "ellip");
+    await page.waitForTimeout(600);
+    assert(!(await popupLabels(page)).includes("ellipse"), "a bare word was completed without the star import");
+    await page.close();
+  });
+  // ---- suggestions inside the namespaces COLORS and CONSTANTS (S-174)
+
+  // ---- suggestions inside the namespaces COLORS and CONSTANTS (S-174)
+  await check(18, "f.COLORS.TOM offers TOMATO with a swatch, and the namespaces are offered after f.", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "f.CONST");
+    await waitForOption(page, "CONSTANTS");
+    await page.keyboard.press("Escape");
+    await typeSlowly(page, "\nf.COLORS.TOM");
+    await waitForOption(page, "TOMATO");
+    assert(await page.locator(".cm-tooltip-autocomplete .fg-swatch").count() > 0, "no colour swatch");
+    const detail = await page.locator(".cm-tooltip-autocomplete li", { hasText: "TOMATO" }).first().innerText();
+    assert(detail.includes("tomato") && detail.includes("#ff6347"), `the detail is ${JSON.stringify(detail)}`);
+    await sleep(300);
+    await page.keyboard.press("Enter");
+    const text = await editorText(page);
+    assert(text.endsWith("\nf.COLORS.TOMATO"), `the text is ${JSON.stringify(text)}`);
+    await page.close();
+  });
+
+  await check(19, "f.CONSTANTS. offers the groups, with the functions that use them", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "f.CONSTANTS.");
+    await waitForOption(page, "ALIGN");
+    const row = await page.locator(".cm-tooltip-autocomplete li", { hasText: "ALIGN" }).first().innerText();
+    assert(row.includes("text_align"), `the row is ${JSON.stringify(row)}`);
+    await page.close();
+  });
+
+  await check(20, "f.CONSTANTS.ALIGN.CE offers CENTER", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "f.CONSTANTS.ALIGN.CE");
+    await waitForOption(page, "CENTER");
+    await page.close();
+  });
+
+  await check(21, "with from funground import * , CONSTANTS.BLEND.MUL offers MULTIPLY", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "from funground import *\nCONSTANTS.BLEND.MUL");
+    await waitForOption(page, "MULTIPLY");
+    await page.keyboard.press("Escape");
+    await typeSlowly(page, "from funground import *\nCOLORS.TOM");
+    await waitForOption(page, "TOMATO");
+    await page.close();
   });
 } finally {
   await browser.close();
