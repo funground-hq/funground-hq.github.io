@@ -2,7 +2,8 @@
 # The site is assembled from this repository and from funground-hq/funground (branch main),
 # so it is also rebuilt every day: a change to funground's docs appears without a change here.
 # The Play page's browser runner comes from funground-hq/funground-web; it runs a funground wheel built
-# from RUNTIME_BRANCH of funground (the 0.2 work, until 0.2 is released and main has the web runner).
+# from RUNTIME_BRANCH of funground: main, the same funground as the pages (release-0.2-web is merged into main,
+# 14 Oct 2026), so the editor's suggestions and the browser's funground always agree.
 name: Deploy site
 
 on:
@@ -25,7 +26,7 @@ concurrency:
 env:
   NO_MKDOCS_2_WARNING: "true"   # Material prints a notice about MkDocs 2.0; --strict must not trip on it
   RUNNER_BRANCH: main           # funground-web: the browser runner (runner/) and tools/build_runtime.py
-  RUNTIME_BRANCH: release-0.2-web   # funground: the branch the runner runs in the browser
+  RUNTIME_BRANCH: main          # funground: the branch the runner runs in the browser
 
 jobs:
   build:
