@@ -48,6 +48,8 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-play__choose { max-width: 16rem; font: 700 14px/1.2 var(--font-body); padding: 6px 8px; color: var(--ink); background: var(--paper-raised); border: var(--outline-width) solid var(--ink); border-radius: var(--radius-sm); }
 .fg-play__how { font: 400 14px/1 var(--font-body); color: var(--link); white-space: nowrap; }
 .fg-play__auto { font: 700 14px/1 var(--font-body); color: var(--ink); white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+/* Guides (S-202): a switch that stays pressed, in the same gold as Fit. */
+.fg-play__guides[aria-pressed="true"] { background: var(--gold); color: #191970; }
 .fg-play__link { margin: 0; padding: 6px var(--space-4); border: 0; border-bottom: var(--outline-width) solid var(--ink); font: 400 13px/1.4 var(--font-mono); color: var(--ink); background: var(--paper-code); }
 
 /* The messages, above the picture: a plain line and a "Go to line" link above the full traceback. While there are
