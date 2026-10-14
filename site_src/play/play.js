@@ -101,6 +101,7 @@ try {
 const runtime = new URL("runner/runtime/examples/", import.meta.url);
 
 const BLANK = "blank";
+const STARTER = "starter";        // the sketch a first visit opens (S-200): starter.py beside this file
 const SHARED = "shared";
 const BLANK_TEXT = `import funground as f
 
@@ -121,7 +122,7 @@ f.run()
 const choose = element("select", { class: "fg-play__choose", "aria-label": "Sketch" });
 const previousButton = element("button", { class: "fg-iconbtn fg-play__step", type: "button", "aria-label": "Previous", title: "Previous", hidden: "" }, "‹");
 const nextButton = element("button", { class: "fg-iconbtn fg-play__step", type: "button", "aria-label": "Next", title: "Next", hidden: "" }, "›");
-choose.append(new Option("Blank sketch", BLANK));
+choose.append(new Option("Starter sketch", STARTER), new Option("Blank sketch", BLANK));
 let group = null;
 for (const example of examples) {
   if (group?.label !== example.heading) choose.append(group = element("optgroup", { label: example.heading }));
@@ -135,6 +136,8 @@ const runButton = element("button", { class: "fg-btn fg-btn--run", "aria-label":
   "▶ Run", element("kbd", {}, "Ctrl ↵"));
 const stopButton = element("button", { class: "fg-btn", disabled: "", title: "Stop (Esc)" }, "Stop");
 const autoRun = element("input", { type: "checkbox", checked: "" });
+const guidesButton = element("button", { class: "fg-btn fg-play__guides", type: "button", "aria-pressed": "false",
+  title: "Show a grid and the mouse's x and y over the picture" }, "Guides");
 const shareButton = element("button", { class: "fg-btn", title: "Copy a link that holds the code (Ctrl+S)" }, "Share");
 const resetButton = element("button", { class: "fg-btn", hidden: "", title: "Go back to the original code" }, "Reset");
 const helpButton = element("button", { class: "fg-iconbtn", "aria-label": "Help", "aria-expanded": "false",
@@ -147,6 +150,9 @@ const help = element("div", { id: "fg-play-help", class: "fg-help fg-play__help"
 const pageText = document.querySelector(".fg-play-help");      // index.md's text, written there so it stays prose
 if (pageText) help.append(...pageText.childNodes);
 pageText?.remove();
+// The help opens by itself on a first visit, so this is where a new learner sees the way in (S-200).
+const firstSteps = element("a", { class: "fg-play__firststeps", href: "../get-started/" }, "First steps");
+help.prepend(element("p", { class: "fg-play__new" }, element("strong", {}, "New to funground? "), firstSteps));
 
 const fileName = element("b", {}, "sketch.py");
 const lineCount = element("span", {});
@@ -182,7 +188,7 @@ play.classList.add("fg-play");
 play.replaceChildren(
   element("div", { class: "fg-play__bar play-toolbar" },
     element("span", { class: "fg-play__picker", role: "group", "aria-label": "Examples" }, previousButton, choose, nextButton), howLink, runButton, stopButton,
-    element("label", { class: "fg-play__auto" }, autoRun, " Auto-run"),
+    element("label", { class: "fg-play__auto" }, autoRun, " Auto-run"), guidesButton,
     element("span", { class: "spacer" }), status, shareButton, resetButton, helpButton),
   linkField,
   help,
@@ -230,6 +236,7 @@ fillWindow();
 // coordinates (the mouse included). A zoom larger than the room makes the picture area scroll.
 
 let sketchSize = { width: 640, height: 400 };
+let sizeKnown = true;                              // false after an error before "started": the size is not this run's
 let zoom = null;                                   // null: Fit; a number: the learner's choice
 const ZOOMS = [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2, 3, 4];
 
@@ -254,7 +261,7 @@ function fitPicture() {
   frame.style.width = `${Math.round(width * scale)}px`;
   frame.style.height = `${Math.round(height * scale)}px`;
   picture.classList.toggle("is-zoomed", zoom !== null);
-  sizeText.textContent = `${width} × ${height}, shown at ${percent(scale)}`;
+  sizeText.textContent = sizeKnown ? `${width} × ${height}, shown at ${percent(scale)}` : "";
   zoomFit.setAttribute("aria-pressed", String(zoom === null));
   zoomOut.disabled = scale <= ZOOMS[0] + 0.001;
   zoomIn.disabled = scale >= ZOOMS[ZOOMS.length - 1] - 0.001;
@@ -318,6 +325,27 @@ document.addEventListener("pointerdown", (event) => {
 });
 if (!recall(HELP_SEEN)) showHelp(true);
 
+// ---- guides: a grid and the mouse's position, drawn by the preview over the sketch (S-202). Off until switched on.
+
+const GUIDES_NAME = "funground.play.guides";
+let guidesOn = recall(GUIDES_NAME) === true;
+
+function showGuidesButton() {
+  guidesButton.setAttribute("aria-pressed", String(guidesOn));
+}
+showGuidesButton();
+
+// Sent when it changes, when the preview is ready and after each "started": a new run may build a new canvas.
+function tellGuides() {
+  if (previewReady) tell({ type: "guides", coords: guidesOn, grid: guidesOn });
+}
+guidesButton.addEventListener("click", () => {
+  guidesOn = !guidesOn;
+  remember(GUIDES_NAME, guidesOn ? true : null);
+  showGuidesButton();
+  tellGuides();
+});
+
 // ---- the sketch on the page: where it came from, what it was, and the data files it reads
 
 let key = BLANK;              // BLANK, SHARED or an example's id
@@ -367,16 +395,31 @@ async function fetchExample(example) {
   return { text, data };
 }
 
-// Opens a sketch: an example id, BLANK, or SHARED (the code in the link). A saved draft is used if there is one.
+// The starter sketch is a file of its own, so it can be tried on a computer unchanged. If it cannot be fetched, the
+// blank sketch stands in.
+let starter = null;
+async function starterText() {
+  if (starter === null) {
+    try {
+      const response = await fetch("starter.py");
+      starter = response.ok ? await response.text() : BLANK_TEXT;
+    } catch {
+      starter = BLANK_TEXT;
+    }
+  }
+  return starter;
+}
+
+// Opens a sketch: an example id, BLANK, STARTER, or SHARED (the code in the link). A saved draft is used if there is one.
 async function open(wanted) {
   stopSketch();
   clearOutput();
   // A shared link may also name the example it started from: its data files are loaded, its code is not used.
   const exampleId = wanted === SHARED ? new URLSearchParams(location.search).get("example") : wanted;
   current = examples.find((example) => example.id === exampleId) ?? null;
-  key = wanted === SHARED ? SHARED : current ? current.id : BLANK;
+  key = wanted === SHARED ? SHARED : current ? current.id : wanted === STARTER ? STARTER : BLANK;
   files = {};
-  original = BLANK_TEXT;
+  original = key === STARTER ? await starterText() : BLANK_TEXT;
   if (current) {
     const fetched = await fetchExample(current);
     original = fetched.text;
@@ -524,11 +567,13 @@ function showError(text) {
 
 let focusOnStart = false;     // the run came from the Run button: give the sketch the keys once it starts
 let errorLine = null;
+let startedThisRun = false;
 
 const handlers = {
   ready() {
     previewReady = true;
     runButton.disabled = false;
+    tellGuides();
     // Python is ready, so the loading spinner stops whatever the line says; a more useful message (a restored draft,
     // a shared sketch) stays, and only "Loading ..." is replaced.
     setStatus(status.textContent.startsWith("Loading") ? "Ready. Press Run." : status.textContent, "ready");
@@ -540,10 +585,19 @@ const handlers = {
   },
   error(message) {
     errorLine = showError(message.text);
+    // An error before "started" (setup() did not finish) leaves the picture's size unknown: the caption must not still
+    // give the last sketch's size.
+    if (!startedThisRun) {
+      sizeKnown = false;
+      fitPicture();
+    }
   },
   started(message) {
+    startedThisRun = true;
+    sizeKnown = true;
     sketchSize = { width: message.width, height: message.height };
     fitPicture();
+    tellGuides();
     setStatus("Running. Click the picture to give it the mouse and keys.", "running");
     stopButton.disabled = false;
     if (focusOnStart) preview.focus();   // so the space bar reaches the sketch instead of pressing Run again
@@ -572,6 +626,7 @@ function runSketch() {
   if (!previewReady) return;
   clearOutput();
   errorLine = null;
+  startedThisRun = false;
   ranFilename = current ? current.source.split("/").pop() : "sketch.py";
   startedAt = performance.now();
   setStatus("Starting...", "running");
@@ -645,10 +700,13 @@ async function openFromAddress() {
       return;
     } catch {
       sharedBase = null;
-      setStatus("That link could not be read. Opening a blank sketch.");
+      setStatus("That link could not be read. Opening the starter sketch.");
     }
   }
-  await open(new URLSearchParams(location.search).get("example") ?? BLANK);
+  const example = new URLSearchParams(location.search).get("example");
+  // No example and no link: a visitor who has a draft of the blank sketch (from before the starter existed) gets it
+  // back; everyone else gets the starter sketch, with their own draft of it if they have one.
+  await open(example ?? (recall(`funground.draft.${BLANK}`) ? BLANK : STARTER));
 }
 
 window.addEventListener("hashchange", () => { if (sharedCode()) openFromAddress(); });
