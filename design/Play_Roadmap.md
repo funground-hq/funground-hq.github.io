@@ -1,7 +1,7 @@
 # Play: a roadmap for the online editor (draft for discussion)
 
 **Status:** direction agreed with the maintainer, 14 October 2026 (decisions below). Candidate ids
-`SITE-C-nn` become funground stories (`S-nnn`) when they are.
+`SITE-C-nn` become funground stories (`S-nnn`) when a sprint takes them.
 
 **Goal of the editor.** A newcomer opens Play, sees a picture in seconds, changes a number, sees it change, and
 leaves with their work. Everything below serves one of those four moments: *see*, *change*, *understand*, *keep*.
