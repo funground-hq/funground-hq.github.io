@@ -9,7 +9,7 @@
 //
 // --scripts-only  run with the iframe sandboxed as just "allow-scripts" (the runner cannot start then: this shows it)
 // --only 3,4      run only those checks (numbers as in the list below)
-// --shots <dir>  save pictures of the suggestions popup (checks 13 to 15), the hint, night and the toolbar (check 33) in that folder
+// --shots <dir>  save pictures of the suggestions popup (checks 13 to 15), the hint, night and the toolbar (check 33), the guides (check 34) and the first visit (check 35) in that folder
 // --debug         print what every page and frame writes to the console, and every failed request
 //
 // Needs `npm install` in tools/codemirror (playwright-core), Chrome, and a built funground-web runner/runtime.
@@ -190,7 +190,7 @@ async function openEditor(query = "", hash = "") {
   watch(page);
   await page.goto(`${EDITOR}/play/?preview=${PREVIEW}${query}${hash}`);
   await runButton(page).waitFor();
-  await page.waitForFunction(() => !document.querySelector(".fg-btn--run").disabled, null, { timeout: 60000 });
+  await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
   return page;
 }
 
@@ -275,7 +275,7 @@ try {
   await check(5, "Share makes a link; opening it shows the code and waits for Run", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    const code = (await editorText(page)).replace('f.background("white")', 'f.background("navy")\n    f.fill("gold")\n    f.circle(100, 100, 50)  # \u00e9\u00e8 \u2603');
+    const code = `${(await editorText(page)).trimEnd()}\n# shared \u00e9\u00e8 \u2603\n`;
     await typeCode(page, code);
     await sleep(1500);                                   // Auto-run has run it; the shared page must not
     await page.getByRole("button", { name: "Share" }).click();
@@ -302,7 +302,7 @@ try {
     await typeCode(page, original.replace("tomato", "orchid"));
     assert(await page.getByRole("button", { name: "Reset" }).isVisible(), "no Reset button after an edit");
     await page.reload();
-    await page.waitForFunction(() => !document.querySelector(".fg-btn--run").disabled, null, { timeout: 60000 });
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
     assert((await editorText(page)).includes("orchid"), "the draft did not come back");
     assert((await status(page)).includes("unsaved changes"), `status "${await status(page)}"`);
     // Python is ready (Run is enabled), so the loading spinner has stopped even though the line kept its message.
@@ -311,7 +311,7 @@ try {
     assert((await editorText(page)) === original, "Reset did not restore the example");
     assert(!(await page.getByRole("button", { name: "Reset" }).isVisible()), "Reset is still shown");
     await page.reload();
-    await page.waitForFunction(() => !document.querySelector(".fg-btn--run").disabled, null, { timeout: 60000 });
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
     assert((await editorText(page)) === original, "a draft came back after Reset");
     await page.close();
   });
@@ -739,7 +739,7 @@ try {
     const page = await openEditor(`&example=${FIRST_SKETCH}`);
     await clearDrafts(page);
     await page.reload();
-    await page.waitForFunction(() => !document.querySelector(".fg-btn--run").disabled, null, { timeout: 60000 });
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
     const reset = page.getByRole("button", { name: "Reset" });
     assert(!(await reset.isVisible()), "Reset is shown before any edit");
     await typeCode(page, `${await editorText(page)}\n# edit\n`);
@@ -773,6 +773,143 @@ try {
     assert(narrow.scrollWidth <= 390 && narrow.right <= 390, `at 390 the page is ${narrow.scrollWidth}px wide and the toolbar reaches ${Math.round(narrow.right)}px`);
     await page.close();
     return `1366: ${wide.height}px, one row; 390: ${narrow.height}px, reaches ${Math.round(narrow.right)}px`;
+  });
+  // ---- guides (S-202), the first visit (S-200), the caption after an early error
+  const guideFrame = (page) => frameOf(page, PREVIEW);
+  const GUIDES = "#guides";
+  const pixelAt = (frame, x, y) => frame.evaluate(([px, py]) => {
+    const canvas = document.getElementById("canvas");
+    const scale = canvas.width / parseFloat(canvas.style.width || canvas.width);
+    return [...canvas.getContext("2d").getImageData(Math.round(px * scale), Math.round(py * scale), 1, 1).data.slice(0, 3)];
+  }, [x, y]);
+  // Moves the mouse to a point of the sketch (in its own pixels): the frame is scaled as a whole, so the page's point is the
+  // frame's corner plus the sketch point times the scale.
+  async function moveToSketchPoint(page, x, y, sketchWidth = 640) {
+    const box = await page.locator(".play-preview").boundingBox();
+    const scale = box.width / sketchWidth;
+    await page.mouse.move(box.x + 3, box.y + 3);                    // an event even if the point is the same as before
+    await page.mouse.move(box.x + x * scale, box.y + y * scale, { steps: 3 });
+    return scale;
+  }
+  const readoutText = async (frame) => {
+    await frame.waitForFunction(() => { const r = document.querySelector("#guides .readout"); return r && !r.hidden; }, null, { timeout: 5000 });
+    return frame.locator("#guides .readout").innerText();
+  };
+
+  await check(34, "Guides: a grid and the mouse's sketch position at 1:1 and at Fit; the sketch still gets the mouse; off and remembered", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await page.setViewportSize({ width: 1700, height: 1000 });
+    const guidesButton = page.getByRole("button", { name: "Guides" });
+    assert((await guidesButton.getAttribute("aria-pressed")) === "false", "Guides is on by default");
+    await runButton(page).click();
+    const frame = guideFrame(page);
+    await waitForPicture(frame, (p) => p.opaque);
+    assert(await frame.locator(GUIDES).isHidden(), "the overlay shows while Guides is off");
+    await guidesButton.click();
+    assert((await guidesButton.getAttribute("aria-pressed")) === "true", "Guides is not pressed after a click");
+    await frame.locator(GUIDES).waitFor({ state: "visible", timeout: 5000 });
+    assert((await frame.locator(`${GUIDES} .number`).count()) === 13 + 7, "the numbers 0..600 along the top and 50..350 down the left");
+    assert((await frame.locator(`${GUIDES} line.ink`).count()) === 13 + 8, "the grid lines");
+    assert((await frame.locator(`${GUIDES} .number`).first().innerText()) === "0", "the first number is not 0");
+    assert((await frame.evaluate(() => getComputedStyle(document.getElementById("guides")).pointerEvents)) === "none", "the overlay takes the mouse");
+    // 1:1
+    const wide = await page.locator(".fg-play__caption").innerText();
+    assert(/1:1/.test(wide), `not at 1:1: ${wide}`);
+    await moveToSketchPoint(page, 100, 50);
+    const label = await readoutText(frame);
+    assert(label === "x 100, y 50", `at 1:1 the label says "${label}"`);
+    // The sketch (it draws a circle at the mouse) gets the mouse through the overlay.
+    for (let tries = 0; tries < 60 && (await pixelAt(frame, 100, 50)).join() !== "255,99,71"; tries++) await sleep(100);
+    assert((await pixelAt(frame, 100, 50)).join() === "255,99,71", `the sketch did not follow the mouse: ${await pixelAt(frame, 100, 50)}`);
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "guides_1to1.png") });
+    // Fit, smaller than 1:1
+    await page.setViewportSize({ width: 1000, height: 800 });
+    await page.getByRole("button", { name: "Fit" }).click();
+    await sleep(300);
+    const caption = await page.locator(".fg-play__caption").innerText();
+    assert(/shown at \d+%/.test(caption), `Fit did not scale: ${caption}`);
+    const scale = await moveToSketchPoint(page, 100, 50);
+    assert(scale < 0.95, `scale ${scale}`);
+    const fitLabel = await readoutText(frame);
+    assert(fitLabel === "x 100, y 50", `at Fit (${scale.toFixed(2)}) the label says "${fitLabel}"`);
+    await moveToSketchPoint(page, 400, 300);
+    const farLabel = await readoutText(frame);
+    assert(farLabel === "x 400, y 300", `at (400, 300) the label says "${farLabel}"`);
+    for (let tries = 0; tries < 60 && (await pixelAt(frame, 400, 300)).join() !== "255,99,71"; tries++) await sleep(100);
+    assert((await pixelAt(frame, 400, 300)).join() === "255,99,71", "at Fit the sketch did not follow the mouse");
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "guides_fit.png") });
+    // The label goes when the pointer leaves the canvas. Headless Chrome (driven over CDP) does not tell a frame from another
+    // site that the mouse has left it, so the leave is sent to the canvas as a real browser sends it.
+    await frame.evaluate(() => document.getElementById("canvas").dispatchEvent(new PointerEvent("pointerleave")));
+    await frame.waitForFunction(() => document.querySelector("#guides .readout").hidden, null, { timeout: 5000 });
+    // Off removes the overlay
+    await guidesButton.click();
+    assert((await guidesButton.getAttribute("aria-pressed")) === "false", "still pressed after a second click");
+    await frame.locator(GUIDES).waitFor({ state: "hidden", timeout: 5000 });
+    // On, remembered over a reload, and rebuilt for a new run with another size
+    await guidesButton.click();
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+    const again = page.getByRole("button", { name: "Guides" });
+    assert((await again.getAttribute("aria-pressed")) === "true", "Guides was not remembered");
+    await typeCode(page, BLANK_TEXT_FOR_TEST);                       // 200 x 100; Auto-run runs it
+    const frame2 = guideFrame(page);
+    await frame2.waitForFunction(() => document.querySelectorAll("#guides .number").length === 4 + 1, null, { timeout: 20000 })
+      .catch(async () => { throw new Error(`after a run at 200 x 100 there are ${await frame2.locator("#guides .number").count()} numbers, not 5`); });
+    await page.evaluate(() => localStorage.clear());
+    await page.close();
+  });
+
+  const STARTER_TEXT = readFileSync(path.join(SITE, "site_src", "play", "starter.py"), "utf8").replace(/\r\n/g, "\n");
+
+  await check(35, "first visit opens the starter sketch with three comments and a First steps link; a second visit opens the draft", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await page.reload();                                              // as if it were the first visit
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+    const text = await editorText(page);
+    assert(text.trim() === STARTER_TEXT.trim(), "the starter sketch is not in the editor");
+    const comments = text.split("\n").filter((line) => line.includes("#"));
+    assert(comments.length === 3 && comments.every((line) => /Change /.test(line)), `comments: ${JSON.stringify(comments)}`);
+    assert(text.split("\n").length <= 16 && /f\.size\(640, 400\)/.test(text), "the starter is not short, or is not 640 x 400");
+    assert(await page.locator("#fg-play-help").isVisible(), "the help did not open on the first visit");
+    const link = page.locator("#fg-play-help a", { hasText: "First steps" });
+    assert((await link.getAttribute("href")) === "../get-started/", `href ${await link.getAttribute("href")}`);
+    assert((await link.evaluate((a) => a.href)) === `${EDITOR}/get-started/`, "the link does not resolve to the get-started page");
+    assert(readFileSync(path.join(docs, "get-started.md"), "utf8").startsWith("# Get started"), "no get-started page in the assembled site");
+    assert((await page.locator(".fg-play__choose").inputValue()) === "starter", "the picker does not show the starter");
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "first_visit.png") });
+    await runButton(page).click();                                   // it runs unchanged
+    const { picture: drawn } = await waitForPicture(guideFrame(page), (p) => p.opaque);
+    assert(drawn.width >= 640, `the picture is ${drawn.width} wide`);
+    assert((await page.locator(".play-output .stderr").count()) === 0, "the starter printed an error");
+    // A second visit with a draft opens the draft, and the help stays closed.
+    await typeCode(page, `${text}\n# my draft\n`);
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+    assert((await editorText(page)).includes("# my draft"), "the draft did not come back");
+    assert(!(await page.locator("#fg-play-help").isVisible()), "the help opened again on the second visit");
+    await page.evaluate(() => localStorage.clear());
+    await page.close();
+  });
+
+  await check(36, "after an error before the sketch starts, the caption does not give the last sketch's size", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await runButton(page).click();
+    await page.waitForFunction(() => /640 × 400/.test(document.querySelector(".fg-play__caption").textContent), null, { timeout: 20000 });
+    await typeCode(page, SKETCH_WITH("pass").replace("f.size(200, 100)", "f.size(200, 100)\n    f.circl(1, 2, 3)"));
+    await page.locator(".fg-play__error").waitFor({ timeout: 20000 });
+    const caption = await page.locator(".fg-play__caption").innerText();
+    assert(!/640|400/.test(caption) && !/× /.test(caption), `the caption says "${caption}"`);
+    await typeCode(page, SKETCH_WITH("f.background('gold')"));
+    await page.waitForFunction(() => /200 × 100/.test(document.querySelector(".fg-play__caption").textContent), null, { timeout: 20000 });
+    // An error after setup has run keeps the size: the sketch did start.
+    await typeCode(page, SKETCH_WITH("f.circl(1, 2, 3)"));
+    await page.locator(".fg-play__error").waitFor({ timeout: 20000 });
+    assert(/200 × 100/.test(await page.locator(".fg-play__caption").innerText()), "the size went after an error in draw()");
+    await page.close();
   });
 } finally {
   await browser.close();
