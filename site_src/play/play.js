@@ -194,6 +194,16 @@ function setStatus(text, kind) {
 const isDark = () => document.body.getAttribute("data-md-color-scheme") === "slate";
 
 const editor = createEditor({ parent: editorBox, dark: isDark(), onChange: edited });
+// The suggestions list (funground's own, copied to this folder by assemble.py). It arrives after the editor is
+// there; if it cannot be fetched, the editor simply has no funground suggestions.
+fetch("completions.json")
+  .then((response) => {
+    if (!response.ok) throw new Error(`completions.json: ${response.status}`);
+    return response.json();
+  })
+  .then((data) => editor.setCompletions(data))
+  .catch((error) => console.info("Play: no suggestions.", error.message));
+
 new MutationObserver(() => editor.setDark(isDark()))
   .observe(document.body, { attributes: true, attributeFilter: ["data-md-color-scheme"] });
 
