@@ -35,7 +35,9 @@ const pageTheme = EditorView.theme({
   "&.cm-focused": { outline: "2px solid var(--md-accent-fg-color)" },
   ".cm-scroller": { fontFamily: "var(--md-code-font-family, monospace)", lineHeight: "1.5", overflow: "auto" },
   ".cm-content": { caretColor: "var(--md-default-fg-color)" },
-  ".cm-gutters": { backgroundColor: "transparent", color: "var(--md-default-fg-color--light)", border: "none" },
+  // The gutter stays in place when a long line is scrolled sideways, so it needs the editor's own background:
+  // a transparent one let the scrolled code show through the line numbers.
+  ".cm-gutters": { backgroundColor: "var(--md-code-bg-color)", color: "var(--md-default-fg-color--light)", border: "none" },
   ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "transparent" },
   ".cm-error-line": { backgroundColor: "rgba(229, 57, 53, 0.22)" },
 });
