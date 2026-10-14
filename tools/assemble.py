@@ -33,6 +33,7 @@ import posixpath
 import re
 import shutil
 import sys
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -139,6 +140,8 @@ def fix_link(target: str, source: str, page: str, copies: dict[str, str], fungro
     destination = posixpath.normpath(posixpath.join(posixpath.dirname(source), path))
     if destination.startswith(".."):
         return target                                    # outside the checkout: leave it, the checker will say
+    if f"{destination}{fragment}" in copies:              # a heading that became a page of its own: no anchor
+        return posixpath.relpath(copies[f"{destination}{fragment}"], posixpath.dirname(page))
     if destination in copies:
         return posixpath.relpath(copies[destination], posixpath.dirname(page)) + fragment
     kind = "tree" if (funground / destination).is_dir() else "blob"
@@ -215,8 +218,54 @@ def github_url(example: Example, funground: Path) -> str:
     return f"{GITHUB}/blob/{BRANCH}/{example.path.relative_to(funground).as_posix()}"
 
 
-def example_page(example: Example, funground: Path, runnable: bool = False) -> str:
+def heading_slug(text: str) -> str:
+    """The anchor MkDocs gives a heading: the same steps as the toc extension's default slugify (S-206).
+
+    The guide already links to these anchors, so the area headings keep their automatic ids.
+    """
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"[^\w\s-]", "", text).strip().lower()
+    return re.sub(r"[-\s]+", "-", text)
+
+
+def md_text(text: str) -> str:
+    """Plain text made safe to put inside a Markdown link or sentence."""
+    return re.sub(r"([\\`*_\[\]<>])", r"\\\1", text)
+
+
+def example_link(example: Example) -> str:
+    """The .md address of an example, from another example's page (gallery/<area>/<name>.md)."""
+    return f"../{example.area}/{example.name}.md"
+
+
+def walk_links(previous: Example | None, following: Example | None, bottom: bool) -> str:
+    """Previous / Next as plain links in a row that wraps (S-206). At the bottom, 'Back to the gallery' sits between."""
+    parts = []
+    if previous:
+        parts.append(f"[‹ Previous: {md_text(previous.title)}]({example_link(previous)}){{ rel=prev }}")
+    if bottom:
+        parts.append("[Back to the gallery](../index.md)")
+    if following:
+        parts.append(f"[Next: {md_text(following.title)} ›]({example_link(following)}){{ rel=next }}")
+    return " ".join(parts)
+
+
+def example_page(example: Example, funground: Path, runnable: bool = False, area_name: str | None = None,
+                 previous: Example | None = None, following: Example | None = None) -> str:
+    """One example's page. ``previous`` and ``following`` are its neighbours in the gallery's order (S-206)."""
+    area_name = area_name or example.area.title()
     lines = [
+        '<nav class="fg-walk fg-walk--crumb" aria-label="Breadcrumb" markdown>',
+        "",
+        f"[Gallery](../index.md) › [{md_text(area_name)}](../index.md#{heading_slug(area_name)}) › {md_text(example.title)}",
+        "",
+        "</nav>",
+        "",
+    ]
+    if previous or following:
+        lines += ['<nav class="fg-walk fg-walk--steps" aria-label="Previous and next example" markdown>', "",
+                  walk_links(previous, following, bottom=False), "", "</nav>", ""]
+    lines += [
         f"# {example.title}",
         "",
         f"![{example.title}](../images/{example.id}.png)",
@@ -248,7 +297,13 @@ def example_page(example: Example, funground: Path, runnable: bool = False) -> s
         "```",
         "",
         (f"{play} · " if runnable else "This one needs funground on a computer: it does not run in the browser. ")
-        + f"[View on GitHub]({github_url(example, funground)}) · [Back to the gallery](../index.md)",
+        + f"[View on GitHub]({github_url(example, funground)})",
+        "",
+        '<nav class="fg-walk fg-walk--steps" aria-label="Previous and next example" markdown>',
+        "",
+        walk_links(previous, following, bottom=True),
+        "",
+        "</nav>",
         "",
     ]
     return "\n".join(lines)
@@ -288,10 +343,14 @@ def write_gallery(funground: Path, docs: Path, runnable: frozenset[str] = frozen
     areas = read_areas(funground)
     examples = read_examples(funground, areas)
     (docs / "gallery" / "index.md").write_text(gallery_index(examples, areas), encoding="utf-8", newline="\n")
-    for example in examples:
+    for number, example in enumerate(examples):
         page = docs / "gallery" / example.area / f"{example.name}.md"
         page.parent.mkdir(parents=True, exist_ok=True)
-        page.write_text(example_page(example, funground, example.id in runnable), encoding="utf-8", newline="\n")
+        previous = examples[number - 1] if number > 0 else None
+        following = examples[number + 1] if number + 1 < len(examples) else None
+        text = example_page(example, funground, example.id in runnable,
+                            areas.get(example.area, example.area.title()), previous, following)
+        page.write_text(text, encoding="utf-8", newline="\n")
     return len(examples)
 
 
@@ -357,6 +416,16 @@ def example_pages(funground: Path) -> dict[str, str]:
     return {p.relative_to(funground).as_posix(): f"gallery/{p.parent.name}/{p.stem}.md" for p in paths}
 
 
+def example_anchors(funground: Path) -> dict[str, str]:
+    """Links to an example's heading in funground's gallery README become links to its gallery page.
+
+    The guide links to examples as ``gallery/README.md#<title>``; on the site the index shows tiles, not headings,
+    so the anchor would not exist there.
+    """
+    examples = read_examples(funground, read_areas(funground))
+    return {f"docs/gallery/README.md#{heading_slug(e.title)}": f"gallery/{e.area}/{e.name}.md" for e in examples}
+
+
 # ---- main
 
 def main(argv: list[str]) -> int:
@@ -381,6 +450,7 @@ def main(argv: list[str]) -> int:
     link_map = dict(copies)
     link_map["docs/gallery/README.md"] = "gallery/index.md"       # the old gallery page: now the generated index
     link_map.update(example_pages(funground))                     # a link to an example's .py: its gallery page
+    link_map.update(example_anchors(funground))                   # a link to an example's heading: its gallery page
     copy_pages(funground, docs, copies, link_map)
     copy_completions(funground, docs)
     entries = read_runner(runner) if runner else []

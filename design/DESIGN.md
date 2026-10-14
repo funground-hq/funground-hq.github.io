@@ -162,6 +162,7 @@ apart, which matters when a learner is comparing code with an error message.
 | `.fg-chip` (+ topic modifiers) | Pill toggle with a coloured dot; `aria-pressed` | Gallery filters, sketch panel swaps |
 | `.fg-code` with `.ln` lines and `.k .s .n .c` spans | Hand-written code block with line numbers | Home, Play |
 | `.fg-sketch` | Code beside its picture, with a toolbar row | Home, guide chapters, gallery example pages |
+| `.fg-walk` (+ `--crumb`, `--steps`) | The breadcrumb and the Previous / Next links on a gallery example page (S-206); plain links that wrap, no script. Lives in `gallery.css` | Gallery example pages |
 | `.fg-tile` / `.fg-tiles` | Gallery tile and grid | Home, Gallery |
 | `.fg-try` | The gold "Try this" note | Guide; same look as `!!! tip` |
 | `.fg-hero`, `.fg-claims`, `.fg-band`, `.fg-card`, `.fg-origin`, `.fg-chapters`, `.fg-label`, `.fg-install` | Home page bands: the hero and its claims line, tiles, the three cards, the origin band (three flat cards with Kept / Changed), the chapter list, the two labelled cards | Home |
