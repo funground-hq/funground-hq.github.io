@@ -56,6 +56,7 @@ The messages (the same table is in the preview repository's README):
 |---|---|---|
 | editor to preview | `{type: "run", source, filename, files}` | Run this sketch. `files` maps a path to a `Uint8Array` (`{"data/photo.png": bytes}`). A run that arrives while one is starting replaces it |
 | editor to preview | `{type: "stop"}` | End the sketch now |
+| editor to preview | `{type: "guides", coords, grid}` | Show (`true`) or hide (`false`) the guides over the canvas: `coords` is a label by the pointer with its x and y in the sketch's own pixels, `grid` is lines every 50 pixels with the numbers on the top and left edges (S-202). Sent when the Guides button changes, when the preview is ready, and after each `started`. The overlay takes no mouse. A preview that does not know this message ignores it; an editor that never sends it leaves the page as it was |
 | preview to editor | `{type: "ready", info}` | Python has loaded; `info` is the runner's load report |
 | preview to editor | `{type: "output", text, stream}` | `print()` output (`stream` is `"stdout"`) or other messages (`"stderr"`) |
 | preview to editor | `{type: "error", text}` | A Python traceback (it is not sent again as `output`) |
@@ -75,7 +76,8 @@ node tools/test_editor.mjs
 
 It assembles the site into a temporary folder, serves the editor and the preview on two local origins, and checks
 Run, Auto-run, errors, Share, drafts, Stop and the origin check in headless Chrome. Drafts are kept in the browser
-(`localStorage`), and a shared link holds the code in its `#code=` part.
+(`localStorage`), and a shared link holds the code in its `#code=` part. It also checks the guides (a grid and the mouse's sketch
+position, at 1:1 and at Fit), the starter sketch of a first visit, and the caption after an early error.
 
 ## Licence
 

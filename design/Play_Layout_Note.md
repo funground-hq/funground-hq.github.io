@@ -145,3 +145,28 @@ A click calls `open(id)`, the function the picker's `change` event calls, so dra
   ellipsis (its `title` holds the whole message), so the longest message ("Starting Python again...") does not wrap the toolbar.
   At 1366 wide the toolbar is one row, 50px tall. At 390 wide it wraps into rows (phones are S-189), and nothing reaches past
   the window. **Test:** check 33 (both widths, with Reset showing and the longest status).
+
+## Guides, the first visit and the caption (S-202, S-200)
+
+- **Guides.** A toolbar button after Auto-run (`aria-pressed`, a normal button, so the keyboard reaches it; gold when on, like Fit).
+  Off by default; the choice is kept in `localStorage` (`funground.play.guides`). It sends `{type: "guides", coords, grid}` (both
+  the same value) when it changes, when the preview says `ready` and after every `started`. The preview draws the overlay (see its
+  README): a grid every 50 sketch pixels with numbers along the top and left, and "x 312, y 140" by the pointer. The label is
+  worked out in the preview, from the canvas's box and the sketch's size from `started`, so it is right at 1:1, at Fit and at any
+  zoom (the frame is scaled as a whole; the preview sees its own pixels). An older preview ignores the message; an older editor
+  never sends it. The toolbar is still one row at 1366 and wraps at 390 (check 33).
+- **The starter sketch (S-200).** With no `?example`, no `#code=` and no draft, Play opens `site_src/play/starter.py` (a file, not
+  a string in `play.js`, so it can be run on a computer unchanged: it is 14 lines, 640 x 400, a navy background, a tomato circle
+  at the mouse and three comments that say what to change). It is the picker's first entry, "Starter sketch"; "Blank sketch" is
+  second. If `starter.py` cannot be fetched, the blank sketch stands in. A visitor who has a draft of the old blank sketch gets it
+  back; a visitor with a draft of the starter gets that. Nothing runs by itself.
+- **First steps.** The help popover, which already opens by itself on a first visit (`funground.play.helpSeen`), starts with
+  "New to funground? First steps", linking to `../get-started/`. `play.js` makes this line (the page's own text, `index.md`,
+  does not), so it is there in the tests too.
+- **The caption after an error.** The preview sends `started` only after `setup()` has run, so an `error` that arrives before
+  `started` in a run means the size is not this run's. The editor then hides the size from the caption (`sizeKnown`) until the
+  next `started`. An error in `draw()` comes after `started` and keeps the size.
+- **Tests.** Checks 34 (guides), 35 (first visit, link, draft on the second visit) and 36 (the caption). Check 5 now shares the
+  starter with a comment added, since the blank sketch is no longer what a first visit opens.
+- **Limit.** Headless Chrome, driven over CDP, does not tell a frame from another site that the mouse has left it, so check 34
+  sends the canvas a `pointerleave` itself to test that the label goes. A real browser sends it.
