@@ -119,6 +119,8 @@ f.run()
 // ---- the page: a toolbar, and the code beside the picture with the messages above it
 
 const choose = element("select", { class: "fg-play__choose", "aria-label": "Sketch" });
+const previousButton = element("button", { class: "fg-iconbtn fg-play__step", type: "button", "aria-label": "Previous", title: "Previous", hidden: "" }, "‹");
+const nextButton = element("button", { class: "fg-iconbtn fg-play__step", type: "button", "aria-label": "Next", title: "Next", hidden: "" }, "›");
 choose.append(new Option("Blank sketch", BLANK));
 let group = null;
 for (const example of examples) {
@@ -178,7 +180,8 @@ const work = element("div", { class: "fg-play__work" },
 
 play.classList.add("fg-play");
 play.replaceChildren(
-  element("div", { class: "fg-play__bar play-toolbar" }, choose, howLink, runButton, stopButton,
+  element("div", { class: "fg-play__bar play-toolbar" },
+    element("span", { class: "fg-play__picker", role: "group", "aria-label": "Examples" }, previousButton, choose, nextButton), howLink, runButton, stopButton,
     element("label", { class: "fg-play__auto" }, autoRun, " Auto-run"),
     element("span", { class: "spacer" }), status, shareButton, resetButton, helpButton),
   linkField,
@@ -189,6 +192,7 @@ play.replaceChildren(
 // The status: one line with a coloured dot (loading gold, ready teal, running turquoise, an error tomato).
 function setStatus(text, kind) {
   status.textContent = text;
+  status.title = text;              // the toolbar cuts a long line short; the title has all of it
   if (kind) status.className = `fg-status fg-status--${kind} play-status`;
 }
 const isDark = () => document.body.getAttribute("data-md-color-scheme") === "slate";
@@ -322,6 +326,25 @@ let sharedBase = null;        // the #code= text of the shared sketch on the pag
 let current = null;           // the example, or null
 let files = {};               // the example's data files, sent with each run
 
+// ‹ and › step through the picker's examples, in its order (the examples.json order). They are for the examples only: a
+// blank or a shared sketch has no neighbours. Each end disables its button.
+function showSteps() {
+  const at = examples.findIndex((example) => example.id === key);
+  for (const [button, label, other] of [[previousButton, "Previous", examples[at - 1]], [nextButton, "Next", examples[at + 1]]]) {
+    button.hidden = at === -1;
+    button.disabled = !other;
+    button.setAttribute("aria-label", other ? `${label}: ${other.title}` : label);
+    button.title = other ? `${label}: ${other.title}` : label === "Previous" ? "This is the first example" : "This is the last example";
+  }
+}
+
+function step(direction) {
+  const other = examples[examples.findIndex((example) => example.id === key) + direction];
+  if (other) open(other.id);            // the same path as choosing it in the picker: drafts are kept as they are
+}
+previousButton.addEventListener("click", () => step(-1));
+nextButton.addEventListener("click", () => step(1));
+
 const draftName = () => `funground.draft.${key}`;
 
 function showReset() {
@@ -363,6 +386,7 @@ async function open(wanted) {
   if (key === SHARED) choose.append(sharedOption);
   else sharedOption.remove();
   choose.value = key;
+  showSteps();
 
   const draft = recall(draftName());
   const useDraft = draft && typeof draft.text === "string" && (key !== SHARED || draft.base === sharedBase);
@@ -437,18 +461,60 @@ function errorLineOf(text) {
   return own.length ? Number(own[own.length - 1][2]) : null;
 }
 
-// The message in one plain line (the traceback's last line), with a link to the line in the code.
+// What the last line of a traceback says: the kind of error, the message, and (for a NameError or an AttributeError)
+// the name it names. funground's own messages, as it writes them today:
+//   AttributeError: module 'funground' has no attribute 'circl'        (f.circl)
+//   AttributeError: f.COLORS has no name 'TOMATOE'. Did you mean TOMATO?   (f.COLORS.TOMATOE)
+//   NameError: name 'circl' is not defined                               (circl without the f.)
+// Python 3.12 and later may add ". Did you mean: 'circle'?" after the name; the name is the first quoted word.
+function describeError(text) {
+  const last = text.trim().split("\n").filter((l) => l.trim()).pop() ?? "";
+  const parts = /^([A-Za-z_][\w.]*)(?::\s*(.*))?$/.exec(last.trim());
+  const type = parts?.[1] ?? "";
+  const message = parts?.[2] ?? "";
+  let name = null;
+  if (type === "NameError") name = /^name '([^']+)' is not defined/.exec(message)?.[1] ?? null;
+  else if (type === "AttributeError") name = /has no (?:attribute|name|function called) '([^']+)'/.exec(message)?.[1] ?? null;
+  return { plain: last || "The sketch stopped with an error.", type, message, name };
+}
+
+// "What this means": the section of the guide's errors page for an error, found by its kind and message. The first row
+// that fits wins. The anchors are the headings of docs/guide/errors.md in funground, as MkDocs makes them (lower case,
+// no punctuation, hyphens for spaces); tools/test_editor.mjs checks each one against the assembled page.
+const ERRORS_PAGE = "../guide/errors/#";      // from /play/
+const WHAT_IT_MEANS = [
+  { type: /^(NameError|AttributeError)$/, anchor: "nameerror-or-attributeerror-on-an-f-name" },
+  { type: /^(IndentationError|TabError|SyntaxError)$/, anchor: "indentationerror-and-syntaxerror" },
+  { type: /^UnboundLocalError$/, anchor: "unboundlocalerror-a-variable-that-draw-changes" },
+  { message: /unknown colou?r|colou?r tuple|colou?r component|is not a colou?r|only for numbers/, anchor: "a-colour-is-not-accepted" },
+  { type: /^TypeError$/, message: /missing \d+ required|positional arguments? but|takes \d+ positional/, anchor: "typeerror-missing-arguments" },
+  { message: /takes one of /, anchor: "a-word-is-not-one-of-the-choices" },
+  { type: /^FileNotFoundError$/, anchor: "a-file-is-not-found" },
+];
+
+function guideLinkFor({ type, message }) {
+  const row = WHAT_IT_MEANS.find((r) => (!r.type || r.type.test(type)) && (!r.message || r.message.test(message)));
+  return row ? ERRORS_PAGE + row.anchor : null;
+}
+
+// The message in one plain line (the traceback's last line), with a link to the line in the code and, when the guide
+// has a section for it, "What this means". The line and the name it names are marked in the code.
 function showError(text) {
   const line = errorLineOf(text);
-  if (line !== null) editor.markError(line);
-  const plain = text.trim().split("\n").filter((l) => l.trim()).pop() ?? "The sketch stopped with an error.";
-  const summary = element("div", { class: "fg-play__error" }, plain);
+  const about = describeError(text);
+  if (line !== null) editor.markError(line, about.name ?? undefined);
+  const summary = element("div", { class: "fg-play__error" }, about.plain);
   if (line !== null) {
     const go = element("button", { class: "line-link", type: "button" }, `Go to line ${line}`);
     go.addEventListener("click", () => editor.goToLine(line));
     summary.append(" ", go);
   }
   output.append(summary);
+  const guide = guideLinkFor(about);
+  if (guide) {
+    output.append(element("div", { class: "fg-play__what" },
+      element("a", { class: "fg-play__what-link", href: guide, target: "_blank", rel: "noopener" }, "What this means")));
+  }
   addOutput(text, "stderr");
   errors += 1;
   errorCount.textContent = String(errors);

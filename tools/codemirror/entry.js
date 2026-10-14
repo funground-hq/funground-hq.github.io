@@ -13,21 +13,39 @@ import { completionExtensions, prepare } from "./completion.js";
 // A change made by setText() is the page's, not the learner's typing: onChange does not hear about it.
 const fromPage = Annotation.define();
 
-// The line a traceback names. It is moved along as the learner types, and removed by clearError().
+// The line a traceback names, and (for a NameError or AttributeError) the name it names, underlined. Both are moved
+// along as the learner types. They are removed by clearError(), and by an edit that touches that line.
 const showError = StateEffect.define();
 const errorLine = Decoration.line({ class: "cm-error-line" });
+const errorName = Decoration.mark({ class: "cm-error-name" });
 const errorMark = StateField.define({
   create: () => Decoration.none,
   update(marks, transaction) {
-    marks = marks.map(transaction.changes);
+    if (transaction.docChanged && marks.size) {
+      const at = transaction.startState.doc.lineAt(marks.iter().from);
+      let touched = false;
+      transaction.changes.iterChangedRanges((fromA, toA) => { if (fromA <= at.to && toA >= at.from) touched = true; });
+      marks = touched ? Decoration.none : marks.map(transaction.changes);
+    }
     for (const effect of transaction.effects) {
       if (!effect.is(showError)) continue;
-      marks = effect.value === null ? Decoration.none : Decoration.set([errorLine.range(effect.value)]);
+      marks = effect.value === null ? Decoration.none : Decoration.set(effect.value, true);
     }
     return marks;
   },
   provide: (field) => EditorView.decorations.from(field),
 });
+
+// Where `name` is on a line of text: as a whole word, the one after a dot if there is one (f.circl), else the first.
+function findName(text, name) {
+  const isWord = (character) => character !== undefined && /\w/.test(character);
+  const found = [];
+  for (let at = text.indexOf(name); at !== -1; at = text.indexOf(name, at + 1)) {
+    if (!isWord(text[at - 1]) && !isWord(text[at + name.length])) found.push(at);
+  }
+  const index = found.find((at) => text[at - 1] === ".") ?? found[0];
+  return index === undefined ? null : { index };
+}
 
 // Colours come from the page (Material's variables), so the editor sits in the light and dark pages.
 const pageTheme = EditorView.theme({
@@ -40,6 +58,7 @@ const pageTheme = EditorView.theme({
   ".cm-gutters": { backgroundColor: "var(--md-code-bg-color)", color: "var(--md-default-fg-color--light)", border: "none" },
   ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "transparent" },
   ".cm-error-line": { backgroundColor: "rgba(229, 57, 53, 0.22)" },
+  ".cm-error-name": { textDecoration: "underline wavy var(--tomato, #e53935)", textUnderlineOffset: "3px", textDecorationThickness: "2px" },
 });
 
 // The code colours are the site's code tokens (design/tokens.json, funground.css), read through the page's variables,
@@ -76,7 +95,7 @@ const darkColours = [syntaxHighlighting(codeColours), nightTheme];
  * @param {() => void} [options.onChange]  the learner changed the text (not setText)
  * @param {object} [options.completions]  the parsed completions.json; it may come later, through setCompletions()
  * @returns {{setCompletions: (data: object) => void, getText: () => string, setText: (text: string) => void, setDark: (dark: boolean) => void,
- *            markError: (line: number) => void, clearError: () => void, goToLine: (line: number) => void,
+ *            markError: (line: number, name?: string) => void, clearError: () => void, goToLine: (line: number) => void,
  *            focus: () => void}}
  */
 export function createEditor({ parent, text = "", dark = false, onChange, completions }) {
@@ -111,10 +130,14 @@ export function createEditor({ parent, text = "", dark = false, onChange, comple
       });
     },
     setDark: (isDark) => view.dispatch({ effects: colours.reconfigure(isDark ? darkColours : lightColours) }),
-    // `line` counts from 1, as a traceback does; a line past the end marks the last one.
-    markError(line) {
-      const number = Math.min(Math.max(line, 1), view.state.doc.lines);
-      view.dispatch({ effects: showError.of(view.state.doc.line(number).from) });
+    // `line` counts from 1, as a traceback does; a line past the end marks the last one. `name` (optional) is a word
+    // on that line to underline with a wavy line, the name a NameError or AttributeError names.
+    markError(line, name) {
+      const at = view.state.doc.line(Math.min(Math.max(line, 1), view.state.doc.lines));
+      const ranges = [errorLine.range(at.from)];
+      const match = name ? findName(at.text, name) : null;
+      if (match) ranges.push(errorName.range(at.from + match.index, at.from + match.index + name.length));
+      view.dispatch({ effects: showError.of(ranges) });
     },
     clearError: () => view.dispatch({ effects: showError.of(null) }),
     // Select a line (counted from 1), scroll it into view and give the editor the keys: "Go to line 11".

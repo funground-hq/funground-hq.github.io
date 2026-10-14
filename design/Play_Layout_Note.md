@@ -107,3 +107,41 @@ colours (and so did `--md-code-hl-keyword-color`, `--md-code-hl-string-color` an
 
 **Tests:** check 25 in `tools/test_editor.mjs` (the night background is the token and not `#282c34`; keyword, string,
 number, comment and plain text have the night token values).
+
+## Errors where they happen (S-203)
+
+- **The line** keeps the tomato wash and bar (`.cm-error-line`).
+- **The name.** For a `NameError` or an `AttributeError`, `play.js` reads the traceback's last line (`describeError()`) and takes
+  the name it names. `editor.markError(line, name)` puts a CodeMirror mark decoration (`.cm-error-name`: a wavy tomato
+  underline) under that name on the error's line only: the word after a dot if there is one (`f.circl`), else the first whole
+  word. A name that is not on the line is not underlined; the line is still marked.
+- **Clearing.** The marks sit in one state field. An edit that touches the error's line (typing in it, or a new line made at
+  its start or end) removes the wash and the underline together; an edit on another line moves them along. A new run, Clear and
+  a new sketch remove them as before.
+- **"What this means"** is a link under the one-line message (`.fg-play__what-link`, opening in a new tab so the draft stays
+  open). `WHAT_IT_MEANS` in `play.js` is a small table of the exception type and message to a heading of the guide's errors
+  page (`../guide/errors/#anchor`, from `/play/`); the first row that fits wins. Rows: NameError/AttributeError, IndentationError/
+  TabError/SyntaxError, UnboundLocalError, a colour not accepted, TypeError with missing or too many arguments, "takes one of"
+  (a word not among the choices), FileNotFoundError. No row, no link.
+- **Messages read** (found by running small sketches, funground at 15 Oct 2026):
+  `AttributeError: module 'funground' has no attribute 'circl'`; `AttributeError: f.COLORS has no name 'TOMATOE'. Did you mean
+  TOMATO?`; `NameError: name 'circl' is not defined`. The wording "has no function called" of PLAY_EDITOR.md is not used by
+  funground today; it is understood anyway. The anchors are what MkDocs' `toc` makes of the headings of `guide/errors.md`.
+- **Tests:** checks 27 and 28 (marks, underline, link, clearing; NameError; TypeError), 29 (every anchor in `play.js` is a heading
+  of the assembled `guide/errors.md`, computed the way MkDocs does it).
+
+## Previous and Next beside the picker (S-207)
+
+‹ and › sit on either side of the picker. They step through `examples` (the `examples.json` order, which is the picker's order);
+the tooltip and accessible name are "Previous: <title>" and "Next: <title>". At the first example ‹ is disabled (its title says
+"This is the first example"), at the last › is. They are hidden for the blank sketch and a shared one (`key` is not an example).
+A click calls `open(id)`, the function the picker's `change` event calls, so drafts are saved and restored as for the picker.
+**Tests:** checks 30 and 31. (The tests' "Python is ready" wait now looks at `.fg-btn--run`; the toolbar's first button is ‹.)
+
+## The toolbar (S-168)
+
+- **Reset** was already shown only when the code differs from the original (`showReset()`, S-187). Check 32 now tests it.
+- **Sizes.** The buttons are 14px with a 36px-high row (`.fg-play__bar`), the arrows 30 × 32. The status is one line cut with an
+  ellipsis (its `title` holds the whole message), so the longest message ("Starting Python again...") does not wrap the toolbar.
+  At 1366 wide the toolbar is one row, 50px tall. At 390 wide it wraps into rows (phones are S-189), and nothing reaches past
+  the window. **Test:** check 33 (both widths, with Reset showing and the longest status).
