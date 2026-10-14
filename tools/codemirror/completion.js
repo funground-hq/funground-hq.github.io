@@ -10,8 +10,8 @@
 //   4. inside a namespace    after `f.COLORS.` the colour names, after `f.CONSTANTS.` the groups and after
 //                            `f.CONSTANTS.ALIGN.` the group's words (with `from funground import *`: no `f.`)
 import { autocompletion } from "@codemirror/autocomplete";
-import { EditorState } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorState, StateEffect, StateField } from "@codemirror/state";
+import { EditorView, hoverTooltip, keymap, showTooltip } from "@codemirror/view";
 
 const SITE = "https://funground-hq.github.io/";
 const KIND_TYPE = { function: "function", class: "class", value: "variable", namespace: "namespace" };
@@ -127,20 +127,140 @@ function aliasesIn(text) {
 
 const usesStar = (text) => /^\s*from\s+funground\s+import\s+\*/m.test(text);
 
+// Which funground function does this open bracket belong to? Gives its name, or null: not a call, not a funground
+// name, or reached through a name that is not an alias of funground. `needStar` also asks for the star import when
+// the name stands alone (the hint wants it; string suggestions have never asked).
+function functionOf(text, call, data, aliases, needStar = false) {
+  if (call.bracket !== "(") return null;
+  const named = /(?:([A-Za-z_]\w*)\s*\.\s*)?([A-Za-z_]\w*)\s*$/.exec(text.slice(0, call.at));
+  if (!named || !data.byName.has(named[2])) return null;
+  if (named[1] && !aliases.has(named[1])) return null;
+  if (!named[1] && needStar && !usesStar(text)) return null;
+  return named[2];
+}
+
 // For a cursor inside a string: which funground function and parameter is it the argument of? Gives
 // { name, parameter } or null. A keyword (`color="`) wins over the position.
 function argumentAt(text, read, data, aliases) {
   const call = read.open.at(-1);
-  if (!call || call.bracket !== "(") return null;
-  const named = /(?:([A-Za-z_]\w*)\s*\.\s*)?([A-Za-z_]\w*)\s*$/.exec(text.slice(0, call.at));
-  if (!named || !data.byName.has(named[2])) return null;
-  if (named[1] && !aliases.has(named[1])) return null;
+  const name = call && functionOf(text, call, data, aliases);
+  if (!name) return null;
   const argument = text.slice(call.argFrom, read.string.at);          // what stands before the quote in this argument
   const keyword = /^\s*([A-Za-z_]\w*)\s*=\s*$/.exec(argument);
-  if (keyword) return { name: named[2], parameter: keyword[1] };
+  if (keyword) return { name, parameter: keyword[1] };
   if (argument.trim() !== "") return null;                            // the string is part of a longer expression
-  const parameter = data.parameters.get(named[2])[call.commas];
-  return parameter ? { name: named[2], parameter } : null;
+  const parameter = data.parameters.get(name)[call.commas];
+  return parameter ? { name, parameter } : null;
+}
+
+// ---- the hint while typing arguments (S-201)
+
+// Splits the inside of "circle(x, y, diameter)" into its parts: ["x", "y", "diameter"], defaults kept ("radius=0").
+function signatureParts(signature) {
+  const inside = signature.slice(signature.indexOf("(") + 1, signature.lastIndexOf(")"));
+  const parts = [];
+  let depth = 0, from = 0;
+  for (let i = 0; i <= inside.length; i++) {
+    const c = inside[i];
+    if ("([{".includes(c)) depth++;
+    else if (")]}".includes(c)) depth--;
+    else if ((c === "," && depth === 0) || i === inside.length) { parts.push(inside.slice(from, i).trim()); from = i + 1; }
+  }
+  return parts.filter(Boolean);
+}
+
+// Which part of the signature is the learner on? `name=` picks that part; otherwise the comma count picks the
+// position among the parts that can be given by position. Past them, `*more` takes the rest. -1: none.
+function activePart(parts, argumentSoFar, commas) {
+  const keyword = /^\s*([A-Za-z_]\w*)\s*=(?!=)/.exec(argumentSoFar);
+  if (keyword) return parts.findIndex((part) => part.split("=")[0].trim() === keyword[1]);
+  const positional = parts.map((part, i) => i).filter((i) => parts[i] !== "/" && !parts[i].startsWith("*"));
+  if (commas < positional.length) return positional[commas];
+  return parts.findIndex((part) => part.startsWith("*") && part.length > 1);
+}
+
+// The innermost funground call the cursor is inside, looking outward past other brackets: { name, call } or null.
+function enclosingCall(text, read, data, aliases) {
+  for (let i = read.open.length - 1; i >= 0; i--) {
+    const name = functionOf(text, read.open[i], data, aliases, true);
+    if (name) return { name, call: read.open[i] };
+  }
+  return null;
+}
+
+// The hint's content: the signature with the current part in bold.
+function hintNode(entry, parts, active) {
+  const box = document.createElement("div");
+  box.className = "fg-hint";
+  box.append(entry.name + "(");
+  parts.forEach((part, i) => {
+    if (i) box.append(", ");
+    if (i === active) {
+      const bold = document.createElement("strong");
+      bold.textContent = part;
+      box.append(bold);
+    } else box.append(part);
+  });
+  box.append(")");
+  return box;
+}
+
+const dismissHint = StateEffect.define();       // Escape: no hint for this call until the text changes
+
+// The hint is a state field, so CodeMirror places it above the cursor and moves it as the cursor moves. While the
+// words stay the same, the same `create` function is kept, so CodeMirror moves the box instead of building it again.
+function hintField(getData) {
+  const compute = (state, dismissed, before) => {
+    const data = getData();
+    const none = { dismissed, tooltip: null, key: null, create: null };
+    if (!data) return none;
+    const text = state.doc.toString();
+    const head = state.selection.main.head;
+    const read = readCode(text, head);
+    if (read.comment) return none;
+    const found = enclosingCall(text, read, data, aliasesIn(text));
+    if (!found || dismissed === found.call.at) return none;
+    const entry = data.byName.get(found.name);
+    const parts = signatureParts(entry.signature);
+    const active = activePart(parts, text.slice(found.call.argFrom, head), found.call.commas);
+    const key = `${found.name}:${active}`;
+    const create = before.key === key ? before.create : () => ({ dom: hintNode(entry, parts, active) });
+    return { dismissed, key, create, tooltip: { pos: head, above: true, strictSide: true, arrow: false, at: found.call.at, create } };
+  };
+  return StateField.define({
+    create: (state) => compute(state, null, {}),
+    update(value, transaction) {
+      let dismissed = transaction.docChanged ? null : value.dismissed;
+      for (const effect of transaction.effects) if (effect.is(dismissHint)) dismissed = value.tooltip?.at ?? dismissed;
+      return compute(transaction.state, dismissed, value);
+    },
+    provide: (field) => showTooltip.from(field, (value) => value.tooltip),
+  });
+}
+
+// ---- help on hover (S-201)
+
+// The funground name under the mouse: after `alias.`, or a bare star name. Not inside a string or a comment.
+function hoverSource(getData) {
+  return hoverTooltip((view, pos) => {
+    const data = getData();
+    if (!data) return null;
+    const text = view.state.doc.toString();
+    const line = view.state.doc.lineAt(pos);
+    const word = /[A-Za-z_]\w*/g;
+    let found = null;
+    for (let m; (m = word.exec(line.text)); ) {
+      if (line.from + m.index <= pos && pos <= line.from + m.index + m[0].length) { found = { from: line.from + m.index, text: m[0] }; break; }
+    }
+    if (!found || !data.byName.has(found.text)) return null;
+    const read = readCode(text, found.from);
+    if (read.string || read.comment) return null;
+    const before = /([A-Za-z_]\w*)\s*\.\s*$/.exec(text.slice(Math.max(0, found.from - 80), found.from));
+    const aliases = aliasesIn(text);
+    if (before ? !aliases.has(before[1]) : (text[found.from - 1] === "." || !usesStar(text))) return null;
+    const entry = data.byName.get(found.text);
+    return { pos: found.from, end: found.from + found.text.length, above: true, create: () => ({ dom: infoNode(entry) }) };
+  }, { hoverTime: 250 });
 }
 
 // ---- the source
@@ -220,6 +340,16 @@ const popupTheme = EditorView.theme({
   ".fg-complete-info code": { fontFamily: "var(--md-code-font-family, monospace)", display: "block", marginBottom: "0.3em" },
   ".fg-complete-info p": { margin: "0 0 0.3em" },
   ".fg-complete-info a": { color: "inherit", textDecoration: "underline" },
+  ".cm-tooltip.cm-tooltip-hover": {
+    backgroundColor: "var(--md-default-bg-color)", color: "var(--md-default-fg-color)",
+    border: "1px solid var(--md-default-fg-color--lighter)", borderRadius: "4px", padding: "0.4em 0.6em", maxWidth: "26em",
+  },
+  ".cm-tooltip.fg-hint": {
+    backgroundColor: "var(--md-default-bg-color)", color: "var(--md-default-fg-color)",
+    border: "1px solid var(--md-default-fg-color--lighter)", borderRadius: "4px", padding: "0.2em 0.6em",
+  },
+  ".fg-hint": { fontFamily: "var(--md-code-font-family, monospace)", fontSize: "0.8rem", whiteSpace: "pre" },
+  ".fg-hint strong": { fontWeight: "700", color: "var(--md-accent-fg-color)" },
   ".fg-swatch": {
     display: "inline-block", width: "0.9em", height: "0.9em", marginRight: "0.4em", verticalAlign: "-0.1em",
     border: "1px solid var(--md-default-fg-color--light)", borderRadius: "2px",
@@ -232,9 +362,16 @@ const popupTheme = EditorView.theme({
  */
 export function completionExtensions(getData) {
   const source = fungroundSource(getData);
+  const hint = hintField(getData);
+  const hideHint = (view) => {                    // Escape: closes the suggestions first (they bind it higher), then the hint
+    if (!view.state.field(hint).tooltip) return false;
+    view.dispatch({ effects: dismissHint.of(null) });
+    return true;
+  };
   return [
     autocompletion({ addToOptions: [{ render: swatchOf, position: 20 }] }),
     EditorState.languageData.of(() => [{ autocomplete: source }]),
+    hint, hoverSource(getData), keymap.of([{ key: "Escape", run: hideHint }]),
     popupTheme,
   ];
 }

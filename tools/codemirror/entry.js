@@ -5,9 +5,9 @@
 import { Annotation, Compartment, EditorState, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { bracketMatching, defaultHighlightStyle, indentOnInput, syntaxHighlighting } from "@codemirror/language";
+import { HighlightStyle, bracketMatching, indentOnInput, syntaxHighlighting } from "@codemirror/language";
+import { tags } from "@lezer/highlight";
 import { python } from "@codemirror/lang-python";
-import { oneDark } from "@codemirror/theme-one-dark";
 import { completionExtensions, prepare } from "./completion.js";
 
 // A change made by setText() is the page's, not the learner's typing: onChange does not hear about it.
@@ -40,8 +40,31 @@ const pageTheme = EditorView.theme({
   ".cm-error-line": { backgroundColor: "rgba(229, 57, 53, 0.22)" },
 });
 
-const lightColours = [syntaxHighlighting(defaultHighlightStyle)];
-const darkColours = [oneDark];
+// The code colours are the site's code tokens (design/tokens.json, funground.css), read through the page's variables,
+// so day and night come from one list: code-keyword is orchid, code-string is link, then code-number, code-comment,
+// ink and ink-muted. funground.css gives each its day and night value. The aliases --code-keyword and --code-string
+// are not used: they are declared in the day scheme only, so they would stay day colours at night. Their targets
+// (--orchid, --link) are declared in both.
+const codeColours = HighlightStyle.define([
+  { tag: [tags.keyword, tags.controlKeyword, tags.operatorKeyword, tags.definitionKeyword, tags.moduleKeyword, tags.self], color: "var(--orchid)", fontWeight: "700" },
+  { tag: [tags.string, tags.special(tags.string)], color: "var(--link)" },
+  { tag: [tags.number, tags.bool, tags.null, tags.atom], color: "var(--code-number)" },
+  { tag: [tags.comment, tags.lineComment, tags.blockComment], color: "var(--code-comment)", fontStyle: "italic" },
+  { tag: [tags.operator, tags.punctuation, tags.bracket, tags.meta], color: "var(--ink-muted)" },
+  { tag: [tags.variableName, tags.propertyName, tags.function(tags.variableName), tags.definition(tags.variableName)], color: "var(--ink)" },
+]);
+
+// Night changes what CodeMirror cannot take from a variable: the editor says it is dark (so its own defaults, such as
+// the scroll bar and the selection, suit it), and the selection and the cursor use the page's ink.
+const nightTheme = EditorView.theme({
+  ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--ink)" },
+  "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
+    backgroundColor: "rgba(253, 245, 230, 0.22)",
+  },
+}, { dark: true });
+
+const lightColours = [syntaxHighlighting(codeColours)];
+const darkColours = [syntaxHighlighting(codeColours), nightTheme];
 
 /**
  * @param {object} options
