@@ -72,3 +72,18 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-play__help { position: absolute; top: 52px; right: var(--space-4); z-index: 5; max-width: 26rem; }
 .fg-play__help p, .fg-play__help ul { margin: 0 0 0.6em; }
 .fg-play__help a { color: #191970; text-decoration: underline; }
+
+/* Previous and Next beside the picker (S-207): ‹ and › on either side of the list, joined to it. */
+.fg-play__picker { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.fg-play__step { width: 30px; height: 32px; font: 700 20px/1 var(--font-body); padding: 0 0 3px; flex: none; }
+.fg-play__step:disabled { opacity: 0.4; cursor: default; }
+
+/* "What this means" under the one-line error message (S-203). */
+.fg-play__what { margin: calc(-1 * var(--space-1, 4px)) 0 var(--space-2); font: 400 13px/1.4 var(--font-body); }
+.fg-play__what a { color: var(--link); }
+
+/* The status is one line: it takes the room that is left, at the right, and a long message is cut short (its title holds
+   all of it), so the toolbar keeps one row. The spacer is not needed: the status pushes the buttons to the right. */
+.fg-play__bar .spacer { display: none; }
+.fg-play__bar .fg-status { display: block; flex: 1 1 6rem; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: right; }
+.fg-play__bar .fg-status::before { display: inline-block; vertical-align: middle; margin-right: 8px; }

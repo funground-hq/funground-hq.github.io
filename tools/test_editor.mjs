@@ -9,7 +9,7 @@
 //
 // --scripts-only  run with the iframe sandboxed as just "allow-scripts" (the runner cannot start then: this shows it)
 // --only 3,4      run only those checks (numbers as in the list below)
-// --shots <dir>  save a picture of the suggestions popup (checks 13 and 14) in that folder
+// --shots <dir>  save pictures of the suggestions popup (checks 13 to 15), the hint, night and the toolbar (check 33) in that folder
 // --debug         print what every page and frame writes to the console, and every failed request
 //
 // Needs `npm install` in tools/codemirror (playwright-core), Chrome, and a built funground-web runner/runtime.
@@ -190,7 +190,7 @@ async function openEditor(query = "", hash = "") {
   watch(page);
   await page.goto(`${EDITOR}/play/?preview=${PREVIEW}${query}${hash}`);
   await runButton(page).waitFor();
-  await page.waitForFunction(() => !document.querySelector(".play-toolbar button").disabled, null, { timeout: 60000 });
+  await page.waitForFunction(() => !document.querySelector(".fg-btn--run").disabled, null, { timeout: 60000 });
   return page;
 }
 
@@ -302,7 +302,7 @@ try {
     await typeCode(page, original.replace("tomato", "orchid"));
     assert(await page.getByRole("button", { name: "Reset" }).isVisible(), "no Reset button after an edit");
     await page.reload();
-    await page.waitForFunction(() => !document.querySelector(".play-toolbar button").disabled, null, { timeout: 60000 });
+    await page.waitForFunction(() => !document.querySelector(".fg-btn--run").disabled, null, { timeout: 60000 });
     assert((await editorText(page)).includes("orchid"), "the draft did not come back");
     assert((await status(page)).includes("unsaved changes"), `status "${await status(page)}"`);
     // Python is ready (Run is enabled), so the loading spinner has stopped even though the line kept its message.
@@ -311,7 +311,7 @@ try {
     assert((await editorText(page)) === original, "Reset did not restore the example");
     assert(!(await page.getByRole("button", { name: "Reset" }).isVisible()), "Reset is still shown");
     await page.reload();
-    await page.waitForFunction(() => !document.querySelector(".play-toolbar button").disabled, null, { timeout: 60000 });
+    await page.waitForFunction(() => !document.querySelector(".fg-btn--run").disabled, null, { timeout: 60000 });
     assert((await editorText(page)) === original, "a draft came back after Reset");
     await page.close();
   });
@@ -621,6 +621,158 @@ try {
     const colours = await page.evaluate(() => [".cm-gutters", ".cm-editor"].map((s) => getComputedStyle(document.querySelector(s)).backgroundColor));
     assert(colours[0] === colours[1], `the gutter is ${colours[0]}, the editor ${colours[1]}`);
     await page.close();
+  });
+
+  // ---- errors where they happen (S-203), Previous and Next (S-207), the toolbar (S-168)
+  const SKETCH_WITH = (line) => `import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    ${line}\n\n\nf.run()\n`;
+  const underlined = (page) => page.locator(".cm-error-name").allInnerTexts();
+
+  // Puts the cursor at the end of a line of the editor by clicking at a point: the editor's own lines are wide, and the
+  // element click of Playwright would scroll the editor sideways.
+  async function clickEndOfLine(page, locator) {
+    const box = await locator.boundingBox();
+    await page.mouse.click(box.x + box.width - 12, box.y + box.height / 2);
+  }
+
+  await check(27, "f.circl(...) marks the line, underlines circl and links the errors page; editing the line clears both", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await page.locator(".fg-play__auto input").uncheck();
+    await typeCode(page, SKETCH_WITH("f.circl(10, 10, 10)"));
+    await runButton(page).click();
+    await page.locator(".cm-error-name").waitFor({ timeout: 20000 });
+    const marked = await page.locator(".cm-error-line").allInnerTexts();
+    assert(marked.length === 1 && marked[0].includes("circl"), `marked lines: ${JSON.stringify(marked)}`);
+    assert(JSON.stringify(await underlined(page)) === '["circl"]', `underlined: ${JSON.stringify(await underlined(page))}`);
+    const wavy = await page.locator(".cm-error-name").evaluate((e) => getComputedStyle(e).textDecorationLine + " " + getComputedStyle(e).textDecorationStyle);
+    assert(wavy === "underline wavy", `the underline is ${wavy}`);
+    const line = await page.locator(".fg-play__error").innerText();
+    assert(line.includes("has no attribute 'circl'"), `the message was "${line}"`);
+    const link = page.locator(".fg-play__what-link");
+    assert((await link.innerText()) === "What this means", "no link text");
+    assert((await link.getAttribute("href")) === "../guide/errors/#nameerror-or-attributeerror-on-an-f-name", `href ${await link.getAttribute("href")}`);
+    // Editing another line leaves the marks; editing that line clears them.
+    await clickEndOfLine(page, page.locator(".cm-line", { hasText: "import funground" }));
+    await page.keyboard.type(" ");
+    assert(await page.locator(".cm-error-line").count() === 1 && await page.locator(".cm-error-name").count() === 1, "an edit on another line cleared the marks");
+    await clickEndOfLine(page, page.locator(".cm-error-line"));
+    await page.keyboard.type(" ");
+    assert(await page.locator(".cm-error-line").count() === 0 && await page.locator(".cm-error-name").count() === 0, "the marks stayed after editing the line");
+    await page.close();
+  });
+
+  await check(28, "a NameError underlines the bare name, a TypeError links its section and underlines nothing", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await page.locator(".fg-play__auto input").uncheck();
+    await typeCode(page, SKETCH_WITH("circl(10, 10, 10)"));
+    await runButton(page).click();
+    await page.locator(".cm-error-name").waitFor({ timeout: 20000 });
+    assert(JSON.stringify(await underlined(page)) === '["circl"]', `underlined: ${JSON.stringify(await underlined(page))}`);
+    assert((await page.locator(".fg-play__error").innerText()).includes("name 'circl' is not defined"), "message");
+    assert((await page.locator(".fg-play__what-link").getAttribute("href")).endsWith("#nameerror-or-attributeerror-on-an-f-name"), "anchor");
+    await typeCode(page, SKETCH_WITH("f.circle(10)"));
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".fg-play__what-link")?.getAttribute("href").endsWith("#typeerror-missing-arguments"), null, { timeout: 20000 })
+      .catch(async () => { throw new Error(`output: ${await page.locator(".play-output").innerText()}`); });
+    assert(await page.locator(".cm-error-line").count() === 1 && await page.locator(".cm-error-name").count() === 0, "a name was underlined");
+    await page.close();
+  });
+
+  await check(29, "every anchor in play.js is a heading of the guide's errors page", async () => {
+    const source = readFileSync(path.join(docs, "play", "play.js"), "utf8");
+    const anchors = [...source.matchAll(/anchor: "([^"]+)"/g)].map((m) => m[1]);
+    // MkDocs' toc: lower case, drop what is not a word, a space or a hyphen, then runs of spaces and hyphens become one hyphen.
+    const slug = (heading) => heading.normalize("NFKD").replace(/[^\w\s-]/g, "").trim().toLowerCase().replace(/[-\s]+/g, "-");
+    const headings = new Set(readFileSync(path.join(docs, "guide", "errors.md"), "utf8").split("\n").filter((l) => /^#{2,6} /.test(l)).map((l) => slug(l.replace(/^#+ /, ""))));
+    assert(anchors.length >= 7, `only ${anchors.length} anchors found`);
+    const missing = anchors.filter((a) => !headings.has(a));
+    assert(missing.length === 0, `no such heading in guide/errors.md: ${missing}`);
+    return `${anchors.length} anchors`;
+  });
+
+  await check(30, "Next and Previous step through the examples, name them, stop at the ends and keep drafts", async () => {
+    const page = await openEditor(`&example=${FIRST_SKETCH}`);
+    await clearDrafts(page);
+    const list = await page.evaluate(async () => (await (await fetch("examples.json")).json()).map((e) => ({ id: e.id, title: e.title, source: e.source })));
+    const at = list.findIndex((e) => e.id === FIRST_SKETCH);
+    const next = page.getByRole("button", { name: /^Next/ });
+    const previous = page.getByRole("button", { name: /^Previous/ });
+    assert((await next.getAttribute("aria-label")) === `Next: ${list[at + 1].title}` && (await next.getAttribute("title")) === `Next: ${list[at + 1].title}`, `next is ${await next.getAttribute("aria-label")}`);
+    const first = await editorText(page);
+    await typeCode(page, `${first}\n# my draft\n`);
+    await next.click();
+    await page.waitForFunction((id) => document.querySelector(".fg-play__choose").value === id, list[at + 1].id);
+    const code = await page.evaluate(async (source) => (await fetch(`runner/runtime/examples/${source}`)).text(), list[at + 1].source);
+    await page.waitForFunction((c) => [...document.querySelectorAll(".cm-line")].map((l) => l.textContent).join("\n") === c, code.replace(/\r/g, ""), { timeout: 10000 })
+      .catch(async () => { throw new Error(`the next example's code is not in the editor: ${(await editorText(page)).slice(0, 80)}`); });
+    assert((await previous.getAttribute("aria-label")) === `Previous: ${list[at].title}`, `previous is ${await previous.getAttribute("aria-label")}`);
+    await previous.click();
+    await page.waitForFunction((id) => document.querySelector(".fg-play__choose").value === id, FIRST_SKETCH);
+    await page.waitForFunction(() => [...document.querySelectorAll(".cm-line")].some((l) => l.textContent === "# my draft"), null, { timeout: 10000 });
+    await page.close();
+    // The ends: the first has no Previous, the last no Next.
+    const firstPage = await openEditor(`&example=${list[0].id}`);
+    assert(await firstPage.getByRole("button", { name: /^Previous/ }).isDisabled() && !(await firstPage.getByRole("button", { name: /^Next/ }).isDisabled()), "the first example's buttons");
+    await firstPage.close();
+    const lastPage = await openEditor(`&example=${list.at(-1).id}`);
+    assert(await lastPage.getByRole("button", { name: /^Next/ }).isDisabled() && !(await lastPage.getByRole("button", { name: /^Previous/ }).isDisabled()), "the last example's buttons");
+    await lastPage.close();
+    return `${list.length} examples`;
+  });
+
+  await check(31, "Previous and Next are hidden for a blank and for a shared sketch", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    assert(await page.locator(".fg-play__step:visible").count() === 0, "the buttons show on a blank sketch");
+    await typeCode(page, `${await editorText(page)}\n# shared\n`);
+    await page.getByRole("button", { name: "Share" }).click();
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Link copied"));
+    const link = await page.locator(".play-link").inputValue();
+    const other = await openEditor("", link.slice(link.indexOf("#")));
+    assert(await other.locator(".fg-play__step:visible").count() === 0, "the buttons show on a shared sketch");
+    await other.close();
+    await page.close();
+  });
+
+  await check(32, "Reset is hidden until the code differs from the original", async () => {
+    const page = await openEditor(`&example=${FIRST_SKETCH}`);
+    await clearDrafts(page);
+    await page.reload();
+    await page.waitForFunction(() => !document.querySelector(".fg-btn--run").disabled, null, { timeout: 60000 });
+    const reset = page.getByRole("button", { name: "Reset" });
+    assert(!(await reset.isVisible()), "Reset is shown before any edit");
+    await typeCode(page, `${await editorText(page)}\n# edit\n`);
+    assert(await reset.isVisible(), "Reset is not shown after an edit");
+    await page.getByRole("button", { name: "Reset" }).click();
+    assert(!(await reset.isVisible()), "Reset is still shown after going back");
+    await page.close();
+  });
+
+  await check(33, "the toolbar is one row at 1366 wide and nothing overflows at 390 wide", async () => {
+    const page = await openEditor(`&example=${FIRST_SKETCH}`);
+    await clearDrafts(page);
+    await typeCode(page, `${await editorText(page)}\n# edit\n`);              // the most buttons: Reset shows
+    const measure = () => page.evaluate(() => {
+      const bar = document.querySelector(".fg-play__bar").getBoundingClientRect();
+      const kids = [...document.querySelectorAll(".fg-play__bar button:not([hidden]), .fg-play__bar select, .fg-play__bar .fg-status")].map((e) => e.getBoundingClientRect());
+      return { height: Math.round(bar.height), centres: Math.round(Math.max(...kids.map((r) => r.top + r.height / 2)) - Math.min(...kids.map((r) => r.top + r.height / 2))), right: Math.max(...kids.map((r) => r.right)),
+               scrollWidth: document.documentElement.scrollWidth };
+    });
+    // The longest message the status can hold (check 12): it must be cut short, not wrap the toolbar onto a second row.
+    await page.evaluate(() => { document.querySelector(".play-status").textContent = "Starting Python again: the last sketch did not stop in time. This takes a few seconds..."; });
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await sleep(200);
+    const wide = await measure();
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "toolbar_1366.png"), clip: { x: 0, y: 0, width: 1366, height: 120 } });
+    assert(wide.height <= 56 && wide.centres < 12, `at 1366 the toolbar is ${wide.height}px tall and its parts are ${wide.centres}px apart (a second row)`);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await sleep(200);
+    const narrow = await measure();
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "toolbar_390.png"), clip: { x: 0, y: 0, width: 390, height: 200 } });
+    assert(narrow.scrollWidth <= 390 && narrow.right <= 390, `at 390 the page is ${narrow.scrollWidth}px wide and the toolbar reaches ${Math.round(narrow.right)}px`);
+    await page.close();
+    return `1366: ${wide.height}px, one row; 390: ${narrow.height}px, reaches ${Math.round(narrow.right)}px`;
   });
 } finally {
   await browser.close();
