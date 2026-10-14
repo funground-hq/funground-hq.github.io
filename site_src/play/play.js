@@ -194,6 +194,16 @@ function setStatus(text, kind) {
 const isDark = () => document.body.getAttribute("data-md-color-scheme") === "slate";
 
 const editor = createEditor({ parent: editorBox, dark: isDark(), onChange: edited });
+// The suggestions list (funground's own, copied to this folder by assemble.py). It arrives after the editor is
+// there; if it cannot be fetched, the editor simply has no funground suggestions.
+fetch("completions.json")
+  .then((response) => {
+    if (!response.ok) throw new Error(`completions.json: ${response.status}`);
+    return response.json();
+  })
+  .then((data) => editor.setCompletions(data))
+  .catch((error) => console.info("Play: no suggestions.", error.message));
+
 new MutationObserver(() => editor.setDark(isDark()))
   .observe(document.body, { attributes: true, attributeFilter: ["data-md-color-scheme"] });
 
@@ -453,7 +463,9 @@ const handlers = {
   ready() {
     previewReady = true;
     runButton.disabled = false;
-    if (status.textContent.startsWith("Loading")) setStatus("Ready. Press Run.", "ready");   // not over a more useful message
+    // Python is ready, so the loading spinner stops whatever the line says; a more useful message (a restored draft,
+    // a shared sketch) stays, and only "Loading ..." is replaced.
+    setStatus(status.textContent.startsWith("Loading") ? "Ready. Press Run." : status.textContent, "ready");
   },
   output: (message) => addOutput(message.text, message.stream),
   // The last sketch did not stop within a second, so the preview is loading a new Python: say why the run waits.

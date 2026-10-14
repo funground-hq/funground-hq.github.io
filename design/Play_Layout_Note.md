@@ -37,3 +37,33 @@ does not answer "stop" within the runner's second still costs a new Python (a fe
 **Tests.** `tools/test_editor.mjs`, 12 checks: the ten it had (check 1 now also checks the editor is not built
 inside a heading), 11 for zoom and Fit, 12 for the restart notice. Layout by eye with `tools/design_shots.mjs` against
 `design/mockups/play-day.png`.
+
+## Suggestions in the editor (S-196)
+
+When the learner types, the editor offers names. The list is funground's own (D-102 = a): funground generates
+`funground/completions.json` from its docstrings, `tools/assemble.py` copies it to `play/completions.json`, and
+`play.js` fetches it after the editor is made and gives it to `setCompletions()`. If the file is missing (an older
+funground) or cannot be fetched, the editor works as before, with no funground suggestions and no message.
+
+The code is `tools/codemirror/completion.js` (package `@codemirror/autocomplete`, which lang-python already needed).
+It is one more source beside lang-python's, so CodeMirror's local words keep working. It suggests in three places:
+
+- after `f.`: every function, class and live value, with the signature, the summary and a Reference link. `f` is
+  whatever `import funground as ...` says.
+- a bare word of two letters or more, but only with `from funground import *`: the names marked "star".
+- inside a string that is an argument of a funground call: colour names (each with a small swatch) where the
+  parameter takes a colour, or the words of an option list (such as `blend_mode`) with their meaning. The code
+  before the cursor is read for the innermost open bracket, the function's name, and the argument (a keyword such as
+  `color=` first, else the position counted by commas, matched to the names in the signature). Accepting a word
+  inserts only the word; the quotes stay.
+
+The learner's own variables and functions are not suggested, beyond CodeMirror's local words. The popup is styled
+with the page's variables in `completion.js`. **Tests:** checks 13 to 17 in `tools/test_editor.mjs`.
+
+**The namespaces (S-174).** `COLORS` and `CONSTANTS` are entries of kind `namespace` in `completions.json`, so they
+appear after `f.` like any name. A dotted name is also read: after `f.COLORS.` the editor offers the colour names (with
+the swatch, the word such as `"tomato"` and the hex), after `f.CONSTANTS.` the groups (each says which functions use it,
+"for text_align"), and after `f.CONSTANTS.ALIGN.` the words of that group, with their meaning when there is one. With
+`from funground import *` the same works without the `f.` (`COLORS.TOM`). Filtering ignores case, and accepting a word
+inserts the capital name. The lists are built in `prepare()` from the `members` of the two entries; nothing is written
+by hand. **Tests:** checks 18 to 21.

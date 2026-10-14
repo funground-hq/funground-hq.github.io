@@ -8,6 +8,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { bracketMatching, defaultHighlightStyle, indentOnInput, syntaxHighlighting } from "@codemirror/language";
 import { python } from "@codemirror/lang-python";
 import { oneDark } from "@codemirror/theme-one-dark";
+import { completionExtensions, prepare } from "./completion.js";
 
 // A change made by setText() is the page's, not the learner's typing: onChange does not hear about it.
 const fromPage = Annotation.define();
@@ -48,11 +49,13 @@ const darkColours = [oneDark];
  * @param {string} [options.text]  the first text
  * @param {boolean} [options.dark]  dark colours (default light)
  * @param {() => void} [options.onChange]  the learner changed the text (not setText)
- * @returns {{getText: () => string, setText: (text: string) => void, setDark: (dark: boolean) => void,
+ * @param {object} [options.completions]  the parsed completions.json; it may come later, through setCompletions()
+ * @returns {{setCompletions: (data: object) => void, getText: () => string, setText: (text: string) => void, setDark: (dark: boolean) => void,
  *            markError: (line: number) => void, clearError: () => void, goToLine: (line: number) => void,
  *            focus: () => void}}
  */
-export function createEditor({ parent, text = "", dark = false, onChange }) {
+export function createEditor({ parent, text = "", dark = false, onChange, completions }) {
+  let suggestions = completions ? prepare(completions) : null;     // null: no funground suggestions yet
   const colours = new Compartment();
   const view = new EditorView({
     parent,
@@ -61,7 +64,7 @@ export function createEditor({ parent, text = "", dark = false, onChange }) {
       extensions: [
         lineNumbers(), history(), drawSelection(), highlightActiveLine(), indentOnInput(), bracketMatching(),
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-        python(), errorMark, pageTheme,
+        python(), errorMark, pageTheme, completionExtensions(() => suggestions),
         colours.of(dark ? darkColours : lightColours),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !update.transactions.some((t) => t.annotation(fromPage))) onChange?.();
@@ -71,6 +74,8 @@ export function createEditor({ parent, text = "", dark = false, onChange }) {
   });
 
   return {
+    // The names funground generates (completions.json). Until they are given, the editor has no funground suggestions.
+    setCompletions(data) { suggestions = prepare(data); },
     getText: () => view.state.doc.toString(),
     setText(newText) {
       view.dispatch({
