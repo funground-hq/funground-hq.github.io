@@ -113,6 +113,7 @@ body:has(.fg-play) .md-main { overflow: hidden; }
   .fg-play__choose { flex: 1 1 auto; min-width: 0; max-width: none; }
   .fg-btn--run kbd { display: none; }                                  /* no keyboard on a phone */
   .fg-play__bar .fg-status { order: 10; flex: 1 1 100%; text-align: left; }
+  .fg-keys-only { display: none; }                                      /* keys and the divider: not on a phone */
   .fg-play__help { position: static; max-width: none; margin: var(--space-2); }       /* in the flow, so it never covers Run */
 
   /* The floating Run: bottom right, over everything; play.js shows it while the toolbar's Run is out of sight. */
@@ -120,4 +121,18 @@ body:has(.fg-play) .md-main { overflow: hidden; }
     right: 16px; bottom: 16px; font: 700 22px/1 var(--font-body); color: var(--on-teal); background: var(--teal);
     border: var(--outline-width) solid var(--ink); border-radius: 50%; box-shadow: 3px 3px 0 var(--ink); cursor: pointer; }
   .fg-play__fab:disabled { opacity: 0.45; cursor: default; }
+}
+
+/* Alt held (S-208): what Alt+Up and Alt+Down will change. A gold wash, an outline on a number, a lighter wash on a line. */
+.fg-play__code .cm-editor .cm-nudge-number { background: color-mix(in srgb, var(--gold) 45%, transparent); outline: 1.5px solid var(--gold); border-radius: 3px; }
+.fg-play__code .cm-editor .cm-nudge-line { background: color-mix(in srgb, var(--gold) 16%, transparent); }
+[data-md-color-scheme="slate"] .fg-play__code .cm-editor .cm-nudge-number { background: color-mix(in srgb, var(--gold) 30%, transparent); }
+
+/* The first-visit note on a phone: one line in place of the help. */
+.fg-play__notice { display: none; }
+@media (max-width: 900px) {
+  .fg-play__notice:not([hidden]) { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-2); padding: var(--space-1) var(--space-2);
+    background: var(--gold); color: #191970; border: var(--outline-width) solid var(--ink); border-radius: var(--radius-md); font: 400 14px/1.4 var(--font-body); }
+  .fg-play__notice a { color: #191970; text-decoration: underline; }
+  .fg-play__notice .spacer { flex: 1; }
 }

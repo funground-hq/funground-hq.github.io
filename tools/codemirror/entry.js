@@ -9,6 +9,7 @@ import { HighlightStyle, bracketMatching, indentOnInput, syntaxHighlighting } fr
 import { tags } from "@lezer/highlight";
 import { python } from "@codemirror/lang-python";
 import { completionExtensions, prepare } from "./completion.js";
+import { numberNudging } from "./numbers.js";
 
 // A change made by setText() is the page's, not the learner's typing: onChange does not hear about it.
 const fromPage = Annotation.define();
@@ -108,7 +109,7 @@ export function createEditor({ parent, text = "", dark = false, onChange, comple
       extensions: [
         lineNumbers(), history(), drawSelection(), highlightActiveLine(), indentOnInput(), bracketMatching(),
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-        python(), errorMark, pageTheme, completionExtensions(() => suggestions),
+        python(), errorMark, numberNudging, pageTheme, completionExtensions(() => suggestions),
         colours.of(dark ? darkColours : lightColours),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !update.transactions.some((t) => t.annotation(fromPage))) onChange?.();
