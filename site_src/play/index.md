@@ -14,10 +14,11 @@ hide:
 blank sketch. With **Auto-run** on, the sketch runs again a moment after you stop typing.
 
 - **Keys:** <kbd>Ctrl</kbd> + <kbd>Enter</kbd> runs, <kbd>Esc</kbd> stops, <kbd>Ctrl</kbd> + <kbd>S</kbd> shares.
-  Click the picture to give it the mouse and keys.
+  Click the picture to give it the mouse and keys. { .fg-keys-only }
+- **Numbers:** put the cursor on a number and press <kbd>Alt</kbd> + <kbd>↑</kbd> or <kbd>↓</kbd> to change it. Add <kbd>Shift</kbd> for bigger steps. Or hold <kbd>Alt</kbd> and drag it. { .fg-keys-only }
 - **Share** copies a link that holds your code. Anyone who opens it sees your code and can run it.
 - **Reset** goes back to the original. Unsaved changes stay in this browser only.
-- Drag the bar between the code and the picture to give either one more room.
+- Drag the bar between the code and the picture to give either one more room. { .fg-keys-only }
 - Your sketches run in a separate, sandboxed website (funground-run.github.io), so a sketch can never reach this
   site. To keep sketches on GitHub, use the [sketchbook](https://github.com/funground-hq/sketchbook) and the
   funground extension in github.dev.
