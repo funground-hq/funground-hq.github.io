@@ -294,3 +294,25 @@ The learner's own sketches are kept in this browser only (decision 2 of the road
   both refusals), 48 (keep an edited example, Reset it, share), 49 (storage blocked), 50 (layout at 1366 and 390). Screenshots with `--shots`:
   `mine_1366.png`, `mine_390.png`.
 - **Not built.** A "My sketches" panel or thumbnails; a limit on how many sketches there are; a warning near the browser's 5 MB.
+
+## Play keeps its runtime on the device (S-210)
+
+The preview (`funground-run.github.io`) registers a service worker, `sw.js`, so Python, funground and the fonts are kept in the
+browser. The rule is the one in `Play_Roadmap.md` ("The cache, and how a new version replaces it"); the details are in the preview's
+README. The editor's part:
+
+- **The help** ends with a button, "Remove Play from this browser". It sends `{type: "forget"}`; the preview deletes its caches and
+  unregisters the worker, and replies `{type: "forgotten"}`. The line beside the button then says: "Done. Python and funground were
+  removed from this browser. Your sketches are still here. They download again the next time you open Play." (Sketches are kept by
+  this page, never by the preview.) If nothing answers in 5 seconds it says so.
+- **A new version.** The preview sends `{type: "update-ready"}` when a new funground has finished downloading in the background. The
+  status says "A new funground is ready: it starts the next time you open Play." The new version is used by the next worker that loads.
+- **Why the preview and not the editor.** The runner's worker is started by the preview page, on its own origin; only a service worker
+  registered there sees the worker's fetches. The editor cannot cache for another origin.
+- **Offline.** Once a learner has opened Play, the preview and runner run a sketch with no network, when the editor page itself loads
+  (it comes from GitHub Pages and is kept only by the browser's own cache). Not offline: the editor page after the browser has dropped
+  it, and fonts no sketch has used yet.
+- **Tests.** `tools/test_editor.mjs`, checks 51 to 54: a repeat visit fetches no runtime file (a text sketch also reads a font), a
+  changed manifest makes a new cache and removes the old one (only the one new file is downloaded) and `update-ready` arrives, "Remove
+  Play from this browser" leaves no cache and no registration, and with the network off the preview starts again and runs a sketch. The
+  test server answers `Range` requests like GitHub Pages does.

@@ -46,6 +46,10 @@ const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/cs
 // Playwright's page.route does not see a worker's requests, so the server does the holding.
 const gates = {};
 const requested = {};
+// What reached the servers: every path asked for, in order (check 51 counts the runtime files a repeat visit fetches), and
+// bodies that replace a file (check 52 serves a changed manifest and one more file).
+const served = [];
+const overrides = {};
 
 function fileServer(root, pages = {}) {
   return http.createServer(async (request, response) => {
@@ -54,20 +58,28 @@ function fileServer(root, pages = {}) {
       requested[url.pathname] = true;
       await gates[url.pathname];
     }
+    served.push(url.pathname);
     const found = path.join(path.resolve(root), decodeURIComponent(url.pathname));
-    const page = pages[url.pathname];
+    const page = pages[url.pathname] ?? overrides[url.pathname];
     const ok = page !== undefined || (found.startsWith(path.resolve(root)) && statSync(found, { throwIfNoEntry: false })?.isFile());
     if (!ok) {
       response.writeHead(404).end();
       return;
     }
     const body = page !== undefined ? Buffer.from(page) : readFileSync(found);
-    response.writeHead(200, {
-      "Content-Type": page !== undefined ? "text/html" : TYPES[path.extname(url.pathname)] ?? "application/octet-stream",
-      "Content-Length": body.length,
+    // Like GitHub Pages, a file can be asked for in parts (the runner reads fonts that way): Range gives a 206.
+    const range = /^bytes=(\d+)-(\d*)$/.exec(request.headers.range ?? "");
+    const from = range ? Number(range[1]) : 0;
+    const to = range && range[2] !== "" ? Math.min(Number(range[2]), body.length - 1) : body.length - 1;
+    const part = range ? body.subarray(from, to + 1) : body;
+    response.writeHead(range ? 206 : 200, {
+      "Content-Type": pages[url.pathname] !== undefined ? "text/html" : TYPES[path.extname(url.pathname)] ?? "application/octet-stream",
+      "Content-Length": part.length,
+      "Accept-Ranges": "bytes",
+      ...(range ? { "Content-Range": `bytes ${from}-${to}/${body.length}` } : {}),
       "Access-Control-Allow-Origin": "*",
     });
-    for (let start = 0; start < body.length; start += 65536) response.write(body.subarray(start, start + 65536));
+    for (let start = 0; start < part.length; start += 65536) response.write(part.subarray(start, start + 65536));
     response.end();
   });
 }
@@ -196,8 +208,8 @@ function watch(page) {
   page.on("requestfailed", (request) => console.log(`  failed: ${request.url()} ${request.failure()?.errorText}`));
 }
 
-async function openEditor(query = "", hash = "") {
-  const page = await context.newPage();
+async function openEditor(query = "", hash = "", where = context) {
+  const page = await where.newPage();
   watch(page);
   await page.goto(`${EDITOR}/play/?preview=${PREVIEW}${query}${hash}`);
   await runButton(page).waitFor();
@@ -1750,6 +1762,126 @@ f.run()
     assert(narrow.code >= 300, `at 390 the code is ${narrow.code}px tall`);
     await page.close();
     return `1366: ${wide.rows} row, code ${wide.code}px; 390: ${narrow.rows} rows, code ${narrow.code}px`;
+  });
+  // ---- the runtime stays on the device (S-210). Each check has its own browser context, so its caches start empty.
+
+  const RUNTIME_DIR = "/play/runner/runtime/";
+  const MANIFEST_PATH = `${RUNTIME_DIR}manifest.json`;
+  const TEXT_SKETCH = "import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    f.background(\"white\")\n    f.fill(\"black\")\n    f.text_size(40)\n    f.text(\"Hi\", 20, 20)\n\n\nf.run()\n";
+  const runtimeFetches = () => served.filter((p) => p.startsWith(RUNTIME_DIR) && p !== MANIFEST_PATH);
+  const cacheNames = (frame) => frame.evaluate(() => caches.keys());
+  const runtimeCaches = async (frame) => (await cacheNames(frame)).filter((n) => n.startsWith("funground-runtime-"));
+
+  // A context with a counter of the "update-ready" and "ready" messages the editor page receives (it survives reloads).
+  async function trackedContext() {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await ctx.addInitScript(() => {
+      window.__messages = { ready: 0, "update-ready": 0, forgotten: 0 };
+      window.addEventListener("message", (e) => { if (e.data?.type in window.__messages) window.__messages[e.data.type] += 1; });
+    });
+    return ctx;
+  }
+  const messageCount = (page, type) => page.evaluate((t) => window.__messages[t], type);
+  const waitForMessages = (page, type, count) => page.waitForFunction(([t, n]) => window.__messages[t] >= n, [type, count], { timeout: 60000 });
+
+  async function runText(page, code) {
+    await typeCode(page, code);
+    await runButton(page).click();
+    return waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque && p.colours > 1, 30000);
+  }
+
+  await check(51, "Service worker: a repeat visit fetches no runtime file, and a font still works", async () => {
+    const ctx = await trackedContext();
+    const page = await openEditor("", "", ctx);
+    assert((await runtimeCaches(frameOf(page, PREVIEW))).length === 1, "no runtime cache after the first visit");
+    await runText(page, TEXT_SKETCH);                         // reads a font by ranges: the first visit keeps it
+    const first = runtimeFetches().length;
+    assert(first > 0, "the first visit fetched nothing");
+    served.length = 0;
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+    const repeat = await runText(page, TEXT_SKETCH);
+    assert(repeat.picture.colours > 1, "the text sketch drew nothing on the repeat visit");
+    const fetched = runtimeFetches();
+    assert(fetched.length === 0, `a repeat visit fetched ${fetched.join(", ")}`);
+    assert(served.includes(MANIFEST_PATH), "the manifest was not asked for");
+    await page.close();
+    await ctx.close();
+    return `first visit ${first} runtime files, repeat 0`;
+  });
+
+  await check(52, "Service worker: a changed manifest replaces the cache, copies unchanged files, and tells the editor", async () => {
+    const ctx = await trackedContext();
+    const page = await openEditor("", "", ctx);
+    const before = await runtimeCaches(frameOf(page, PREVIEW));
+    assert(before.length === 1, `caches after the first visit: ${before}`);
+    // The same runtime with one more file and a changed note: a new version.
+    const manifest = JSON.parse(readFileSync(path.join(RUNNER, "runtime", "manifest.json"), "utf8"));
+    const extra = Buffer.from("one more file for the update test");
+    manifest.release = "test-update";
+    manifest.files.push({ name: "extra.bin", role: "extra", size: extra.length, sha256: "00".repeat(32) });
+    overrides[MANIFEST_PATH] = Buffer.from(JSON.stringify(manifest));
+    overrides[`${RUNTIME_DIR}extra.bin`] = extra;
+    try {
+      served.length = 0;
+      await page.reload();
+      await waitForMessages(page, "update-ready", 1);
+      assert((await status(page)).startsWith("A new funground is ready") || (await messageCount(page, "update-ready")) >= 1, "no notice");
+      const after = await runtimeCaches(frameOf(page, PREVIEW));
+      assert(after.length === 1 && after[0] !== before[0], `caches after the update: ${after}`);
+      const fetched = runtimeFetches();
+      assert(fetched.join() === `${RUNTIME_DIR}extra.bin`, `the update fetched ${fetched}`);
+      const kept = await frameOf(page, PREVIEW).evaluate(async (name) => (await (await caches.open(name)).keys()).map((r) => r.url), after[0]);
+      assert(kept.some((u) => u.endsWith("extra.bin")) && kept.some((u) => u.endsWith(".whl")), `the new cache holds ${kept}`);
+      // The next load uses the new version without fetching anything.
+      served.length = 0;
+      await page.reload();
+      await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      assert(runtimeFetches().length === 0, `the next load fetched ${runtimeFetches()}`);
+      assert((await runtimeCaches(frameOf(page, PREVIEW))).join() === after.join(), "the cache changed again");
+    } finally {
+      delete overrides[MANIFEST_PATH];
+      delete overrides[`${RUNTIME_DIR}extra.bin`];
+    }
+    await page.close();
+    await ctx.close();
+    return "a new cache replaced the old; only extra.bin was downloaded";
+  });
+
+  await check(53, "Service worker: Remove Play from this browser empties the caches and unregisters", async () => {
+    const ctx = await trackedContext();
+    const page = await openEditor("", "", ctx);
+    const frame = frameOf(page, PREVIEW);
+    assert((await cacheNames(frame)).length >= 2, `caches after the first visit: ${await cacheNames(frame)}`);
+    assert(await frame.evaluate(async () => Boolean(await navigator.serviceWorker.getRegistration())), "no service worker registered");
+    if (!(await page.getByRole("button", { name: "Remove Play from this browser" }).isVisible())) await page.getByRole("button", { name: "Help" }).click();     // a first visit opens the help by itself
+    await page.getByRole("button", { name: "Remove Play from this browser" }).click();
+    await page.waitForFunction(() => document.querySelector(".fg-play__forgetnote")?.textContent.startsWith("Done"), null, { timeout: 10000 });
+    assert((await cacheNames(frame)).length === 0, `caches left: ${await cacheNames(frame)}`);
+    assert(await frame.evaluate(async () => !(await navigator.serviceWorker.getRegistration())), "the service worker is still registered");
+    assert((await page.locator(".fg-play__forgetnote").innerText()).includes("sketches are still here"), "the note does not say sketches are kept");
+    await page.close();
+    await ctx.close();
+  });
+
+  await check(54, "Service worker: offline, the preview loads again and runs a sketch", async () => {
+    const ctx = await trackedContext();
+    const page = await openEditor(`&example=${FIRST_SKETCH}`, "", ctx);
+    await clearDrafts(page);
+    await runButton(page).click();
+    await waitForPicture(frameOf(page, PREVIEW), (p) => p.centre.join() === "255,99,71");
+    await ctx.setOffline(true);
+    served.length = 0;
+    const readyBefore = await messageCount(page, "ready");
+    await frameOf(page, PREVIEW).evaluate(() => location.reload());        // the preview starts again, with no network
+    await waitForMessages(page, "ready", readyBefore + 1, 20000);
+    await runButton(page).click();
+    await waitForPicture(frameOf(page, PREVIEW), (p) => p.centre.join() === "255,99,71");
+    const asked = served.filter((p) => p !== "/sw.js");        // the browser checks for a new sw.js by itself
+    assert(asked.length === 0, `offline, the servers were asked for ${asked}`);
+    await ctx.setOffline(false);
+    await page.close();
+    await ctx.close();
   });
 } finally {
   await browser.close();
