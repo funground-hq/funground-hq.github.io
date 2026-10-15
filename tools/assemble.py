@@ -388,7 +388,7 @@ def play_examples(entries: list[dict], areas: dict[str, str], funground: Path) -
 
     ``entries`` come from the runtime, built from the funground branch the runner runs; the headings and
     the gallery pages come from the funground checkout the site is built from. An example only the runtime
-    has is listed without a gallery page.
+    has is listed without a gallery page, and one with no gallery picture has no ``picture``.
     """
     gallery = {f"{p.parent.name}-{p.stem}" for p in (funground / "examples" / "gallery").glob("*/*.py")}
     headings = {**OTHER_AREAS, **areas}
@@ -398,8 +398,11 @@ def play_examples(entries: list[dict], areas: dict[str, str], funground: Path) -
         parts = entry["source"].split("/")                      # gallery/<area>/<name>.py or session1/<name>.py
         area = parts[1] if parts[0] == "gallery" else parts[0]
         page = f"../gallery/{area}/{Path(parts[-1]).stem}/" if entry["id"] in gallery else None
-        listed.append({**entry, "title": readable_title(entry["title"]), "area": area,
-                       "heading": headings.get(area, area.title()), "page": page})
+        item = {**entry, "title": readable_title(entry["title"]), "area": area,
+                "heading": headings.get(area, area.title()), "page": page}
+        if (funground / "docs" / "gallery" / "images" / f"{entry['id']}.png").is_file():
+            item["picture"] = f"../gallery/images/{entry['id']}.png"      # shown while Python loads (S-209); from /play/
+        listed.append(item)
     rank = {area: i for i, area in enumerate(order)}
     listed.sort(key=lambda e: (rank.get(e["area"], len(order)), e["area"], e["source"]))
     return listed
