@@ -9,6 +9,7 @@ read it. The design was made on 13 October 2026 from the repositories as they we
 | `DESIGN.md` | The rules: the idea, the two registers, colour, type, spacing, imagery, components |
 | `PLAY_EDITOR.md` | The editor: the duplicate-id bug, today's measurements, the layout to build, states, acceptance |
 | `BACKLOG.md` | Ten candidate stories in build order, and four decisions for the maintainer |
+| `Play_Roadmap.md` | The online editor from here (draft, 14 Oct 2026): ideas by what they serve, an order in three stages, decisions |
 | `tokens.json` | The tokens, machine-readable (the source of truth; the CSS is derived from it) |
 | `mockups/` | The pictures to match, below |
 | `patches/0001-quick-wins.diff` | The three small edits to existing files (mkdocs.yml, and the Play id in index.md and play.js) |
