@@ -222,3 +222,24 @@ The test page now has a viewport meta, and the phone checks remove the body marg
   without the keyboard lines (`.fg-keys-only`, under 900 px). The desktop first visit is unchanged.
 - **Tests.** Check 39 (keys, steps, strings and comments, undo, the marks, the Alt tap, the drag), 40 (Auto-run reruns after a
   nudge), 41 (phone first visit, "?", desktop).
+
+## The example's picture while Python loads (S-209)
+
+- **What.** An example opens with its gallery picture (`gallery/images/<id>.png`) over the frame, at the sketch's size and scaled
+  like the live frame (`Fit`, zoom, phones: the frame is already the scaled size and the picture fills it). The status (the toolbar's
+  words, "Loading Python. ..." with its spinner, then "Ready. Press Run.") is written over its foot, and a small tag, "Picture of the
+  example", says it is not the running sketch. The first Run replaces it: it goes when the preview says `started` (or `error`), so
+  the learner never sees the blank frame between. It does not come back until another example is opened.
+- **When it shows.** `updateStill()` in `play.js`: an example is open, it has not been run yet, and the code is the example's own
+  (`editor.getText() === original`). A draft that differs, an edit, a blank, starter or shared sketch (also a shared link that names
+  an example) show none, because the code may not match the picture. Reset brings it back (if not run yet); switching examples
+  (picker, ‹ ›, `?example=`) shows the new example's picture.
+- **Data.** `tools/assemble.py` adds `"picture": "../gallery/images/<id>.png"` (from `/play/`) to an example in `examples.json` when
+  funground's `docs/gallery/images/<id>.png` exists; an older `play.js` ignores the key, a newer one works without it.
+- **Light.** One `<img loading="eager">`, with its `src` set only for the opened example, so a visitor who opens the blank sketch
+  downloads nothing. The picture's own size (640 x 400 for the gallery) sets the frame until the sketch reports its size.
+- **Tests.** Check 42. Python is held back by making the test's file server wait on `runtime/manifest.json` (the worker loads Pyodide
+  first and then asks for it; `page.route` does not see a worker's requests). It checks the picture, tag, status, size and one image at
+  1366; the picture after Python is ready; Next and the picker; an edit hides it and Reset brings it back; Run replaces it with the
+  live frame; a differing draft, the starter, blank, and shared links (with and without an example) show none; 390 x 844: width, tag
+  and status inside the picture, no sideways scroll.
