@@ -172,6 +172,9 @@ const errorCount = element("span", { class: "count", hidden: "" });
 const clearButton = element("button", { class: "fg-play__clear", type: "button" }, "Clear");
 const output = element("div", { class: "fg-console__body play-output", "aria-live": "polite" });
 
+// The floating Run (phones, S-189): shown only while the toolbar's own Run is scrolled out of sight (see "phones" below).
+const fab = element("button", { class: "fg-play__fab", type: "button", "aria-label": "Run", title: "Run", hidden: "", disabled: "" }, "▶");
+
 const work = element("div", { class: "fg-play__work" },
   element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, lineCount), editorBox),
   divider,
@@ -193,6 +196,7 @@ play.replaceChildren(
   linkField,
   help,
   work,
+  fab,
 );
 
 // The status: one line with a coloured dot (loading gold, ready teal, running turquoise, an error tomato).
@@ -224,7 +228,14 @@ function showLineCount() {
 
 // ---- the page fills the window: everything under the site's header and tabs belongs to the editor
 
+// On a phone (900px or less) the page scrolls instead and the box is as tall as its parts (S-189).
+const phone = window.matchMedia("(max-width: 900px)");
+
 function fillWindow() {
+  if (phone.matches) {
+    play.style.height = "";
+    return;
+  }
   play.style.height = `${Math.max(320, window.innerHeight - play.getBoundingClientRect().top - window.scrollY)}px`;
 }
 window.addEventListener("resize", fillWindow);
@@ -246,7 +257,7 @@ function fitScale() {
   const roomY = picture.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) - 8;
   const { width, height } = sketchSize;
   let scale = Math.min(1, roomX / width);
-  if (roomY > 0) scale = Math.min(scale, roomY / height);
+  if (!phone.matches && roomY > 0) scale = Math.min(scale, roomY / height);
   return Math.max(scale, 0.1);
 }
 
@@ -277,6 +288,19 @@ function zoomBy(direction) {
 zoomOut.addEventListener("click", () => zoomBy(-1));
 zoomIn.addEventListener("click", () => zoomBy(1));
 zoomFit.addEventListener("click", () => { zoom = null; fitPicture(); });
+
+// ---- phones (S-189): a floating Run while the toolbar's Run is out of sight
+
+phone.addEventListener("change", () => { fillWindow(); fitPicture(); });
+fab.addEventListener("click", () => {
+  runButton.click();
+  picture.scrollIntoView({ block: "nearest", behavior: "smooth" });             // so the learner sees what the run made
+});
+new MutationObserver(() => { fab.disabled = runButton.disabled; }).observe(runButton, { attributes: true, attributeFilter: ["disabled"] });
+// The site's header covers the top of the window, so a Run under it counts as out of sight.
+const headerHeight = document.querySelector(".md-header")?.offsetHeight ?? 0;
+new IntersectionObserver((entries) => { fab.hidden = entries.at(-1).isIntersecting; },
+  { rootMargin: `-${headerHeight}px 0px 0px 0px` }).observe(runButton);
 
 // ---- the divider: drag it (or use the arrow keys) to share the width; the share is remembered
 
