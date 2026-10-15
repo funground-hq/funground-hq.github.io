@@ -243,3 +243,24 @@ The test page now has a viewport meta, and the phone checks remove the body marg
   1366; the picture after Python is ready; Next and the picker; an edit hides it and Reset brings it back; Run replaces it with the
   live frame; a differing draft, the starter, blank, and shared links (with and without an example) show none; 390 x 844: width, tag
   and status inside the picture, no sideways scroll.
+
+## Saving from Play (S-212)
+
+- **Files the sketch saves.** `f.save("poster.png")` (also PDF, SVG, GIF) writes a file in the sketch's folder in the browser. The
+  runner's `onFile` tells the preview, and the preview posts `{type: "file", name, bytes, mime}` to the editor (the bytes are
+  transferred). The editor does **not** download it: Chrome blocks repeated automatic downloads, and a download the learner did not
+  ask for is a surprise. Each file is one line in the messages area, "Saved poster.png (12 KB) — Download", with a link to a
+  blob URL that carries the file's name (`download=`). The same name saved again replaces its line. The blob URLs are revoked when
+  the messages are cleared (Clear, a new run, a new sketch). A path such as `frames/0001.png` shows whole in the line and downloads
+  as `0001.png` (browsers drop slashes). An older editor ignores `file`; a sketch that makes an MP4 gets funground's own "cannot
+  find ffmpeg" error, which already says why: nothing is added for it.
+- **Save picture.** A button in the caption under the picture, beside the zoom buttons (not in the toolbar, so the toolbar stays one
+  row at 1366 and wraps as before at 390; the caption has room at both widths). Off until the first `started` of the page. It sends
+  `{type: "snapshot"}`; the preview saves the canvas with `canvas.toBlob` and replies with a `file` named
+  `<sketch name>-frame.png` (`sketch-frame.png`, or the example's file name) and `snapshot: true`. That one is the learner's own
+  click, so the editor downloads it at once, adds no line to the messages and says "Saved sketch-frame.png." in the status. A
+  snapshot reply that nobody asked for is ignored. The PNG is the canvas's backing size (larger than the sketch's size on a
+  high-resolution screen).
+- **Tests.** Check 43 (two lines and their bytes, the PNG signature and `%PDF-`, replaced by saving again, blob URLs revoked by a new run and
+  by Clear, no download by itself) and 44 (Save picture: a download named `sketch-frame.png`, PNG bytes, 200 x 100, no line; at 390
+  the button and a line fit and nothing scrolls sideways).
