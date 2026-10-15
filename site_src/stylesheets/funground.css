@@ -371,13 +371,7 @@ body:has(.fg-playground) .md-sidebar { display: none; }
 .fg-help b { font-family: var(--font-display); font-size: 16px; }
 .fg-help kbd { font: 600 11px/1 var(--font-mono); padding: 2px 5px; border: 1.5px solid #191970; border-radius: 4px; background: #fffaf0; }
 .fg-play__fab { position: fixed; right: 16px; bottom: 16px; display: none; z-index: 3; }
-@media (max-width: 900px) {
-  .fg-play__work { grid-template-columns: 1fr; grid-template-rows: auto 10px minmax(0, 1fr); }
-  .fg-play__divider { cursor: row-resize; } .fg-play__divider::after { left: 50%; top: 3px; width: 36px; height: 4px; margin: 0 0 0 -18px; }
-  .fg-play__stage { order: -1; position: sticky; top: 0; z-index: 2; background: var(--paper); }
-  .fg-play__picture { padding: var(--space-3); }
-  .fg-play__fab { display: inline-flex; }
-}
+/* Phones (900px or less): the rules are in play.css (S-189). */
 
 @media (prefers-reduced-motion: reduce) {
   .fg-btn, .fg-tile { transition: none; }
