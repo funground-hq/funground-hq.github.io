@@ -8,6 +8,7 @@
 // tools/assemble.py --runner puts examples.json (the examples the runner can run) and the runner's files in
 // this folder. The code editor is CodeMirror, bundled into vendor/codemirror.js (tools/codemirror/).
 //
+// "My sketches" (S-213): the learner's own sketches are kept in this browser only (localStorage), one list under one key.
 // ?example=<id> opens one example (the gallery pages link here that way). #code=<text> opens a shared sketch.
 //
 // The page is the editor and nothing else: a toolbar, and the code beside the picture with the messages above it.
@@ -103,6 +104,7 @@ const runtime = new URL("runner/runtime/examples/", import.meta.url);
 const BLANK = "blank";
 const STARTER = "starter";        // the sketch a first visit opens (S-200): starter.py beside this file
 const SHARED = "shared";
+const MINE = "my:";               // a learner's own sketch: "my:<id>" (S-213)
 const BLANK_TEXT = `import funground as f
 
 
@@ -129,6 +131,7 @@ for (const example of examples) {
   group.append(new Option(example.title, example.id));
 }
 const sharedOption = new Option("Shared sketch", SHARED);
+const mineGroup = element("optgroup", { label: "My sketches" });      // first in the picker while there is a sketch of the learner's
 
 const howLink = element("a", { class: "fg-play__how", hidden: "" }, "How it works ›");
 // The accessible name stays "Run"; the key is shown beside it.
@@ -154,9 +157,26 @@ pageText?.remove();
 const firstSteps = element("a", { class: "fg-play__firststeps", href: "../get-started/" }, "First steps");
 help.prepend(element("p", { class: "fg-play__new" }, element("strong", {}, "New to funground? "), firstSteps));
 
-const fileName = element("b", {}, "sketch.py");
+// The name in the tab strip: for the learner's own sketch it is a button (click to rename); for an example it is the file's name.
+const fileName = element("button", { class: "fg-play__name", type: "button", disabled: "" }, "sketch.py");
+const nameInput = element("input", { class: "fg-play__nameinput", type: "text", maxlength: "40", "aria-label": "Sketch name", hidden: "" });
 const lineCount = element("span", {});
 const editorBox = element("div", { class: "fg-play__code play-editor" });
+// My sketches (S-213): the actions on the sketch that is open. New and Open are always there; the rest depend on the sketch.
+const mineButton = (text, title) => element("button", { class: "fg-play__minebtn", type: "button", title }, text);
+const newButton = mineButton("New sketch", "Start a new sketch from the starter");
+const openFileButton = mineButton("Open .py", "Open a .py file from this computer as a new sketch");
+const keepButton = mineButton("Keep as my sketch", "Copy this code into My sketches, so you can keep changing it");
+const renameButton = mineButton("Rename", "Give this sketch another name");
+const duplicateButton = mineButton("Duplicate", "Make a copy of this sketch");
+const downloadButton = mineButton("Download .py", "Save this sketch as a .py file on this computer");
+const deleteButton = mineButton("Delete", "Delete this sketch (you can undo for a few seconds)");
+const openFileInput = element("input", { type: "file", accept: ".py,text/x-python,text/plain", hidden: "", "aria-label": "Open a .py file" });
+const mineNote = element("div", { class: "fg-play__minenote", role: "status" });
+const storageNote = element("div", { class: "fg-play__minenote fg-play__minenote--warn", role: "status", hidden: "" },
+  "This browser is not keeping sketches: download yours with Download .py");
+const mineBar = element("div", { class: "fg-play__mine", role: "group", "aria-label": "My sketches" },
+  newButton, openFileButton, keepButton, renameButton, duplicateButton, downloadButton, deleteButton, openFileInput);
 const divider = element("div", { class: "fg-play__divider", role: "separator", tabindex: "0", "aria-orientation": "vertical",
   "aria-label": "Share of the width between the code and the picture (arrow keys move it)" });
 
@@ -183,7 +203,7 @@ const output = element("div", { class: "fg-console__body play-output", "aria-liv
 const fab = element("button", { class: "fg-play__fab", type: "button", "aria-label": "Run", title: "Run", hidden: "", disabled: "" }, "▶");
 
 const work = element("div", { class: "fg-play__work" },
-  element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, lineCount), editorBox),
+  element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, nameInput, lineCount), mineBar, mineNote, storageNote, editorBox),
   divider,
   element("div", { class: "fg-play__stage" },
     // The messages are above the picture and take no room while there are none: the rest belongs to the sketch.
@@ -447,7 +467,7 @@ nextButton.addEventListener("click", () => step(1));
 const draftName = () => `funground.draft.${key}`;
 
 function showReset() {
-  resetButton.hidden = editor.getText() === original;
+  resetButton.hidden = isMine() || editor.getText() === original;      // the learner's own sketch has no original
 }
 
 function writeAddress() {
@@ -483,6 +503,8 @@ async function starterText() {
 
 // Opens a sketch: an example id, BLANK, STARTER, or SHARED (the code in the link). A saved draft is used if there is one.
 async function open(wanted) {
+  flushMine();
+  if (wanted.startsWith(MINE) && !mine.some((sketch) => MINE + sketch.id === wanted)) wanted = STARTER;      // deleted since
   stillAllowed = false;
   updateStill();
   stopSketch();
@@ -490,9 +512,10 @@ async function open(wanted) {
   // A shared link may also name the example it started from: its data files are loaded, its code is not used.
   const exampleId = wanted === SHARED ? new URLSearchParams(location.search).get("example") : wanted;
   current = examples.find((example) => example.id === exampleId) ?? null;
-  key = wanted === SHARED ? SHARED : current ? current.id : wanted === STARTER ? STARTER : BLANK;
+  key = wanted === SHARED ? SHARED : current ? current.id : wanted === STARTER || wanted.startsWith(MINE) ? wanted : BLANK;
   files = {};
   original = key === STARTER ? await starterText() : BLANK_TEXT;
+  if (isMine()) original = ownSketch().code;
   if (current) {
     const fetched = await fetchExample(current);
     original = fetched.text;
@@ -504,7 +527,7 @@ async function open(wanted) {
   choose.value = key;
   showSteps();
 
-  const draft = recall(draftName());
+  const draft = isMine() ? null : recall(draftName());
   const useDraft = draft && typeof draft.text === "string" && (key !== SHARED || draft.base === sharedBase);
   editor.setText(useDraft ? draft.text : original);
   showReset();
@@ -512,7 +535,8 @@ async function open(wanted) {
   stillAllowed = true;
   updateStill();
   writeAddress();
-  fileName.textContent = current ? current.source.split("/").pop() : "sketch.py";
+  remember(LAST_NAME, isMine() ? key : null);
+  showMine();
   aboutText.textContent = current ? current.title : "";
   howLink.hidden = !current?.page;
   if (current?.page) howLink.href = current.page;
@@ -521,13 +545,226 @@ async function open(wanted) {
   else if (previewReady) setStatus("Ready. Press Run.", "ready");
 }
 
+// ---- My sketches (S-213): the learner's own sketches, kept in this browser and nowhere else
+//
+// One localStorage key holds the list, newest first: [{ id, name, code, created, updated }]. They are separate from the drafts of
+// the examples (those keep their own keys, as before). The open sketch is "my:<id>". While the learner types, the list in memory
+// changes at once and is written after a short pause (and when the page is left or another sketch is opened). If the browser
+// will not store (a private window), the list still works until the page is closed, and one line says so.
+
+const MINE_NAME = "funground.play.sketches";
+const LAST_NAME = "funground.play.last";           // the sketch that was open, if it was one of the learner's own: a reload opens it again
+const SAVE_MS = 300;
+const UNDO_MS = 8000;
+const MAX_FILE = 200 * 1024;
+
+const validSketch = (s) => s && typeof s.id === "string" && typeof s.name === "string" && typeof s.code === "string";
+let mine = (() => {
+  const list = recall(MINE_NAME);
+  return Array.isArray(list) ? list.filter(validSketch) : [];
+})();
+let mineDirty = false;
+let mineTimer = null;
+let storageNoted = false;
+
+const isMine = () => key.startsWith(MINE);
+const ownSketch = () => (isMine() ? mine.find((sketch) => MINE + sketch.id === key) : undefined);
+
+function writeMine() {
+  mineDirty = false;
+  clearTimeout(mineTimer);
+  try {
+    localStorage.setItem(MINE_NAME, JSON.stringify(mine));
+  } catch {
+    if (!storageNoted) {
+      storageNoted = true;
+      storageNote.hidden = false;
+    }
+  }
+}
+function flushMine() {
+  if (mineDirty) writeMine();
+}
+function changedMine(soon) {
+  mineDirty = true;
+  clearTimeout(mineTimer);
+  if (soon) mineTimer = setTimeout(writeMine, SAVE_MS);
+  else writeMine();
+}
+window.addEventListener("pagehide", flushMine);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushMine(); });
+
+// The picker lists them first, under "My sketches".
+function showMineInPicker() {
+  mineGroup.replaceChildren(...mine.map((sketch) => new Option(sketch.name, MINE + sketch.id)));
+  if (mine.length) choose.prepend(mineGroup);
+  else mineGroup.remove();
+  choose.value = key;
+}
+
+// A name no other sketch has: "Cat", then "Cat 2", "Cat 3".
+function freeName(wanted, exceptId) {
+  const taken = new Set(mine.filter((sketch) => sketch.id !== exceptId).map((sketch) => sketch.name));
+  let name = wanted;
+  for (let n = 2; taken.has(name); n += 1) name = `${wanted} ${n}`;
+  return name;
+}
+
+// The file name for Download: the sketch's name in lower case, words joined by hyphens ("Bouncing ball" is bouncing-ball.py).
+const slug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "sketch";
+
+// A line under the buttons that says what just happened. It goes by itself.
+let sayTimer = null;
+function say(text, ...extra) {
+  clearTimeout(sayTimer);
+  mineNote.replaceChildren(text, ...extra);
+  sayTimer = setTimeout(() => mineNote.replaceChildren(), extra.length ? UNDO_MS : 12000);
+}
+
+function addSketch(name, code) {
+  const now = Date.now();
+  const sketch = { id: now.toString(36) + Math.random().toString(36).slice(2, 6), name: freeName(name), code, created: now, updated: now };
+  mine.unshift(sketch);
+  changedMine(false);
+  showMineInPicker();
+  return sketch;
+}
+
+// The buttons that make sense for the open sketch, and its name in the tab strip.
+function showMine() {
+  const own = ownSketch();
+  keepButton.hidden = !!own;
+  for (const button of [renameButton, duplicateButton, deleteButton]) button.hidden = !own;
+  fileName.disabled = !own;
+  fileName.title = own ? "Click to rename" : "";
+  fileName.textContent = own ? own.name : current ? current.source.split("/").pop() : "sketch.py";
+  showMineInPicker();
+}
+
+// What the open sketch is called when it is kept or downloaded.
+const openTitle = () => ownSketch()?.name ?? current?.title ?? { [STARTER]: "Starter sketch", [SHARED]: "Shared sketch" }[key] ?? "Blank sketch";
+
+newButton.addEventListener("click", async () => {
+  let number = 1;
+  while (mine.some((sketch) => sketch.name === `Sketch ${number}`)) number += 1;
+  const sketch = addSketch(`Sketch ${number}`, await starterText());
+  await open(MINE + sketch.id);
+  say(`Made "${sketch.name}". It is kept in this browser.`);
+});
+
+keepButton.addEventListener("click", async () => {
+  const sketch = addSketch(openTitle(), editor.getText());
+  await open(MINE + sketch.id);
+  say(`Kept as "${sketch.name}" in My sketches. The original is still in the list.`);
+});
+
+duplicateButton.addEventListener("click", async () => {
+  const own = ownSketch();
+  if (!own) return;
+  const sketch = addSketch(`${own.name} copy`, editor.getText());
+  await open(MINE + sketch.id);
+  say(`Made "${sketch.name}".`);
+});
+
+downloadButton.addEventListener("click", () => {
+  const name = ownSketch() ? `${slug(ownSketch().name)}.py` : current ? current.source.split("/").pop() : `${slug(openTitle())}.py`;
+  downloadNow(name, new Blob([editor.getText()], { type: "text/x-python" }));
+  say(`Saved ${name}.`);
+});
+
+// Rename: click the name in the tab strip, or Rename. Enter keeps the new name, Esc leaves the old one.
+let renaming = false;
+function startRename() {
+  const own = ownSketch();
+  if (!own || renaming) return;
+  renaming = true;
+  nameInput.value = own.name;
+  fileName.hidden = true;
+  nameInput.hidden = false;
+  nameInput.focus();
+  nameInput.select();
+}
+function finishRename(keep) {
+  if (!renaming) return;
+  renaming = false;
+  const own = ownSketch();
+  const wanted = nameInput.value.trim();
+  nameInput.hidden = true;
+  fileName.hidden = false;
+  if (keep && own && wanted && wanted !== own.name) {
+    own.name = freeName(wanted, own.id);
+    own.updated = Date.now();
+    changedMine(false);
+  }
+  showMine();
+}
+fileName.addEventListener("click", startRename);
+renameButton.addEventListener("click", startRename);
+nameInput.addEventListener("keydown", (event) => {
+  event.stopPropagation();                  // Esc and Enter here are for the name, not for Stop or Run
+  if (event.key === "Enter") finishRename(true);
+  else if (event.key === "Escape") finishRename(false);
+});
+nameInput.addEventListener("blur", () => finishRename(true));
+
+// Delete: at once, with a few seconds to undo (a dialog would only be one more click to get past). The note names the sketch.
+deleteButton.addEventListener("click", async () => {
+  const own = ownSketch();
+  if (!own) return;
+  const index = mine.indexOf(own);
+  mine.splice(index, 1);
+  changedMine(false);
+  const undo = element("button", { class: "fg-play__minebtn", type: "button" }, "Undo");
+  undo.addEventListener("click", async () => {
+    mine.splice(Math.min(index, mine.length), 0, own);
+    changedMine(false);
+    await open(MINE + own.id);
+    say(`"${own.name}" is back.`);
+  }, { once: true });
+  const next = mine[Math.min(index, mine.length - 1)];
+  await open(next ? MINE + next.id : STARTER);
+  say(`Deleted "${own.name}". `, undo);
+});
+
+// Open a .py file from this computer: it becomes a new sketch named after the file.
+openFileButton.addEventListener("click", () => openFileInput.click());
+openFileInput.addEventListener("change", async () => {
+  const file = openFileInput.files[0];
+  openFileInput.value = "";                 // so the same file can be chosen again
+  if (!file) return;
+  if (file.size > MAX_FILE) {
+    say(`"${file.name}" is bigger than 200 KB, so it was not opened. Sketches are small text files.`);
+    return;
+  }
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
+    if (text.includes("\0")) throw new Error("not text");
+  } catch {
+    say(`"${file.name}" is not a text file, so it was not opened. Choose a .py file.`);
+    return;
+  }
+  const sketch = addSketch(file.name.replace(/\.py$/i, "").trim() || "Opened sketch", text.replace(/\r\n?/g, "\n"));
+  await open(MINE + sketch.id);
+  say(`Opened "${file.name}" as "${sketch.name}".`);
+});
+
 // ---- editing: drafts are kept in this browser, and Auto-run runs again after a pause
 
 let autoTimer = null;
 
 function edited() {
   const text = editor.getText();
-  remember(draftName(), text === original ? null : { text, base: key === SHARED ? sharedBase : undefined });
+  const own = ownSketch();
+  if (own) {
+    if (own.code !== text) {                     // not when the sketch has only just been opened
+      own.code = text;
+      own.updated = Date.now();
+      changedMine(true);
+    }
+  } else {
+    remember(draftName(), text === original ? null : { text, base: key === SHARED ? sharedBase : undefined });
+  }
   showReset();
   showLineCount();
   updateStill();
@@ -850,7 +1087,9 @@ async function openFromAddress() {
   const example = new URLSearchParams(location.search).get("example");
   // No example and no link: a visitor who has a draft of the blank sketch (from before the starter existed) gets it
   // back; everyone else gets the starter sketch, with their own draft of it if they have one.
-  await open(example ?? (recall(`funground.draft.${BLANK}`) ? BLANK : STARTER));
+  const last = recall(LAST_NAME);
+  const lastOwn = typeof last === "string" && mine.some((sketch) => MINE + sketch.id === last) ? last : null;      // a reload goes back to it
+  await open(example ?? lastOwn ?? (recall(`funground.draft.${BLANK}`) ? BLANK : STARTER));
 }
 
 window.addEventListener("hashchange", () => { if (sharedCode()) openFromAddress(); });

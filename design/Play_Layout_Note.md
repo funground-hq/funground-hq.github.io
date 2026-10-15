@@ -264,3 +264,33 @@ The test page now has a viewport meta, and the phone checks remove the body marg
 - **Tests.** Check 43 (two lines and their bytes, the PNG signature and `%PDF-`, replaced by saving again, blob URLs revoked by a new run and
   by Clear, no download by itself) and 44 (Save picture: a download named `sketch-frame.png`, PNG bytes, 200 x 100, no line; at 390
   the button and a line fit and nothing scrolls sideways).
+
+## My sketches (S-213)
+
+The learner's own sketches are kept in this browser only (decision 2 of the roadmap: no account, no server).
+
+- **Where.** One `localStorage` key, `funground.play.sketches`, holds the list, newest first: `{id, name, code, created, updated}`. The open
+  sketch is `my:<id>`. `funground.play.last` remembers it, so a reload with no `?example` and no `#code=` opens it again. Example drafts
+  (`funground.draft.<id>`) are untouched and separate; Reset still works for them. A sketch of the learner's own has no Reset (no original).
+- **The list.** A group "My sketches" at the top of the example picker (the group is absent while there is none). The toolbar did not
+  need a new button, so it is still one row at 1366 and wraps as before at 390 (check 33).
+- **The actions** are a row under the editor's tab strip (`.fg-play__mine`), where there is room and where the sketch's name is: New sketch,
+  Open .py, then for a sketch of the learner's own Rename, Duplicate, Download .py, Delete; for an example, the starter, the blank or a
+  shared sketch "Keep as my sketch" and Download .py. The row wraps at 390 (two rows). On a desktop the code area is about 36 px shorter; on a phone the editor box is 38 px taller (`calc(max(60svh, 480px) + 38px)`), so the code keeps its room.
+- **The word is "Keep as my sketch"**, not Save: Save is Ctrl+S's old word for Share on this page. Keeping copies the code under the
+  example's title ("Starter sketch", "Blank sketch" and "Shared sketch" for those) and opens the copy. The example keeps its own draft, so
+  going back to it still shows Reset.
+- **Names.** New sketch is "Sketch N", the smallest free number. A taken name gets a number ("Sketch 1 2"); a duplicate is "<name> copy".
+  Rename: click the name in the tab strip, or Rename; Enter keeps, Esc leaves it. 40 characters at most.
+- **Delete has no dialog.** The sketch goes at once and a line names it, with Undo for 8 seconds. The next sketch opens, or the starter.
+- **Download .py** is named after the sketch (`bouncing-ball.py`: lower case, hyphens); an example downloads under its own file name.
+- **Open .py** takes a file of 200 KB or less that decodes as UTF-8 text without a NUL; otherwise a sentence says it was not opened. The
+  file's name, without `.py`, becomes the sketch's name. Line endings become `\n`.
+- **Storage.** The list in memory changes as the learner types and is written 300 ms later, and on `pagehide`, when the tab is hidden and before
+  another sketch opens. If writing throws (a private window, a full disk), one gold line says "This browser is not keeping sketches: download
+  yours with Download .py"; the sketches keep working until the page closes.
+- **Share and Auto-run** work as for any code (a sketch of the learner's own has no `?example`, so the link has the code only).
+- **Tests.** Checks 45 (new, typing over a reload, order, rename), 46 (duplicate, delete, undo, reload), 47 (download name and content, open,
+  both refusals), 48 (keep an edited example, Reset it, share), 49 (storage blocked), 50 (layout at 1366 and 390). Screenshots with `--shots`:
+  `mine_1366.png`, `mine_390.png`.
+- **Not built.** A "My sketches" panel or thumbnails; a limit on how many sketches there are; a warning near the browser's 5 MB.
