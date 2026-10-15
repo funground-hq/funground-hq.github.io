@@ -1388,6 +1388,154 @@ try {
       await phoneHold.held.close();
     }
   });
+
+  // S-212: files the sketch saves wait behind a Download link; "Save picture" downloads the frame at once.
+  const SAVING_SKETCH = `import funground as f
+
+dots = []
+saved = False
+
+
+def setup():
+    f.size(200, 100)
+
+
+def draw():
+    global saved
+    f.background("gold")
+    f.fill("tomato")
+    for x, y in dots:
+        f.circle(x, y, 20)
+    if not saved:
+        saved = True
+        f.save("out.png")
+        f.save("out.pdf")
+
+
+def mouse_pressed():
+    dots.append((f.mouse_x, f.mouse_y))
+    f.background("gold")
+    f.fill("tomato")
+    for x, y in dots:
+        f.circle(x, y, 20)
+    f.save("out.png")
+
+
+f.run()
+`;
+  const savedLines = (page) => page.locator(".fg-play__saved");
+  // What a Download link points to: its first bytes and length, read through the blob URL.
+  const linkBytes = (page, line) => page.evaluate(async (index) => {
+    const link = document.querySelectorAll(".fg-play__saved a")[index];
+    const bytes = new Uint8Array(await (await fetch(link.href)).arrayBuffer());
+    return { head: String.fromCharCode(...bytes.slice(0, 8)), length: bytes.length, download: link.download, href: link.href,
+             sum: bytes.reduce((a, b) => (a * 31 + b) % 1000003, 0) };
+  }, line);
+  const clickMouseAt = async (page, locator, dx = 0.5, dy = 0.5) => {
+    const b = await locator.boundingBox();
+    await page.mouse.click(b.x + b.width * dx, b.y + b.height * dy);
+  };
+
+  await check(43, "a sketch that saves out.png and out.pdf shows two lines with Download links; saving again replaces a line; a new run clears them", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    const downloads = [];
+    page.on("download", (d) => downloads.push(d.suggestedFilename()));
+    await typeCode(page, SAVING_SKETCH);
+    await savedLines(page).nth(1).waitFor({ timeout: 20000 });
+    const texts = await savedLines(page).allInnerTexts();
+    assert(texts.length === 2, `${texts.length} lines: ${JSON.stringify(texts)}`);
+    const png = texts.find((t) => t.includes("out.png"));
+    const pdf = texts.find((t) => t.includes("out.pdf"));
+    assert(/^Saved out\.png \(\d+ (KB|bytes)\) \u2014 Download$/.test(png), `line "${png}"`);
+    assert(/^Saved out\.pdf \(\d+ (KB|bytes)\) \u2014 Download$/.test(pdf), `line "${pdf}"`);
+    const first = [await linkBytes(page, 0), await linkBytes(page, 1)];
+    const byName = Object.fromEntries(first.map((b) => [b.download, b]));
+    assert(byName["out.png"].head.startsWith("\x89PNG") && byName["out.png"].length > 100, `png starts ${JSON.stringify(byName["out.png"].head)}`);
+    assert(byName["out.pdf"].head.startsWith("%PDF-") && byName["out.pdf"].length > 100, `pdf starts ${JSON.stringify(byName["out.pdf"].head)}`);
+    assert(downloads.length === 0, "a download started by itself");
+    assert(await page.locator(".fg-console").isVisible(), "the messages are not shown");
+
+    // Click the picture: the sketch saves out.png again, so its line is replaced and there are still two.
+    await page.locator(".fg-play__stage").scrollIntoViewIfNeeded();
+    await clickMouseAt(page, page.locator(".play-preview"), 0.3, 0.4);
+    await page.waitForFunction((was) => {
+      const link = [...document.querySelectorAll(".fg-play__saved a")].find((a) => a.download === "out.png");
+      return link && link.href !== was;
+    }, byName["out.png"].href, { timeout: 15000 });
+    assert((await savedLines(page).count()) === 2, `${await savedLines(page).count()} lines after saving again`);
+    const again = [await linkBytes(page, 0), await linkBytes(page, 1)].find((b) => b.download === "out.png");
+    assert(again.head.startsWith("\x89PNG") && again.sum !== byName["out.png"].sum, "the replaced file is the same as the old one");
+    const oldGone = await page.evaluate(async (href) => { try { await fetch(href); return false; } catch { return true; } }, byName["out.png"].href);
+    assert(oldGone, "the replaced file's blob URL was not revoked");
+    assert(downloads.length === 0, "a download started by itself after saving again");
+
+    // A new run starts afresh: the lines go and the links are let go.
+    const keep = again.href;
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__saved").length === 2, null, { timeout: 20000 });
+    const fresh = await page.evaluate(() => [...document.querySelectorAll(".fg-play__saved a")].map((a) => a.href));
+    assert(!fresh.includes(keep), "an old link is still on the page after a new run");
+    assert(await page.evaluate(async (href) => { try { await fetch(href); return false; } catch { return true; } }, keep), "a link of the old run was not revoked");
+    // Clear lets go of them too.
+    await page.getByRole("button", { name: "Clear" }).click();
+    assert((await savedLines(page).count()) === 0, "Clear left the lines");
+    assert(await page.evaluate(async (href) => { try { await fetch(href); return false; } catch { return true; } }, fresh[0]), "Clear did not revoke a link");
+    assert(downloads.length === 0, "a download started by itself");
+    await page.close();
+    return "two lines, PNG and PDF bytes, replaced, revoked";
+  });
+
+  await check(44, "Save picture downloads a PNG of the frame; it adds no line to the messages; an older kind of run is unchanged", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    const button = page.getByRole("button", { name: "Save picture" });
+    assert(await button.isDisabled(), "Save picture is on before anything ran");
+    await typeCode(page, BLANK_TEXT_FOR_TEST);
+    await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque && p.centre.join() === "255,215,0");
+    await page.waitForFunction(() => !document.querySelector(".fg-play__savepicture").disabled);
+    const b = await button.boundingBox();
+    const [download] = await Promise.all([
+      page.waitForEvent("download", { timeout: 15000 }),
+      page.mouse.click(b.x + b.width / 2, b.y + b.height / 2),
+    ]);
+    assert(download.suggestedFilename() === "sketch-frame.png", `named ${download.suggestedFilename()}`);
+    const bytes = readFileSync(await download.path());
+    assert(bytes.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])), "the download is not a PNG");
+    const wide = bytes.readUInt32BE(16);
+    const high = bytes.readUInt32BE(20);
+    assert(wide === 200 && high === 100, `the PNG is ${wide}x${high}`);
+    assert((await savedLines(page).count()) === 0, "Save picture added a line to the messages");
+    assert(!(await page.locator(".fg-console").isVisible()), "the messages area opened");
+    assert((await page.locator(".play-status").innerText()).includes("sketch-frame.png"), "the status does not say what was saved");
+    // A plain run still works as before: a picture, no lines.
+    const toolbar = await page.locator(".play-toolbar").boundingBox();
+    assert(toolbar.height < 70, `the toolbar is ${toolbar.height}px tall`);
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "save_picture_1280.png") });
+    await page.close();
+
+    // A phone: the button is inside the window, nothing scrolls sideways, and a saved file's line fits.
+    const phoneContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    try {
+      const phonePage = await phoneContext.newPage();
+      watch(phonePage);
+      await phonePage.goto(`${EDITOR}/play/?preview=${PREVIEW}`);
+      await phonePage.addStyleTag({ content: "body { margin: 0; }" });
+      await phonePage.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      await typeCode(phonePage, SAVING_SKETCH);
+      await phonePage.locator(".fg-play__saved").nth(1).waitFor({ timeout: 20000 });
+      await phonePage.waitForFunction(() => !document.querySelector(".fg-play__savepicture").disabled);
+      const phoneButton = await phonePage.locator(".fg-play__savepicture").boundingBox();
+      assert(phoneButton.x >= 0 && phoneButton.x + phoneButton.width <= 390, `Save picture is at x ${phoneButton.x}, width ${phoneButton.width}`);
+      assert(await phonePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "sideways scroll on a phone");
+      const line = await phonePage.locator(".fg-play__saved").first().boundingBox();
+      assert(line.x + line.width <= 390, "a saved line reaches past the window");
+      if (shotsDir) await phonePage.screenshot({ path: path.join(shotsDir, "save_picture_390.png") });
+    } finally {
+      await phoneContext.close();
+    }
+    return `${bytes.length} bytes, ${wide}x${high}`;
+  });
 } finally {
   await browser.close();
   for (const server of [editorServer, previewServer, strangerServer]) server.close();

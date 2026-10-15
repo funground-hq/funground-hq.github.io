@@ -69,6 +69,12 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-play__zoombtn + .fg-play__zoombtn { border-left: 1.5px solid var(--ink); }
 .fg-play__zoombtn:disabled { opacity: 0.4; cursor: default; }
 .fg-play__zoomfit[aria-pressed="true"] { background: var(--gold); color: #191970; }
+/* The zoom group and "Save picture" sit together in the caption (S-212). */
+.fg-play__tools { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.fg-play__savepicture { white-space: nowrap; }
+/* A file the sketch saved: one plain line in the messages, with its Download link. */
+.fg-play__saved { font: 400 14px/1.5 var(--font-body); color: var(--ink); }
+.fg-play__download { color: var(--link); font-weight: 700; }
 
 /* Help: a popover under the toolbar, at its right end. */
 .fg-play__help { position: absolute; top: 52px; right: var(--space-4); z-index: 5; max-width: 26rem; }

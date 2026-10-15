@@ -173,6 +173,8 @@ const aboutText = element("span", {});
 const zoomOut = element("button", { class: "fg-play__zoombtn", type: "button", "aria-label": "Zoom out", title: "Smaller" }, "−");
 const zoomFit = element("button", { class: "fg-play__zoombtn fg-play__zoomfit", type: "button", title: "As large as fits, never larger than its real size" }, "Fit");
 const zoomIn = element("button", { class: "fg-play__zoombtn", type: "button", "aria-label": "Zoom in", title: "Larger" }, "+");
+const savePicture = element("button", { class: "fg-play__zoombtn fg-play__savepicture", type: "button", disabled: "",
+  title: "Save the picture as it is now as a PNG file" }, "Save picture");
 const errorCount = element("span", { class: "count", hidden: "" });
 const clearButton = element("button", { class: "fg-play__clear", type: "button" }, "Clear");
 const output = element("div", { class: "fg-console__body play-output", "aria-live": "polite" });
@@ -190,7 +192,10 @@ const work = element("div", { class: "fg-play__work" },
       output),
     picture,
     element("div", { class: "fg-play__caption" }, sizeText,
-      element("span", { class: "fg-play__zoom", role: "group", "aria-label": "Zoom" }, zoomOut, zoomFit, zoomIn), aboutText)));
+      element("span", { class: "fg-play__tools" },
+        element("span", { class: "fg-play__zoom", role: "group", "aria-label": "Zoom" }, zoomOut, zoomFit, zoomIn),
+        element("span", { class: "fg-play__zoom" }, savePicture)),
+      aboutText)));
 
 play.classList.add("fg-play");
 play.replaceChildren(
@@ -564,11 +569,62 @@ function addOutput(text, stream) {
 
 function clearOutput() {
   output.replaceChildren();
+  forgetSavedFiles();
   errors = 0;
   errorCount.hidden = true;
   editor.clearError();
 }
 clearButton.addEventListener("click", clearOutput);
+
+// ---- files the sketch saves (S-212): one line each in the messages, with a Download link. Nothing downloads by itself.
+//
+// Chrome blocks repeated automatic downloads and it surprises a learner, so the file waits behind a link. The link is a
+// blob URL (the file's bytes in this page's memory); it is let go when the messages are cleared or a new run starts. A file
+// saved again (the same name) replaces its line.
+
+const savedFiles = new Map();     // name -> { line, url }
+
+function forgetSavedFiles() {
+  for (const { url } of savedFiles.values()) URL.revokeObjectURL(url);
+  savedFiles.clear();
+}
+
+function fileSize(bytes) {
+  if (bytes < 1024) return `${bytes} bytes`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// The file name for the download: a path such as "frames/0001.png" keeps only its last part (browsers drop the slashes).
+const baseName = (name) => name.split("/").pop() || name;
+
+function showSavedFile(name, blob) {
+  savedFiles.get(name)?.line.remove();
+  URL.revokeObjectURL(savedFiles.get(name)?.url ?? "");
+  const url = URL.createObjectURL(blob);
+  const link = element("a", { class: "fg-play__download", href: url, download: baseName(name) }, "Download");
+  const line = element("div", { class: "fg-play__saved" }, `Saved ${name} (${fileSize(blob.size)}) \u2014 `, link);
+  savedFiles.set(name, { line, url });
+  output.append(line);
+  output.scrollTop = output.scrollHeight;
+}
+
+// "Save picture" is the learner's own click, so this one downloads at once.
+function downloadNow(name, blob) {
+  const url = URL.createObjectURL(blob);
+  const link = element("a", { href: url, download: baseName(name) });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+let snapshotWanted = false;
+savePicture.addEventListener("click", () => {
+  if (!previewReady) return;
+  snapshotWanted = true;
+  tell({ type: "snapshot" });
+});
 
 // A traceback names the sketch file and a line: the last such line that is in the learner's own file, or null.
 function errorLineOf(text) {
@@ -652,6 +708,19 @@ const handlers = {
   },
   output: (message) => addOutput(message.text, message.stream),
   // The last sketch did not stop within a second, so the preview is loading a new Python: say why the run waits.
+  // The sketch saved a file (f.save): a line with a Download link. A reply to "Save picture" downloads at once instead.
+  file(message) {
+    if (typeof message.name !== "string" || !(message.bytes instanceof ArrayBuffer)) return;
+    const blob = new Blob([message.bytes], { type: typeof message.mime === "string" ? message.mime : "application/octet-stream" });
+    if (message.snapshot === true) {
+      if (!snapshotWanted) return;
+      snapshotWanted = false;
+      downloadNow(message.name, blob);
+      setStatus(`Saved ${message.name}.`, "ready");
+    } else {
+      showSavedFile(message.name, blob);
+    }
+  },
   restarting() {
     setStatus("Starting Python again: the last sketch did not stop in time. This takes a few seconds...", "loading");
   },
@@ -668,6 +737,7 @@ const handlers = {
   started(message) {
     endStill();
     startedThisRun = true;
+    savePicture.disabled = false;
     sizeKnown = true;
     sketchSize = { width: message.width, height: message.height };
     fitPicture();
