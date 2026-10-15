@@ -89,3 +89,35 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-play__bar .spacer { display: none; }
 .fg-play__bar .fg-status { display: block; flex: 1 1 6rem; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: right; }
 .fg-play__bar .fg-status::before { display: inline-block; vertical-align: middle; margin-right: 8px; }
+
+/* Phones and small tablets (900px or less, S-189): one column and the page scrolls: the toolbar, the messages and the
+   picture, then the editor. play.js stops setting the box's height (fillWindow). No divider; no sticky picture (it would
+   leave the editor too little room on a screen 844px tall); a floating Run instead. */
+@media (max-width: 900px) {
+  body:has(.fg-play) .md-main { overflow: visible; }
+  .fg-play { height: auto; min-height: 0; }
+  .fg-play__work { display: flex; flex-direction: column; }
+  .fg-play__divider { display: none; }
+  .fg-play__stage { order: -1; flex: none; }
+
+  /* The picture: as wide as the column, less a small gutter; its height follows the sketch's proportions. */
+  .fg-play__picture { flex: none; padding: var(--space-1); }
+  .fg-play__caption { padding: 0 var(--space-2) var(--space-2); flex-wrap: wrap; }
+
+  /* The editor: at least 60% of the window and at least 18 lines (24px each) with the tab strip; it scrolls inside. */
+  .fg-play__editor { height: max(60svh, 480px); border-top: var(--outline-width) solid var(--ink); }
+  .fg-play__code { overflow: hidden; }
+
+  /* The toolbar: the picker (with ‹ ›) on a row of its own, the buttons, the status on the last row. */
+  .fg-play__picker { flex: 1 1 100%; }
+  .fg-play__choose { flex: 1 1 auto; min-width: 0; max-width: none; }
+  .fg-btn--run kbd { display: none; }                                  /* no keyboard on a phone */
+  .fg-play__bar .fg-status { order: 10; flex: 1 1 100%; text-align: left; }
+  .fg-play__help { position: static; max-width: none; margin: var(--space-2); }       /* in the flow, so it never covers Run */
+
+  /* The floating Run: bottom right, over everything; play.js shows it while the toolbar's Run is out of sight. */
+  .fg-play__fab { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; padding: 0 0 0 3px;
+    right: 16px; bottom: 16px; font: 700 22px/1 var(--font-body); color: var(--on-teal); background: var(--teal);
+    border: var(--outline-width) solid var(--ink); border-radius: 50%; box-shadow: 3px 3px 0 var(--ink); cursor: pointer; }
+  .fg-play__fab:disabled { opacity: 0.45; cursor: default; }
+}

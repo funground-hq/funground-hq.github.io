@@ -67,7 +67,7 @@ const listen = (server) => new Promise((resolve) => server.listen(0, "127.0.0.1"
 
 // The editor page: the markup of site_src/play/index.md, without MkDocs. Material's colour scheme is an attribute of body.
 // The heading is there because MkDocs gives "# Play" the id "play": the editor's container must not share it (SITE-C-01).
-const EDITOR_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Play</title>
+const EDITOR_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Play</title>
 <link rel="stylesheet" href="../stylesheets/funground.css"><link rel="stylesheet" href="../stylesheets/play.css"></head>
 <body data-md-color-scheme="default"><h1 id="play">Play</h1><div id="funground-play" class="play"></div>
 <script type="module" src="play.js"></script></body></html>`;
@@ -910,6 +910,97 @@ try {
     await page.locator(".fg-play__error").waitFor({ timeout: 20000 });
     assert(/200 × 100/.test(await page.locator(".fg-play__caption").innerText()), "the size went after an error in draw()");
     await page.close();
+  });
+
+  // ---- phones (S-189)
+
+  const measureLayout = (page) => page.evaluate(() => {
+    const box = (selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y + scrollY), width: Math.round(r.width), height: Math.round(r.height) }; };
+    return { play: box(".fg-play"), bar: box(".fg-play__bar"), editor: box(".cm-editor"), stage: box(".fg-play__stage"), preview: box(".play-preview"),
+             divider: getComputedStyle(document.querySelector(".fg-play__divider")).display, fab: document.querySelector(".fg-play__fab") ? getComputedStyle(document.querySelector(".fg-play__fab")).display : "none",
+             pageScrolls: document.documentElement.scrollHeight > innerHeight + 1, scrollWidth: document.documentElement.scrollWidth };
+  });
+
+  await check(37, "at 1366 wide the layout is the desktop one: side by side, filling the window, a divider, no floating Run", async () => {
+    const page = await openEditor(`&example=${FIRST_SKETCH}`);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await sleep(300);
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_1366.png") });
+    const m = await measureLayout(page);
+    assert(m.divider !== "none" && m.fab === "none", `divider ${m.divider}, floating Run ${m.fab}`);
+    assert(m.editor.x + m.editor.width <= m.stage.x + 1, "the editor is not beside the picture");
+    assert(m.editor.height > 500, `the editor is ${m.editor.height}px tall`);
+    assert(m.play.y + m.play.height <= 768 + 1, `the box reaches ${m.play.y + m.play.height}px of 768`);
+    assert(m.preview.width === 640 && m.preview.height === 400, `the picture is ${m.preview.width} x ${m.preview.height}, not 640 x 400 (1:1)`);
+    assert(m.bar.height <= 56, `the toolbar is ${m.bar.height}px tall`);
+    await page.close();
+    return `editor ${m.editor.width} x ${m.editor.height}, picture ${m.preview.width} x ${m.preview.height}`;
+  });
+
+  await check(38, "at 390 x 844 on a phone: stacked, a tall editor you can type in, a wide picture, a floating Run, no sideways scroll", async () => {
+    const phoneContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    try {
+      const page = await phoneContext.newPage();
+      watch(page);
+      await page.goto(`${EDITOR}/play/?preview=${PREVIEW}&example=${FIRST_SKETCH}`);
+      await page.addStyleTag({ content: "body { margin: 0; }" });                    // Material has no body margin; this plain page does
+      await runButton(page).waitFor();
+      await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      await sleep(300);
+      const m = await measureLayout(page);
+      if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_390x844.png") });
+      if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_390_full.png"), fullPage: true });
+      assert(m.scrollWidth <= 390, `the page is ${m.scrollWidth}px wide`);
+      assert(m.divider === "none", "the divider shows");
+      assert(m.stage.y >= m.bar.y + m.bar.height - 1 && m.editor.y >= m.stage.y + m.stage.height - 1, "the order is not toolbar, picture, editor");
+      assert(m.editor.height >= 400, `the editor is ${m.editor.height}px tall`);
+      assert(m.preview.width >= 360 && m.preview.width <= 390, `the picture is ${m.preview.width}px wide`);
+      assert(Math.abs(m.preview.width / m.preview.height - 1.6) < 0.03, `the picture is ${m.preview.width} x ${m.preview.height}, not 640 : 400`);
+      assert(m.play.height > 844, "the page does not scroll: the box is the window's height");
+      // Typing: tap in the code (a point, not the element: a long line scrolls the editor sideways) and type.
+      const toEditor = () => page.evaluate(() => scrollTo(0, document.querySelector(".cm-editor").getBoundingClientRect().top + scrollY - 60));
+      await toEditor();
+      await sleep(200);
+      const inView = await page.locator(".cm-content").boundingBox();
+      await page.mouse.click(inView.x + 24, inView.y + 10);
+      await page.keyboard.press("Control+Home");
+      await page.keyboard.insertText("# typed on a phone\n");
+      assert((await editorText(page)).startsWith("# typed on a phone"), "typing in the editor did nothing");
+      // The floating Run: hidden while the toolbar's Run is in view, shown when it is scrolled away, and it runs the sketch.
+      await page.evaluate(() => scrollTo(0, 0));
+      await sleep(300);
+      assert(await page.locator(".fg-play__fab").isHidden(), "the floating Run shows while the toolbar's Run is in view");
+      await toEditor();
+      await page.locator(".fg-play__fab").waitFor({ state: "visible", timeout: 5000 });
+      const fab = await page.locator(".fg-play__fab").boundingBox();
+      assert(Math.round(fab.width) === 56 && Math.round(fab.height) === 56, `the floating Run is ${fab.width} x ${fab.height}`);
+      assert(fab.x + fab.width <= 390 && fab.x > 390 - 56 - 32 && fab.y + fab.height <= 844 && fab.y > 844 - 56 - 32, "the floating Run is not at the bottom right");
+      assert((await page.locator(".fg-play__fab").getAttribute("aria-label")) === "Run", "the floating Run has no name");
+      if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_390_fab.png") });
+      await page.mouse.click(fab.x + fab.width / 2, fab.y + fab.height / 2);
+      const { picture: drawn } = await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque, 30000);
+      assert(drawn.width >= 640, `the sketch drew ${drawn.width} wide`);
+      await sleep(1000);                                                       // the picture is brought into view
+      assert((await measureLayout(page)).scrollWidth <= 390, "the page scrolls sideways after a run");
+      const after = await page.locator(".play-preview").boundingBox();
+      assert(after.y >= 0 && after.y + after.height <= 844, `after Run the picture is at y ${Math.round(after.y)}`);
+      if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_390_ran.png") });
+      await page.close();
+      // A tablet: still one column (768 is under 900), the picture at 1:1 at most.
+      const tablet = await browser.newContext({ viewport: { width: 768, height: 1024 }, isMobile: true, hasTouch: true });
+      const tp = await tablet.newPage();
+      await tp.goto(`${EDITOR}/play/?preview=${PREVIEW}&example=${FIRST_SKETCH}`);
+      await tp.addStyleTag({ content: "body { margin: 0; }" });
+      await tp.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      await sleep(300);
+      const t = await measureLayout(tp);
+      if (shotsDir) await tp.screenshot({ path: path.join(shotsDir, "play_768x1024.png") });
+      await tablet.close();
+      assert(t.scrollWidth <= 768 && t.editor.height >= 550 && t.preview.width <= 640 && t.preview.width >= 600, `tablet: editor ${t.editor.height}, picture ${t.preview.width}, page ${t.scrollWidth}`);
+      return `390: editor ${m.editor.height}px, picture ${m.preview.width} x ${m.preview.height}; 768: editor ${t.editor.height}px, picture ${t.preview.width}`;
+    } finally {
+      await phoneContext.close();
+    }
   });
 } finally {
   await browser.close();

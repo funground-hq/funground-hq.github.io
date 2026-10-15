@@ -30,11 +30,11 @@ because the preview's canvas never grows past the sketch's size. A fixed CSS hei
 console under the picture: it pushed tall sketches' output off the screen until the picture shrank; above, it never
 competes with the picture.
 
-**Limits.** Phones (S-189), the alternative layouts (picture only, stacked) and the picker with thumbnails (S-188)
+**Limits.** The alternative layouts (picture only, stacked) and the picker with thumbnails (S-188)
 are not built. A sketch that
 does not answer "stop" within the runner's second still costs a new Python (a few seconds); the status says so.
 
-**Tests.** `tools/test_editor.mjs`, 12 checks: the ten it had (check 1 now also checks the editor is not built
+**Tests.** `tools/test_editor.mjs`, 12 checks (now 38, see below): the ten it had (check 1 now also checks the editor is not built
 inside a heading), 11 for zoom and Fit, 12 for the restart notice. Layout by eye with `tools/design_shots.mjs` against
 `design/mockups/play-day.png`.
 
@@ -170,3 +170,31 @@ A click calls `open(id)`, the function the picker's `change` event calls, so dra
   starter with a comment added, since the blank sketch is no longer what a first visit opens.
 - **Limit.** Headless Chrome, driven over CDP, does not tell a frame from another site that the mouse has left it, so check 34
   sends the canvas a `pointerleave` itself to test that the label goes. A real browser sends it.
+
+## Phones (S-189)
+
+**Problem (15 Oct 2026, 390 x 844).** The editor was 0 px tall, the picture 68 x 44, the toolbar 135 px (176 with Guides): the
+fixed full-window box had nothing left for the code.
+
+**Built, for widths up to 900 px** (one `@media (max-width: 900px)` in `play.css`; the old phone block in `funground.css` is gone):
+
+- One column, the page scrolls: the toolbar, then the messages and the picture (with its caption and zoom), then the editor. The
+  messages stay above the picture, as on the desktop: an error is read next to what it is about, and the code is below it.
+  `fillWindow()` sets no height on a phone (`matchMedia`, also on a change of orientation); the divider is hidden.
+- The picture is as wide as the column less a 4 px gutter. Fit ignores the room's height on a phone (the area has no fixed
+  height, so using it would shrink the picture on every pass) and never goes past 1:1. At 390 a 640 x 400 sketch shows 374 x 234.
+- The editor is `max(60svh, 480px)` tall (at 844: 506 px, 480 px at the shortest), about 18 lines or more, and scrolls inside.
+- The toolbar wraps: the picker with ‹ › on its own row, then Run, Stop, Auto-run, Guides, Share, ?; the status is the last row.
+  The Ctrl key on Run is hidden. The help popover is in the flow, so it never covers Run.
+- **Floating Run** (`.fg-play__fab`): 56 px, bottom right, the Run colours, name "Run". An `IntersectionObserver` on the toolbar's
+  Run shows it only while that button is out of sight (the site's header counts as covering the top). It clicks the toolbar's Run,
+  then brings the picture into view, so the learner sees what ran. It follows the toolbar Run's disabled state.
+- **No sticky picture.** PLAY_EDITOR.md §3 point 11 had one. Toolbar and picture take about 440 px; pinned, with the site's header,
+  they would leave about 350 px of an 844 px screen for the code. The floating Run does the job instead.
+
+Not done: the Layouts control (points 10), a horizontal divider.
+
+**Tests:** check 37 (1366: side by side, 627 x 612 editor, 640 x 400 picture, divider, no floating Run; a screenshot identical to the
+one before the change) and 38 (390 x 844 with `isMobile`/`hasTouch`: order, no sideways scroll, editor >= 400 px and typing, picture
+374 x 234, the floating Run hidden then shown, 56 px, bottom right, running the sketch; 768 x 1024 stays one column, picture 640).
+The test page now has a viewport meta, and the phone checks remove the body margin, as Material does.
