@@ -338,7 +338,16 @@ divider.addEventListener("keydown", (event) => {
 
 const HELP_SEEN = "funground.play.helpSeen";
 
+// On a phone the first visit shows one line instead (the full help is taller than the screen): S-208 follow-up.
+const notice = element("div", { class: "fg-play__notice", hidden: "" },
+  element("strong", {}, "New to funground? "), element("a", { href: "../get-started/" }, "First steps"), " · More help: ",
+  element("b", {}, "?"), element("span", { class: "spacer" }),
+  element("button", { class: "fg-iconbtn", type: "button", "aria-label": "Close this note" }, "×"));
+help.before(notice);
+notice.querySelector("button").addEventListener("click", () => { notice.hidden = true; });
+
 function showHelp(open) {
+  if (open) notice.hidden = true;
   help.hidden = !open;
   helpButton.setAttribute("aria-expanded", String(open));
   if (open) remember(HELP_SEEN, true);
@@ -347,7 +356,10 @@ helpButton.addEventListener("click", () => showHelp(help.hidden));
 document.addEventListener("pointerdown", (event) => {
   if (!help.hidden && !help.contains(event.target) && event.target !== helpButton) showHelp(false);
 });
-if (!recall(HELP_SEEN)) showHelp(true);
+if (!recall(HELP_SEEN)) {
+  if (phone.matches) { notice.hidden = false; remember(HELP_SEEN, true); }
+  else showHelp(true);
+}
 
 // ---- guides: a grid and the mouse's position, drawn by the preview over the sketch (S-202). Off until switched on.
 
