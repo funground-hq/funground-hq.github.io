@@ -136,3 +136,15 @@ body:has(.fg-play) .md-main { overflow: hidden; }
   .fg-play__notice a { color: #191970; text-decoration: underline; }
   .fg-play__notice .spacer { flex: 1; }
 }
+
+/* The example's gallery picture, over the frame until the first Run (S-209). It is a picture, not the running sketch: a tag
+   says so, and the status (loading, or "Press Run") is written over its foot. The frame is already the scaled size, so the
+   picture fills it. */
+.fg-play__still { position: absolute; inset: 0; z-index: 1; background: #fff; }
+.fg-play__still-image { display: block; width: 100%; height: 100%; object-fit: fill; }
+.fg-play__still-tag { position: absolute; top: 6px; left: 6px; padding: 2px 8px; font: 700 11px/1.4 var(--font-body);
+  color: var(--ink); background: var(--paper-raised); border: 1.5px solid var(--ink); border-radius: var(--radius-sm); }
+.fg-play__still-note { position: absolute; left: 0; right: 0; bottom: 0; display: flex; padding: 6px 10px;
+  font: 700 13px/1.3 var(--font-body); color: var(--ink); background: color-mix(in srgb, var(--paper-raised) 90%, transparent);
+  border-top: 1.5px solid var(--ink); }
+.fg-play__still-note::before { display: inline-block; vertical-align: middle; margin-right: 8px; }

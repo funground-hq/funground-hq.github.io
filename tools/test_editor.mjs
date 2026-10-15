@@ -42,9 +42,18 @@ const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf
 
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".py": "text/plain" };
 
+// A request for a path in `gates` waits until that promise is done (check 42 holds the runtime's manifest back this way).
+// Playwright's page.route does not see a worker's requests, so the server does the holding.
+const gates = {};
+const requested = {};
+
 function fileServer(root, pages = {}) {
-  return http.createServer((request, response) => {
+  return http.createServer(async (request, response) => {
     const url = new URL(request.url, "http://x");
+    if (gates[url.pathname]) {
+      requested[url.pathname] = true;
+      await gates[url.pathname];
+    }
     const found = path.join(path.resolve(root), decodeURIComponent(url.pathname));
     const page = pages[url.pathname];
     const ok = page !== undefined || (found.startsWith(path.resolve(root)) && statSync(found, { throwIfNoEntry: false })?.isFile());
@@ -1223,6 +1232,160 @@ try {
       assert(await page.locator("#fg-play-help .fg-keys-only").first().isVisible(), "the keyboard lines are missing on a desktop");
     } finally {
       await desktop.close();
+    }
+  });
+
+  // S-209: the example's gallery picture shows while Python loads, and the first Run replaces it. The runner is held back by
+  // keeping the runtime's manifest request (the worker's first fetch) waiting until the test lets it go.
+  await check(42, "an example opens with its gallery picture and the status over it; Run replaces it; edits, drafts, shared and blank sketches show none", async () => {
+    const GALLERY = "basics-01_first_sketch";
+    const examples = JSON.parse(readFileSync(path.join(docs, "play", "examples.json"), "utf8"));
+    assert(examples.find((e) => e.id === GALLERY)?.picture === `../gallery/images/${GALLERY}.png`, "examples.json has no picture for the example");
+    assert(examples.every((e) => e.picture === undefined || /^\.\.\/gallery\/images\/.+\.png$/.test(e.picture)), "a picture path is odd");
+    const next = examples[examples.findIndex((e) => e.id === GALLERY) + 1];
+    const hold = async (viewport, extra = {}) => {
+      const held = await browser.newContext({ viewport, ...extra });
+      const MANIFEST = "/play/runner/runtime/manifest.json";
+      let release;
+      gates[MANIFEST] = new Promise((resolve) => { release = resolve; });
+      requested[MANIFEST] = false;
+      return { held, release: () => { release(); delete gates[MANIFEST]; }, sawManifest: () => requested[MANIFEST] };
+    };
+    const stillShown = (page) => page.locator(".fg-play__still").isVisible();
+    const clickMouse = async (page, locator) => {
+      const b = await locator.boundingBox();
+      await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+    };
+    const openHeld = async (context, query, hash = "") => {
+      const page = await context.newPage();
+      watch(page);
+      await page.goto(`${EDITOR}/play/?preview=${PREVIEW}${query}${hash}`);
+      await runButton(page).waitFor();
+      return page;
+    };
+
+    // 1366: the picture, at the sketch's size, marked as a picture, with the loading status over it, Python held back.
+    const desktop = await hold({ width: 1366, height: 768 });
+    try {
+      const page = await openHeld(desktop.held, `&example=${GALLERY}`);
+      await page.locator(".fg-play__still").waitFor({ state: "visible" });
+      await page.waitForFunction(() => document.querySelector(".fg-play__still-image")?.complete && document.querySelector(".fg-play__still-image").naturalWidth > 0);
+      for (let i = 0; i < 600 && !desktop.sawManifest(); i++) await sleep(100);   // the worker loads Pyodide first, then asks for the manifest
+      assert(desktop.sawManifest(), "the runtime was not asked for, so Python was not held back");
+      assert(await page.locator(".fg-btn--run").isDisabled(), "Run was ready while Python was held");
+      assert(await page.locator(".fg-play__still-image").count() === 1 && await page.locator("img").count() === 1, "more than one image on the page");
+      assert((await page.locator(".fg-play__still-image").getAttribute("loading")) === "eager", "the picture is not loaded eagerly");
+      assert(/^Picture of the example$/.test(await page.locator(".fg-play__still-tag").innerText()), "no tag that says it is a picture");
+      const note = (await page.locator(".fg-play__still-note").innerText()).trim();
+      assert(note.startsWith("Loading Python"), `the status over the picture is "${note}"`);
+      const frame = await page.locator(".fg-play__frame").boundingBox();
+      const image = await page.locator(".fg-play__still-image").boundingBox();
+      assert(Math.abs(image.width - frame.width) <= 6 && Math.abs(image.height - frame.height) <= 6, `picture ${image.width}x${image.height} in a frame of ${frame.width}x${frame.height}`);
+      assert(Math.abs(frame.width / frame.height - 1.6) < 0.02 && frame.width > 300, `the frame is ${frame.width}x${frame.height}`);
+      assert((await page.locator(".fg-play__caption").innerText()).includes("640 × 400"), "the caption lacks the sketch's size");
+      if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "still_1366_loading.png") });
+
+      // Python comes: the status over the picture changes, the picture stays until Run.
+      desktop.release();
+      await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      assert(await stillShown(page), "the picture went when Python was ready");
+      const ready = (await page.locator(".fg-play__still-note").innerText()).trim();
+      assert(ready.startsWith("Ready. Press Run"), `the status over the picture is "${ready}"`);
+      if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "still_1366_ready.png") });
+
+      // Switching examples before Run shows the new example's picture (Next, with the mouse).
+      await clickMouse(page, page.locator(".fg-play__step").nth(1));
+      await page.waitForFunction((id) => document.querySelector(".fg-play__still-image")?.getAttribute("src")?.endsWith(`${id}.png`), next.id);
+      assert(await stillShown(page), "no picture after Next");
+      await page.locator(".fg-play__choose").selectOption(GALLERY);
+      await page.waitForFunction((id) => document.querySelector(".fg-play__still-image")?.getAttribute("src")?.endsWith(`${id}.png`), GALLERY);
+
+      // Typing makes the code differ from the picture: the picture goes.
+      await page.locator(".cm-content").click();
+      await page.keyboard.press("Control+End");
+      await page.keyboard.type("# changed");
+      assert(!(await stillShown(page)), "the picture stays after the code was changed");
+      await clickMouse(page, page.getByRole("button", { name: "Reset", exact: true }));     // back to the example's code: its picture is true again
+      await page.waitForFunction(() => document.querySelector(".fg-play__still")?.hidden === false, null, { timeout: 3000 });
+
+      // The first Run replaces the picture with the live frame.
+      await clickMouse(page, page.locator(".fg-btn--run"));
+      await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque && p.colours > 1);
+      await page.waitForFunction(() => document.querySelector(".fg-play__still")?.hidden === true);
+      assert(!(await stillShown(page)), "the picture stays after Run");
+      assert((await page.locator(".play-preview").boundingBox()).width > 300, "the live frame is not shown");
+      await page.close();
+    } finally {
+      desktop.release();
+      await desktop.held.close();
+    }
+
+    // A draft that differs: no picture, even though the example is the one in the address. A draft is the learner's text.
+    const drafted = await hold({ width: 1366, height: 768 });
+    try {
+      drafted.release();
+      const page = await openHeld(drafted.held, `&example=${GALLERY}`);
+      await page.evaluate((id) => localStorage.setItem(`funground.draft.${id}`, JSON.stringify({ text: "import funground as f\n# my own version\n" })), GALLERY);
+      await page.reload();
+      await runButton(page).waitFor();
+      await sleep(500);
+      assert((await editorText(page)).includes("my own version"), "the draft was not restored");
+      assert(!(await stillShown(page)), "a picture shows over a draft that differs");
+      await page.close();
+    } finally {
+      await drafted.held.close();
+    }
+
+    // A shared link (with and without the example it started from), the blank sketch and the starter: no picture.
+    const others = await hold({ width: 1366, height: 768 });
+    try {
+      others.release();
+      const page = await openHeld(others.held, "");
+      assert(!(await stillShown(page)), "a picture shows over the starter sketch");
+      const encoded = await page.evaluate(async (text) => {
+        const piped = new Blob([new TextEncoder().encode(text)]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+        const bytes = new Uint8Array(await new Response(piped).arrayBuffer());
+        return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+      }, "import funground as f\n# shared\n");
+      await page.close();
+      for (const query of ["", `&example=${GALLERY}`]) {
+        const shared = await openHeld(others.held, query, `#code=${encoded}`);
+        await sleep(500);
+        assert((await editorText(shared)).includes("# shared"), "the shared code was not opened");
+        assert(!(await stillShown(shared)), `a picture shows over a shared sketch (${query || "no example"})`);
+        await shared.close();
+      }
+      const blank = await openHeld(others.held, "");
+      await blank.locator(".fg-play__choose").selectOption("blank");
+      await sleep(300);
+      assert(!(await stillShown(blank)), "a picture shows over the blank sketch");
+      await blank.close();
+    } finally {
+      await others.held.close();
+    }
+
+    // A phone: one column; the picture is as wide as the column, the tag and the status are inside it.
+    const phoneHold = await hold({ width: 390, height: 844 }, { isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    try {
+      const page = await openHeld(phoneHold.held, `&example=${GALLERY}`);
+      await page.addStyleTag({ content: "body { margin: 0; }" });
+      await page.locator(".fg-play__still").waitFor({ state: "visible" });
+      await page.waitForFunction(() => document.querySelector(".fg-play__still-image")?.naturalWidth > 0);
+      await sleep(300);
+      const still = await page.locator(".fg-play__still").boundingBox();
+      assert(still.width > 340 && still.width <= 390 && Math.abs(still.width / still.height - 1.6) < 0.03, `the picture on a phone is ${still.width}x${still.height}`);
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "sideways scroll on a phone");
+      const tag = await page.locator(".fg-play__still-tag").boundingBox();
+      const note = await page.locator(".fg-play__still-note").boundingBox();
+      assert(tag.x >= still.x && tag.x + tag.width <= still.x + still.width, "the tag is outside the picture");
+      assert(note.y + note.height <= still.y + still.height + 1 && note.height < still.height / 2, `the status is ${note.height}px tall`);
+      if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "still_390.png") });
+      phoneHold.release();
+      await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      await page.close();
+    } finally {
+      phoneHold.release();
+      await phoneHold.held.close();
     }
   });
 } finally {

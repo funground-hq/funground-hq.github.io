@@ -161,7 +161,12 @@ const divider = element("div", { class: "fg-play__divider", role: "separator", t
   "aria-label": "Share of the width between the code and the picture (arrow keys move it)" });
 
 const preview = element("iframe", { class: "play-preview", title: "The sketch", sandbox: SANDBOX, allow: "autoplay; microphone" });
-const frame = element("div", { class: "fg-play__frame" }, preview);
+// The example's gallery picture, over the frame until the first Run (S-209): marked as a picture, with the status over it.
+const stillImage = element("img", { class: "fg-play__still-image", alt: "What the example draws", loading: "eager", decoding: "async" });
+const stillNote = element("span", { class: "fg-status fg-status--loading fg-play__still-note" });
+const still = element("div", { class: "fg-play__still", hidden: "" },
+  stillImage, element("span", { class: "fg-play__still-tag" }, "Picture of the example"), stillNote);
+const frame = element("div", { class: "fg-play__frame" }, preview, still);
 const picture = element("div", { class: "fg-play__picture" }, frame);
 const sizeText = element("span", {});
 const aboutText = element("span", {});
@@ -203,8 +208,13 @@ play.replaceChildren(
 function setStatus(text, kind) {
   status.textContent = text;
   status.title = text;              // the toolbar cuts a long line short; the title has all of it
-  if (kind) status.className = `fg-status fg-status--${kind} play-status`;
+  stillNote.textContent = text;     // the same words over the example's picture
+  if (kind) {
+    status.className = `fg-status fg-status--${kind} play-status`;
+    stillNote.className = `fg-status fg-status--${kind} fg-play__still-note`;
+  }
 }
+stillNote.textContent = status.textContent;
 const isDark = () => document.body.getAttribute("data-md-color-scheme") === "slate";
 
 const editor = createEditor({ parent: editorBox, dark: isDark(), onChange: edited });
@@ -389,6 +399,26 @@ let original = BLANK_TEXT;    // the code as it was before the learner changed i
 let sharedBase = null;        // the #code= text of the shared sketch on the page
 let current = null;           // the example, or null
 let files = {};               // the example's data files, sent with each run
+let stillAllowed = false;     // an example is open and has not been run yet (S-209)
+
+// The example's gallery picture shows only while it is true to the code: an example, not run yet, and the code as the
+// example has it (a draft or an edit may no longer match the picture). A blank, starter or shared sketch has none.
+function updateStill() {
+  const show = stillAllowed && key !== SHARED && !!current?.picture && editor.getText() === original;
+  if (show && stillImage.getAttribute("src") !== current.picture) stillImage.src = current.picture;
+  still.hidden = !show;
+  if (show) fitPicture();
+}
+function endStill() {
+  stillAllowed = false;
+  updateStill();
+}
+stillImage.addEventListener("load", () => {            // the picture is the sketch's own size: the frame can be sized now
+  if (still.hidden) return;
+  sketchSize = { width: stillImage.naturalWidth, height: stillImage.naturalHeight };
+  sizeKnown = true;
+  fitPicture();
+});
 
 // ‹ and › step through the picker's examples, in its order (the examples.json order). They are for the examples only: a
 // blank or a shared sketch has no neighbours. Each end disables its button.
@@ -448,6 +478,8 @@ async function starterText() {
 
 // Opens a sketch: an example id, BLANK, STARTER, or SHARED (the code in the link). A saved draft is used if there is one.
 async function open(wanted) {
+  stillAllowed = false;
+  updateStill();
   stopSketch();
   clearOutput();
   // A shared link may also name the example it started from: its data files are loaded, its code is not used.
@@ -472,6 +504,8 @@ async function open(wanted) {
   editor.setText(useDraft ? draft.text : original);
   showReset();
   showLineCount();
+  stillAllowed = true;
+  updateStill();
   writeAddress();
   fileName.textContent = current ? current.source.split("/").pop() : "sketch.py";
   aboutText.textContent = current ? current.title : "";
@@ -491,6 +525,7 @@ function edited() {
   remember(draftName(), text === original ? null : { text, base: key === SHARED ? sharedBase : undefined });
   showReset();
   showLineCount();
+  updateStill();
   clearTimeout(autoTimer);
   if (autoRun.checked && previewReady) autoTimer = setTimeout(runSketch, AUTO_RUN_MS);
 }
@@ -500,6 +535,7 @@ resetButton.addEventListener("click", () => {
   editor.setText(original);
   showReset();
   showLineCount();
+  updateStill();
   setStatus("Back to the original.");
 });
 
@@ -620,6 +656,7 @@ const handlers = {
     setStatus("Starting Python again: the last sketch did not stop in time. This takes a few seconds...", "loading");
   },
   error(message) {
+    endStill();
     errorLine = showError(message.text);
     // An error before "started" (setup() did not finish) leaves the picture's size unknown: the caption must not still
     // give the last sketch's size.
@@ -629,6 +666,7 @@ const handlers = {
     }
   },
   started(message) {
+    endStill();
     startedThisRun = true;
     sizeKnown = true;
     sketchSize = { width: message.width, height: message.height };
