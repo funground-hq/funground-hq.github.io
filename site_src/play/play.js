@@ -381,6 +381,17 @@ const notice = element("div", { class: "fg-play__notice", hidden: "" },
 help.before(notice);
 notice.querySelector("button").addEventListener("click", () => { notice.hidden = true; });
 
+// "Remove Play from this browser" (S-210): the preview deletes what it kept (Python, funground and the fonts) and says so.
+// Sketches are not touched: they are kept by this page, not by the preview.
+const forgetButton = element("button", { class: "fg-btn", type: "button" }, "Remove Play from this browser");
+const forgetNote = element("span", { class: "fg-play__forgetnote", role: "status" });
+help.append(element("p", { class: "fg-play__forget" }, forgetButton, " ", forgetNote));
+forgetButton.addEventListener("click", () => {
+  forgetNote.textContent = "Removing...";
+  tell({ type: "forget" });
+  setTimeout(() => { if (forgetNote.textContent === "Removing...") forgetNote.textContent = "The preview did not answer. Try again in a moment."; }, 5000);
+});
+
 function showHelp(open) {
   if (open) notice.hidden = true;
   help.hidden = !open;
@@ -957,6 +968,13 @@ const handlers = {
     } else {
       showSavedFile(message.name, blob);
     }
+  },
+  // A new funground finished downloading in the background (S-210). It starts the next time Python loads.
+  "update-ready"() {
+    setStatus("A new funground is ready: it starts the next time you open Play.", "ready");
+  },
+  forgotten() {
+    forgetNote.textContent = "Done. Python and funground were removed from this browser. Your sketches are still here. They download again the next time you open Play.";
   },
   restarting() {
     setStatus("Starting Python again: the last sketch did not stop in time. This takes a few seconds...", "loading");
