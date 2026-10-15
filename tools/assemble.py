@@ -255,6 +255,13 @@ def example_page(example: Example, funground: Path, runnable: bool = False, area
     """One example's page. ``previous`` and ``following`` are its neighbours in the gallery's order (S-206)."""
     area_name = area_name or example.area.title()
     lines = [
+        # No left column: an example page is not in the navigation, so the column stood empty (maintainer, 15 Oct).
+        # The breadcrumb and Previous/Next are the way around the gallery instead.
+        "---",
+        "hide:",
+        "  - navigation",
+        "---",
+        "",
         '<nav class="fg-walk fg-walk--crumb" aria-label="Breadcrumb" markdown>',
         "",
         f"[Gallery](../index.md) › [{md_text(area_name)}](../index.md#{heading_slug(area_name)}) › {md_text(example.title)}",
