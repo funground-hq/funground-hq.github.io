@@ -69,7 +69,9 @@ const listen = (server) => new Promise((resolve) => server.listen(0, "127.0.0.1"
 // The heading is there because MkDocs gives "# Play" the id "play": the editor's container must not share it (SITE-C-01).
 const EDITOR_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Play</title>
 <link rel="stylesheet" href="../stylesheets/funground.css"><link rel="stylesheet" href="../stylesheets/play.css"></head>
-<body data-md-color-scheme="default"><h1 id="play">Play</h1><div id="funground-play" class="play"></div>
+<body data-md-color-scheme="default"><h1 id="play">Play</h1>
+<div class="fg-play-help"><p>Help text.</p><ul><li>Share copies a link.</li><li class="fg-keys-only">Keys: Ctrl+Enter runs.</li><li class="fg-keys-only">Drag the bar.</li></ul></div>
+<div id="funground-play" class="play"></div>
 <script type="module" src="play.js"></script></body></html>`;
 
 // A page on a third origin that holds the preview in a frame and sends it a run, as a stranger's page would.
@@ -1000,6 +1002,227 @@ try {
       return `390: editor ${m.editor.height}px, picture ${m.preview.width} x ${m.preview.height}; 768: editor ${t.editor.height}px, picture ${t.preview.width}`;
     } finally {
       await phoneContext.close();
+    }
+  });
+
+  // ---- S-208: numbers from the keyboard and the mouse, and what Alt will move
+
+  const NUMBERS_TEXT = 'a = 120\nb = 0.5\nc = 0.25\nd = -1\ne = "n 7"  # 9\nx2 = 3\nf = 1\ng = h\nh = 0.2\n';
+  const lineText = async (page, n) => (await editorText(page)).split("\n")[n];
+  // Puts the cursor at the end of line n (from 0), then `back` characters to the left.
+  async function cursorAt(page, n, back = 0) {
+    await page.keyboard.press("Control+Home");
+    for (let i = 0; i < n; i++) await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("End");
+    for (let i = 0; i < back; i++) await page.keyboard.press("ArrowLeft");
+  }
+  // The box of `word` in line n, to aim the mouse at.
+  const boxOf = (page, n, word) => page.evaluate(({ n, word }) => {
+    const line = document.querySelectorAll(".cm-line")[n];
+    const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const at = node.data.indexOf(word);
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + word.length);
+      const r = range.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    }
+    return null;
+  }, { n, word });
+  const marked = (page, kind) => page.locator(`.cm-nudge-${kind}`).allInnerTexts();
+
+  await check(39, "Alt+Up/Down change the number under the cursor by its last digit; Alt+drag scrubs; Alt shows what it will move", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await typeCode(page, NUMBERS_TEXT);
+    await page.locator(".cm-content").click();
+    // Keys: steps follow the last decimal place; Shift makes ten; a negative crosses zero.
+    await cursorAt(page, 0);
+    await page.keyboard.press("Alt+ArrowUp");
+    assert((await lineText(page, 0)) === "a = 121", `Alt+Up gave "${await lineText(page, 0)}"`);
+    await page.keyboard.press("Alt+Shift+ArrowUp");
+    assert((await lineText(page, 0)) === "a = 131", `Alt+Shift+Up gave "${await lineText(page, 0)}"`);
+    await page.keyboard.press("Alt+Shift+ArrowDown");
+    await page.keyboard.press("Alt+ArrowDown");
+    assert((await lineText(page, 0)) === "a = 120", `back down gave "${await lineText(page, 0)}"`);
+    await cursorAt(page, 1);
+    await page.keyboard.press("Alt+ArrowDown");
+    assert((await lineText(page, 1)) === "b = 0.4", `0.5 down gave "${await lineText(page, 1)}"`);
+    await page.keyboard.press("Alt+ArrowUp");
+    await page.keyboard.press("Alt+ArrowUp");
+    assert((await lineText(page, 1)) === "b = 0.6", `0.4 up twice gave "${await lineText(page, 1)}"`);
+    await cursorAt(page, 2, 1);                                          // inside the number
+    await page.keyboard.press("Alt+ArrowDown");
+    assert((await lineText(page, 2)) === "c = 0.24", `0.25 down gave "${await lineText(page, 2)}"`);
+    await cursorAt(page, 3);
+    await page.keyboard.press("Alt+ArrowUp");
+    assert((await lineText(page, 3)) === "d = 0", `-1 up gave "${await lineText(page, 3)}"`);
+    await page.keyboard.press("Alt+ArrowUp");
+    assert((await lineText(page, 3)) === "d = 1", `0 up gave "${await lineText(page, 3)}"`);
+    for (let i = 0; i < 3; i++) await page.keyboard.press("Alt+ArrowDown");
+    assert((await lineText(page, 3)) === "d = -2", `1 down three times gave "${await lineText(page, 3)}"`);
+    await page.keyboard.type("5");                                       // the cursor is still on the number's end: typing goes on
+    assert((await lineText(page, 3)) === "d = -25", `typing after a nudge gave "${await lineText(page, 3)}"`);
+    // Not numbers: inside a string, inside a comment, the 2 of x2. The digits do not change (the line moves instead).
+    for (const [n, back] of [[4, 11], [4, 1], [5, 4]]) {
+      const before = await editorText(page);
+      await cursorAt(page, n, back);
+      await page.keyboard.press("Alt+ArrowUp");
+      const after = await editorText(page);
+      assert(after !== before && after.split("\n").sort().join("\n") === before.split("\n").sort().join("\n"), `Alt+Up at line ${n}, ${back} from the end changed digits, or moved nothing`);
+      await page.keyboard.press("Alt+ArrowDown");
+      assert((await editorText(page)) === before, `Alt+Up then Alt+Down off a number did not put line ${n} back`);
+    }
+    // Off a number Alt+Up moves the line.
+    await cursorAt(page, 7);
+    await page.keyboard.press("Alt+ArrowUp");
+    assert((await lineText(page, 6)) === "g = h" && (await lineText(page, 7)) === "f = 1", `line did not move: ${JSON.stringify((await editorText(page)).split("\n").slice(5, 9))}`);
+    await page.keyboard.press("Alt+ArrowDown");
+    // Undo: one press, one step.
+    await cursorAt(page, 6);
+    await page.keyboard.press("Alt+ArrowUp");
+    await page.keyboard.press("Alt+ArrowUp");
+    assert((await lineText(page, 6)) === "f = 3", `two presses gave "${await lineText(page, 6)}"`);
+    await page.keyboard.press("Control+Z");
+    assert((await lineText(page, 6)) === "f = 2", `one undo gave "${await lineText(page, 6)}"`);
+    await page.keyboard.press("Control+Z");
+    assert((await lineText(page, 6)) === "f = 1", `two undos gave "${await lineText(page, 6)}"`);
+
+    // What Alt will move: the number under the cursor, else the line; gone on release, on window blur and on leaving the editor.
+    await cursorAt(page, 0);
+    await page.keyboard.down("Alt");
+    assert((await marked(page, "number")).join() === "120", `number marks: ${await marked(page, "number")}`);
+    assert((await page.locator(".cm-nudge-line").count()) === 0, "a line is marked as well as the number");
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "alt_number.png") });
+    await page.keyboard.up("Alt");
+    assert((await marked(page, "number")).length === 0, "the number stays marked after Alt is released");
+    await cursorAt(page, 7);
+    await page.keyboard.down("Alt");
+    assert((await page.locator(".cm-nudge-line").count()) === 1 && (await marked(page, "number")).length === 0, "the line is not the only mark");
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "alt_line.png") });
+    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    assert((await page.locator(".cm-nudge-line").count()) === 0, "the window losing focus did not clear the mark");
+    await page.keyboard.up("Alt");
+    await page.keyboard.down("Alt");
+    assert((await page.locator(".cm-nudge-line").count()) === 1, "the mark did not come back");
+    await page.locator("h1").evaluate((h) => { h.tabIndex = -1; h.focus(); });                     // the editor loses the keys
+    await sleep(150);                                                                               // the editor notices a lost focus a moment later
+    assert((await page.locator(".cm-nudge-line").count()) === 0, "the editor losing focus did not clear the mark");
+    await page.keyboard.up("Alt");
+    // The mouse: the number under the pointer is marked while Alt is held.
+    await page.locator(".cm-content").click();
+    const hover = await boxOf(page, 0, "120");
+    await page.mouse.move(hover.x + hover.width / 2, hover.y + hover.height / 2);
+    assert((await marked(page, "number")).length === 0, "marked without Alt");
+    await page.keyboard.down("Alt");
+    assert((await marked(page, "number")).includes("120"), `the number under the pointer is not marked: ${await marked(page, "number")}`);
+    await page.keyboard.up("Alt");
+    // A tap of Alt alone: the editor keeps the keys, the key-up default is prevented, typing goes on.
+    await page.evaluate(() => { window.__altUp = null; window.addEventListener("keyup", (e) => { if (e.key === "Alt") window.__altUp = e.defaultPrevented; }); });
+    await cursorAt(page, 8);
+    await page.keyboard.press("Alt");
+    assert(await page.evaluate(() => !!document.activeElement.closest(".cm-content")), "the focus left the editor after a tap of Alt");
+    await page.keyboard.type("7");
+    assert((await lineText(page, 8)) === "h = 0.27", `typing after a tap of Alt gave "${await lineText(page, 8)}"`);
+    const altUpPrevented = await page.evaluate(() => window.__altUp);
+
+    // Alt+drag: right increases (about one step per 4 px), Shift is ten steps, no text selected, one undo step.
+    const dragBefore = await editorText(page);
+    const drag = async (dx, shift) => {
+      const b = await boxOf(page, 0, "120");
+      const x = b.x + b.width / 2, y = b.y + b.height / 2;
+      await page.keyboard.down("Alt");
+      if (shift) await page.keyboard.down("Shift");
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      for (let i = 1; i <= 10; i++) { await page.mouse.move(x + dx * i / 10, y); await sleep(30); }
+      assert((await page.evaluate(() => getSelection().toString())) === "", "text was selected during the drag");
+      assert((await marked(page, "number")).length === 1, "the number is not marked during the drag");
+      assert((await page.locator(".cm-tooltip-autocomplete").count()) === 0, "a suggestions popup opened during the drag");
+    await sleep(600);                                                    // a pause longer than the history's grouping time
+      await page.mouse.move(x + dx, y);
+      await page.mouse.up();
+      if (shift) await page.keyboard.up("Shift");
+      await page.keyboard.up("Alt");
+    };
+    await drag(40, false);
+    assert((await lineText(page, 0)) === "a = 130", `a drag of 40 px gave "${await lineText(page, 0)}"`);
+    await page.keyboard.press("Control+Z");
+    assert((await editorText(page)) === dragBefore, `one undo did not undo the whole drag: ${(await lineText(page, 0))} / ${await lineText(page, 8)}`);
+    await drag(-8, true);
+    assert((await lineText(page, 0)) === "a = 100", `a Shift drag of -8 px gave "${await lineText(page, 0)}"`);
+    await page.keyboard.press("Control+Z");
+    assert((await editorText(page)) === dragBefore, "one undo did not undo the Shift drag");
+    if (shotsDir) {                                                                 // the marks at night, for a look
+      await page.evaluate(() => document.body.setAttribute("data-md-color-scheme", "slate"));
+      await sleep(300);
+      await page.locator(".cm-content").click();
+      for (const [n, name] of [[0, "number"], [7, "line"]]) {
+        await cursorAt(page, n);
+        await page.keyboard.down("Alt");
+        await page.screenshot({ path: path.join(shotsDir, `alt_${name}_night.png`) });
+        await page.keyboard.up("Alt");
+      }
+    }
+    await page.close();
+    return `Alt key-up default prevented: ${altUpPrevented}`;
+  });
+
+  await check(40, "with Auto-run on, Alt+Up on a number runs the sketch again", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await typeCode(page, BLANK_TEXT_FOR_TEST);                                     // 200 x 100
+    await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque && p.width === 200);
+    await cursorAt(page, 4, 6);                                                    // f.size(200, 100): after the 200
+    await page.keyboard.press("Alt+Shift+ArrowUp");
+    assert((await lineText(page, 4)).includes("f.size(210, 100)"), `the text is ${await lineText(page, 4)}`);
+    await waitForPicture(frameOf(page, PREVIEW), (p) => p.width === 210, 8000);
+    await page.close();
+  });
+
+  await check(41, "on a phone the first visit shows a one-line note, not the full help; ? opens the help without the keyboard lines; on a desktop the help opens", async () => {
+    const phoneContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    try {
+      const page = await phoneContext.newPage();
+      watch(page);
+      await page.goto(`${EDITOR}/play/?preview=${PREVIEW}`);
+      await page.addStyleTag({ content: "body { margin: 0; }" });
+      await runButton(page).waitFor();
+      await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      await sleep(300);
+      assert(!(await page.locator("#fg-play-help").isVisible()), "the full help opened on a phone");
+      const note = page.locator(".fg-play__notice");
+      assert(await note.isVisible(), "no note on a first visit");
+      const box = await note.boundingBox();
+      assert(box.height < 60, `the note is ${box.height}px tall`);
+      const text = (await note.innerText()).replace(/\s+/g, " ");
+      assert(/New to funground\? First steps/.test(text) && /More help: \?/.test(text), `note says "${text}"`);
+      assert((await note.locator("a").getAttribute("href")) === "../get-started/", "the note's link");
+      const pic = await page.locator(".play-preview").boundingBox();
+      assert(pic.y < 844, `the picture starts at y ${Math.round(pic.y)}`);
+      if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "phone_first_visit.png") });
+      await page.getByRole("button", { name: "Help" }).tap();
+      assert(await page.locator("#fg-play-help").isVisible(), "? did not open the help");
+      assert(await page.locator("#fg-play-help").getByText("Share copies").isVisible(), "the help lacks its text");
+      assert(!(await page.locator("#fg-play-help .fg-keys-only").first().isVisible()), "a keyboard line shows on a phone");
+      assert(!(await note.isVisible()), "the note stays when the help opens");
+      await page.reload();                                                          // a second visit: nothing opens by itself
+      await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      assert(!(await page.locator(".fg-play__notice").isVisible()) && !(await page.locator("#fg-play-help").isVisible()), "the note or help came back");
+    } finally {
+      await phoneContext.close();
+    }
+    const desktop = await browser.newContext({ viewport: { width: 1366, height: 768 } });
+    try {
+      const page = await desktop.newPage();
+      await page.goto(`${EDITOR}/play/?preview=${PREVIEW}`);
+      await runButton(page).waitFor();
+      assert(await page.locator("#fg-play-help").isVisible() && !(await page.locator(".fg-play__notice").isVisible()), "the desktop first visit does not open the full help");
+      assert(await page.locator("#fg-play-help .fg-keys-only").first().isVisible(), "the keyboard lines are missing on a desktop");
+    } finally {
+      await desktop.close();
     }
   });
 } finally {

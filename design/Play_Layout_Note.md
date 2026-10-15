@@ -198,3 +198,27 @@ Not done: the Layouts control (points 10), a horizontal divider.
 one before the change) and 38 (390 x 844 with `isMobile`/`hasTouch`: order, no sideways scroll, editor >= 400 px and typing, picture
 374 x 234, the floating Run hidden then shown, 56 px, bottom right, running the sketch; 768 x 1024 stays one column, picture 640).
 The test page now has a viewport meta, and the phone checks remove the body margin, as Material does.
+
+## Numbers from the keyboard and the mouse (S-208)
+
+- **Keys.** With the cursor on a number, <kbd>Alt</kbd>+<kbd>Up</kbd> and <kbd>Alt</kbd>+<kbd>Down</kbd> change it by one step, the step
+  being its last decimal place (120 by 1, 0.5 by 0.1, 0.25 by 0.01); with Shift, ten steps. Off a number the keys keep CodeMirror's
+  move-line. The sum is whole-number arithmetic on the digits, so 0.5 + 0.1 is 0.6. A minus that belongs to the number (a unary
+  minus) is part of it, so a negative crosses zero. Hex, exponent, underscore and complex numbers are left alone. A number in a string or
+  a comment, and the 2 of `x2`, are not numbers: the syntax tree decides (`tools/codemirror/numbers.js`). One key press is one undo step.
+- **Drag.** Alt+drag on a number, sideways: one step for each 4 px, Shift for ten. The pointer is captured, nothing is selected, the
+  whole drag is one undo step (the history only joins changes of the kind "input.type", so the drag uses that name and the first
+  change's time, so a pause in the drag does not split it).
+- **Alt shows what it will move.** While Alt is held: the number under the cursor, or else the line, and the number under the mouse.
+  A gold wash and outline on a number, a lighter wash on a line (`play.css`; a paler wash at night). It clears on Alt's release, on the
+  window's `blur` (Alt+Tab sends no key-up) and when the editor loses focus. The plugin cannot read the layout during an update, so the
+  position under the pointer is found before the update is dispatched.
+- **Alt alone on Windows.** A tap of Alt can move focus to Chrome's menu. The editor prevents the default of Alt's key-up. Headless
+  Chrome has no such menu, so the test only checks that the key-up default is prevented, the focus stays in the editor and typing
+  goes on; it was not seen on a real Windows Chrome.
+- **Help.** One line in the help ("Numbers: ..."), hidden on phones like the other keyboard-only lines (class `fg-keys-only`).
+- **First visit on a phone.** The full help is taller than a 390 x 844 screen, so on a phone the first visit shows one line instead
+  ("New to funground? First steps · More help: ?", with a close button), remembered with the same first-visit flag. "?" opens the help,
+  without the keyboard lines (`.fg-keys-only`, under 900 px). The desktop first visit is unchanged.
+- **Tests.** Check 39 (keys, steps, strings and comments, undo, the marks, the Alt tap, the drag), 40 (Auto-run reruns after a
+  nudge), 41 (phone first visit, "?", desktop).
