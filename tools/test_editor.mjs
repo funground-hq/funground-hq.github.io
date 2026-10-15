@@ -1536,6 +1536,221 @@ f.run()
     }
     return `${bytes.length} bytes, ${wide}x${high}`;
   });
+  // ---- My sketches (S-213)
+  const clickAt = async (page, locator) => {
+    const b = await locator.boundingBox();
+    assert(b, "the button is not on the page");
+    await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+  };
+  const mineButton = (page, name) => page.locator(".fg-play__mine").getByRole("button", { name, exact: true });
+  const mineNames = (page) => page.locator(".fg-play__choose optgroup[label='My sketches'] option").allInnerTexts();
+  const tabName = (page) => page.locator(".fg-play__name").innerText();
+  const tabIs = (page, name) => page.waitForFunction((n) => document.querySelector(".fg-play__name")?.textContent === n, name);
+  // A page with nothing stored, ready to run.
+  async function freshEditor(query = "") {
+    const page = await openEditor(query);
+    await clearDrafts(page);
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+    return page;
+  }
+  async function reloadEditor(page) {
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+  }
+
+  await check(45, "My sketches: New sketch makes Sketch 1 from the starter; typing is kept over a reload; the newest is first; Rename by the name or the button", async () => {
+    const page = await freshEditor();
+    assert((await mineNames(page)).length === 0, "My sketches shows before there is one");
+    assert(!(await mineButton(page, "Rename").isVisible()), "Rename shows for the starter sketch");
+    await clickAt(page, mineButton(page, "New sketch"));
+    await tabIs(page, "Sketch 1");
+    assert((await editorText(page)).length > 100, "Sketch 1 is not the starter");
+    assert((await page.locator(".fg-play__choose").inputValue()).startsWith("my:"), "the picker does not show the new sketch");
+    await typeCode(page, "# my own sketch\nprint(1)\n");
+    await sleep(700);
+    await reloadEditor(page);
+    assert((await tabName(page)) === "Sketch 1", `after a reload the tab says "${await tabName(page)}"`);
+    assert((await editorText(page)).startsWith("# my own sketch"), "the code did not come back");
+    assert((await mineNames(page)).join() === "Sketch 1", `the group lists ${await mineNames(page)}`);
+    await clickAt(page, mineButton(page, "New sketch"));
+    await tabIs(page, "Sketch 2");
+    assert((await mineNames(page)).join() === "Sketch 2,Sketch 1", `newest first: ${await mineNames(page)}`);
+    // Rename by clicking the name.
+    await clickAt(page, page.locator(".fg-play__name"));
+    assert(await page.locator(".fg-play__nameinput").isVisible(), "no name field after clicking the name");
+    await page.keyboard.press("Control+A");
+    await page.keyboard.type("Bouncing ball");
+    await page.keyboard.press("Enter");
+    assert((await tabName(page)) === "Bouncing ball", `renamed to "${await tabName(page)}"`);
+    assert((await mineNames(page)).join() === "Bouncing ball,Sketch 1", `the group lists ${await mineNames(page)}`);
+    // Rename with the button; Esc leaves the name alone; a name that is taken gets a number.
+    await clickAt(page, mineButton(page, "Rename"));
+    await page.keyboard.type("Nope");
+    await page.keyboard.press("Escape");
+    assert((await tabName(page)) === "Bouncing ball", "Esc changed the name");
+    await clickAt(page, mineButton(page, "Rename"));
+    await page.keyboard.press("Control+A");
+    await page.keyboard.type("Sketch 1");
+    await page.keyboard.press("Enter");
+    assert((await tabName(page)) === "Sketch 1 2", `a taken name gave "${await tabName(page)}"`);
+    await reloadEditor(page);
+    assert((await tabName(page)) === "Sketch 1 2", "the new name did not come back");
+    await page.locator(".fg-play__choose").selectOption({ label: "Sketch 1" });
+    await tabIs(page, "Sketch 1");
+    assert((await editorText(page)).startsWith("# my own sketch"), "the picker opened another sketch's code");
+    await page.close();
+    return "Sketch 1, Sketch 2, renamed, kept over a reload";
+  });
+
+  await check(46, "My sketches: Duplicate copies the code; Delete names the sketch and Undo brings it back; a deleted one stays gone after a reload", async () => {
+    const page = await freshEditor();
+    await clickAt(page, mineButton(page, "New sketch"));
+    await tabIs(page, "Sketch 1");
+    await typeCode(page, "# original\n");
+    await clickAt(page, mineButton(page, "Duplicate"));
+    await tabIs(page, "Sketch 1 copy");
+    assert((await editorText(page)) === "# original\n", "the copy has other code");
+    assert((await mineNames(page)).join() === "Sketch 1 copy,Sketch 1", `the group lists ${await mineNames(page)}`);
+    await typeCode(page, "# changed copy\n");
+    await page.locator(".fg-play__choose").selectOption({ label: "Sketch 1" });
+    await tabIs(page, "Sketch 1");
+    assert((await editorText(page)) === "# original\n", "changing the copy changed the first sketch");
+    await clickAt(page, mineButton(page, "Delete"));
+    await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes('Deleted "Sketch 1"'));
+    assert((await mineNames(page)).join() === "Sketch 1 copy", `after Delete the group lists ${await mineNames(page)}`);
+    await clickAt(page, page.locator(".fg-play__minenote").getByRole("button", { name: "Undo" }));
+    await tabIs(page, "Sketch 1");
+    assert((await mineNames(page)).join() === "Sketch 1 copy,Sketch 1", `after Undo the group lists ${await mineNames(page)}`);
+    assert((await editorText(page)) === "# original\n", "Undo gave back other code");
+    await clickAt(page, mineButton(page, "Delete"));
+    await tabIs(page, "Sketch 1 copy");
+    await clickAt(page, mineButton(page, "Delete"));
+    await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "starter");
+    assert((await mineNames(page)).length === 0, "the group is still there");
+    await reloadEditor(page);
+    assert((await mineNames(page)).length === 0, "a deleted sketch came back after a reload");
+    assert((await page.locator(".fg-play__choose").inputValue()) === "starter", "the starter did not open");
+    await page.close();
+  });
+
+  await check(47, "My sketches: Download .py is named after the sketch and holds its code; Open .py makes a new sketch; a big file and a binary file are refused", async () => {
+    const page = await freshEditor();
+    await clickAt(page, mineButton(page, "New sketch"));
+    await tabIs(page, "Sketch 1");
+    await typeCode(page, "# for the file\nx = 1\n");
+    await clickAt(page, page.locator(".fg-play__name"));
+    await page.keyboard.press("Control+A");
+    await page.keyboard.type("Bouncing ball!");
+    await page.keyboard.press("Enter");
+    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), clickAt(page, mineButton(page, "Download .py"))]);
+    assert(download.suggestedFilename() === "bouncing-ball.py", `named ${download.suggestedFilename()}`);
+    const saved = readFileSync(await download.path(), "utf8");
+    assert(saved === "# for the file\nx = 1\n", `the file holds ${JSON.stringify(saved)}`);
+    const file = path.join(scratch, "falling_stars.py");
+    writeFileSync(file, "# stars\r\nimport funground as f\r\n");
+    const input = page.locator(".fg-play__mine input[type=file]");
+    assert((await input.getAttribute("accept")).includes(".py"), "the file input does not ask for .py");
+    await input.setInputFiles(file);
+    await tabIs(page, "falling_stars");
+    assert((await editorText(page)) === "# stars\nimport funground as f\n", `the opened file shows ${JSON.stringify(await editorText(page))}`);
+    assert((await mineNames(page)).join() === "falling_stars,Bouncing ball!", `the group lists ${await mineNames(page)}`);
+    const big = path.join(scratch, "big.py");
+    writeFileSync(big, "x = 1\n".repeat(40000));
+    await input.setInputFiles(big);
+    await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes("bigger than 200 KB"));
+    await input.setInputFiles({ name: "picture.py", mimeType: "text/plain", buffer: Buffer.from([0xff, 0xfe, 0x00, 0x01, 0x89, 0x50]) });
+    await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes("not a text file"));
+    assert((await mineNames(page)).length === 2, `a refused file was added: ${await mineNames(page)}`);
+    assert((await tabName(page)) === "falling_stars", "a refused file changed the open sketch");
+    await input.setInputFiles(file);
+    await tabIs(page, "falling_stars 2");
+    await page.locator(".fg-play__choose").selectOption(FIRST_SKETCH);
+    await page.waitForFunction((id) => document.querySelector(".fg-play__choose").value === id, FIRST_SKETCH);
+    const [exampleDownload] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), clickAt(page, mineButton(page, "Download .py"))]);
+    assert(exampleDownload.suggestedFilename().endsWith(".py"), `the example downloaded as ${exampleDownload.suggestedFilename()}`);
+    await page.close();
+    return "bouncing-ball.py; falling_stars opened; two refusals";
+  });
+
+  await check(48, "My sketches: an edited example kept as my sketch; the example can still be Reset; both exist; Share works for a sketch", async () => {
+    const page = await freshEditor(`&example=${FIRST_SKETCH}`);
+    const title = await page.locator(".fg-play__choose option:checked").innerText();
+    const original = await editorText(page);
+    await typeCode(page, original.replace("tomato", "orchid"));
+    await clickAt(page, mineButton(page, "Keep as my sketch"));
+    await tabIs(page, title);
+    assert((await mineNames(page)).join() === title, `the group lists ${await mineNames(page)}`);
+    assert((await editorText(page)).includes("orchid"), "the kept sketch lacks the edit");
+    assert(!(await page.getByRole("button", { name: "Reset" }).isVisible()), "Reset shows for my own sketch");
+    assert(!(await mineButton(page, "Keep as my sketch").isVisible()), "Keep shows for my own sketch");
+    await page.getByRole("button", { name: "Share" }).click();
+    await page.waitForFunction(() => document.querySelector(".play-link")?.value.includes("#code="));
+    await page.locator(".fg-play__choose").selectOption(FIRST_SKETCH);
+    await page.waitForFunction((id) => document.querySelector(".fg-play__choose").value === id, FIRST_SKETCH);
+    await sleep(300);
+    await page.getByRole("button", { name: "Reset", exact: true }).waitFor({ state: "visible" });
+    await clickAt(page, page.getByRole("button", { name: "Reset", exact: true }));
+    assert((await editorText(page)) === original, "Reset did not restore the example");
+    assert((await mineNames(page)).join() === title, "the kept sketch went away");
+    await page.locator(".fg-play__choose").selectOption({ label: title });
+    await tabIs(page, title);
+    assert((await editorText(page)).includes("orchid"), "the kept sketch lost its edit after Reset");
+    await page.locator(".fg-play__choose").selectOption("starter");
+    await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "starter");
+    await clickAt(page, mineButton(page, "Keep as my sketch"));
+    await tabIs(page, "Starter sketch");
+    await page.close();
+  });
+
+  await check(49, "My sketches: when the browser will not store, one line says so and editing goes on", async () => {
+    const page = await context.newPage();
+    watch(page);
+    await page.addInitScript(() => { localStorage.clear(); Storage.prototype.setItem = function () { throw new DOMException("blocked", "QuotaExceededError"); }; });
+    await page.goto(`${EDITOR}/play/?preview=${PREVIEW}`);
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+    const warning = page.locator(".fg-play__minenote--warn");
+    assert(!(await warning.isVisible()), "the warning shows before anything was kept");
+    await clickAt(page, mineButton(page, "New sketch"));
+    await tabIs(page, "Sketch 1");
+    assert(await warning.isVisible(), "no warning after a sketch could not be stored");
+    assert((await warning.innerText()) === "This browser is not keeping sketches: download yours with Download .py", `it says "${await warning.innerText()}"`);
+    await typeCode(page, "# still typing\n");
+    await sleep(600);
+    assert((await editorText(page)) === "# still typing\n", "editing stopped");
+    await clickAt(page, mineButton(page, "New sketch"));
+    await tabIs(page, "Sketch 2");
+    assert((await page.locator(".fg-play__minenote--warn").count()) === 1, "the warning is more than one line");
+    assert((await mineNames(page)).join() === "Sketch 2,Sketch 1", `in memory the group lists ${await mineNames(page)}`);
+    await page.close();
+  });
+
+  await check(50, "My sketches: the toolbar is still one row at 1366, the actions fit at 1366 and 390 wide, and nothing scrolls sideways", async () => {
+    const page = await freshEditor();
+    await clickAt(page, mineButton(page, "New sketch"));
+    await tabIs(page, "Sketch 1");
+    const measure = () => page.evaluate(() => {
+      const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+      const buttons = [...document.querySelectorAll(".fg-play__mine button:not([hidden])")].map((e) => e.getBoundingClientRect());
+      return { bar: Math.round(box(".fg-play__bar").height), right: Math.max(...buttons.map((r) => r.right)), left: Math.min(...buttons.map((r) => r.left)),
+               rows: new Set(buttons.map((r) => Math.round(r.top))).size, scrollWidth: document.documentElement.scrollWidth, code: Math.round(box(".fg-play__code").height) };
+    });
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await sleep(300);
+    const wide = await measure();
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "mine_1366.png") });
+    assert(wide.bar <= 56, `the toolbar is ${wide.bar}px tall`);
+    assert(wide.rows === 1 && wide.right <= 1366 && wide.left >= 0, `at 1366 the actions are in ${wide.rows} rows and reach ${Math.round(wide.right)}px`);
+    assert(wide.code > 450, `the code is ${wide.code}px tall`);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await sleep(300);
+    const narrow = await measure();
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "mine_390.png"), fullPage: true });
+    assert(narrow.scrollWidth <= 390 && narrow.right <= 390 && narrow.left >= 0, `at 390 the page is ${narrow.scrollWidth}px wide, the actions reach ${Math.round(narrow.right)}px`);
+    assert(narrow.code >= 300, `at 390 the code is ${narrow.code}px tall`);
+    await page.close();
+    return `1366: ${wide.rows} row, code ${wide.code}px; 390: ${narrow.rows} rows, code ${narrow.code}px`;
+  });
 } finally {
   await browser.close();
   for (const server of [editorServer, previewServer, strangerServer]) server.close();

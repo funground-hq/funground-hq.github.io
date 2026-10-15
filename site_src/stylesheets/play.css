@@ -111,7 +111,7 @@ body:has(.fg-play) .md-main { overflow: hidden; }
   .fg-play__caption { padding: 0 var(--space-2) var(--space-2); flex-wrap: wrap; }
 
   /* The editor: at least 60% of the window and at least 18 lines (24px each) with the tab strip; it scrolls inside. */
-  .fg-play__editor { height: max(60svh, 480px); border-top: var(--outline-width) solid var(--ink); }
+  .fg-play__editor { height: calc(max(60svh, 480px) + 38px);   /* + the row of sketch actions (S-213), so the code keeps its room */ border-top: var(--outline-width) solid var(--ink); }
   .fg-play__code { overflow: hidden; }
 
   /* The toolbar: the picker (with ‹ ›) on a row of its own, the buttons, the status on the last row. */
@@ -154,3 +154,17 @@ body:has(.fg-play) .md-main { overflow: hidden; }
   font: 700 13px/1.3 var(--font-body); color: var(--ink); background: color-mix(in srgb, var(--paper-raised) 90%, transparent);
   border-top: 1.5px solid var(--ink); }
 .fg-play__still-note::before { display: inline-block; vertical-align: middle; margin-right: 8px; }
+
+/* My sketches (S-213): the name in the tab strip (a button for the learner's own sketch), and a row of small actions under it. */
+.fg-play__name { font: 700 13px/1 var(--font-mono); color: var(--ink); background: none; border: 0; padding: 2px 0; cursor: text; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fg-play__name:disabled { opacity: 1; cursor: default; }
+.fg-play__name:not(:disabled):hover { text-decoration: underline dotted; }
+.fg-play__nameinput { font: 700 13px/1 var(--font-mono); color: var(--ink); background: var(--paper-raised); border: 1.5px solid var(--ink); border-radius: var(--radius-sm); padding: 2px 6px; min-width: 0; width: 14rem; max-width: 60%; }
+.fg-play__mine { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: 6px var(--space-4); border-bottom: 1.5px solid var(--dot); }
+.fg-play__minebtn { font: 700 12px/1 var(--font-body); color: var(--ink); background: var(--paper-raised); border: 1.5px solid var(--ink); border-radius: var(--radius-sm); padding: 5px 9px; cursor: pointer; white-space: nowrap; }
+.fg-play__minebtn:hover { background: var(--gold); color: #191970; }
+.fg-play__minebtn:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.fg-play__minenote { padding: 6px var(--space-4); font: 400 13px/1.4 var(--font-body); color: var(--ink); border-bottom: 1.5px solid var(--dot); }
+.fg-play__minenote:empty { display: none; }
+.fg-play__minenote--warn { background: var(--gold); color: #191970; font-weight: 700; }
+.fg-play__minenote .fg-play__minebtn { margin-left: 6px; }
