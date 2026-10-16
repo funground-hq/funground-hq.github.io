@@ -1912,6 +1912,73 @@ f.run()
     await page.close();
     return `${seen.picture.colours} colours, centre ${seen.picture.centre.join()} after ${seen.ms} ms`;
   });
+  // ---- suggestions after an object's dot (S-214)
+  const hasOptions = async (page, words) => {
+    for (const word of words) await waitForOption(page, word);
+  };
+
+  await check(56, "f.path(). lists the methods of a path, and so does a chain of methods", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "import funground as f\nf.path().");
+    await hasOptions(page, ["triangle", "rect", "union"]);
+    assert(await page.locator(".cm-completionDetail").first().innerText() !== "", "no signature beside the name");
+    await page.keyboard.press("Escape");
+    await typeSlowly(page, "f.path().rect(0, 0, 10, 10).");
+    await hasOptions(page, ["triangle", "rect", "union"]);
+    await page.close();
+  });
+
+  await check(57, "a variable assigned from f.path() or f.camera() gets that class's methods, and an unknown one gets none", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "import funground as f\np = f.path()  # a shape\np.");
+    await hasOptions(page, ["triangle", "rect", "union"]);
+    await page.keyboard.press("Escape");
+    await typeSlowly(page, "cam = f.camera()\ncam.");
+    await hasOptions(page, ["start", "record"]);
+    assert(!(await popupLabels(page)).includes("rect"), "a camera was offered path methods");
+    await page.keyboard.press("Escape");
+    await typeSlowly(page, "x.");
+    await page.waitForTimeout(600);
+    const shown = await popupLabels(page);
+    assert(!["rect", "circle", "start", "record"].some((w) => shown.includes(w)), `an unknown variable shows [${shown.slice(0, 8)}]`);
+    await page.close();
+  });
+
+  await check(58, "inside p.rect( the hint shows the method's signature, not the function rect's", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "import funground as f\np = f.path()\np.rect(0, ");
+    await page.locator(".fg-hint").waitFor({ timeout: 5000 });
+    const hint = await page.locator(".fg-hint").innerText();
+    assert(hint === "rect(x, y, w, h, *radii)", `the hint is ${hint}`);
+    assert(JSON.stringify(await hintBold(page)) === '["y"]', `bold is ${JSON.stringify(await hintBold(page))}`);
+    await page.close();
+  });
+
+  await check(59, "hovering rect in p.rect shows the method's signature and Reference link", async () => {
+    const page = await openEditor();
+    await typeSlowly(page, "import funground as f\np = f.path()\np.rect(0, 0, 9, 9)");
+    await page.keyboard.press("Escape");
+    const spot = await page.evaluate(() => {
+      const lines = [...document.querySelectorAll(".cm-line")];
+      const walker = document.createTreeWalker(lines.at(-1), NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (!node.textContent.includes("rect")) node = walker.nextNode();
+      const at = node.textContent.indexOf("rect") + 1;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + 1);
+      const box = range.getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    });
+    await page.mouse.move(5, 5);
+    await page.mouse.move(spot.x, spot.y, { steps: 4 });
+    await page.locator(".cm-tooltip-hover .fg-complete-info").waitFor({ timeout: 5000 });
+    const box = await page.locator(".cm-tooltip-hover").innerText();
+    assert(box.includes("rect(x: float, y: float, w: float, h: float, *radii: float)"), `the box is ${JSON.stringify(box)}`);
+    const link = await page.locator(".cm-tooltip-hover a").getAttribute("href");
+    assert(link.startsWith("https://funground-hq.github.io/reference/API/#cls-PathBuilder-rect"), `the link is ${link}`);
+    await page.close();
+  });
 } finally {
   await browser.close();
   for (const server of [editorServer, previewServer, strangerServer]) server.close();
