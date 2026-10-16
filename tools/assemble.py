@@ -59,7 +59,7 @@ FILES = [
 ]
 
 # The browser runner's own files (funground-web runner/); runtime/ is copied whole.
-RUNNER_FILES = ("runner.js", "worker.js", "audio.js", "microphone-worklet.js")
+RUNNER_FILES = ("runner.js", "worker.js", "audio.js", "camera.js", "microphone-worklet.js")
 # The examples that are not gallery examples, and their heading on the Play page.
 OTHER_AREAS = {"session1": "Session 1: first steps"}
 
