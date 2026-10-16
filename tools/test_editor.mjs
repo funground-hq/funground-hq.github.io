@@ -20,6 +20,7 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 
 const { chromium } = await import("./codemirror/node_modules/playwright-core/index.mjs");
 
@@ -41,6 +42,8 @@ const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf
 // ---- the servers: plain files with a length, in 64 KB writes, open to every origin (as GitHub Pages is)
 
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".py": "text/plain" };
+// The types GitHub Pages compresses on the way (measured 15 Oct: wheels, fonts, SVG and text are gzipped; PNG and WOFF2 are not).
+const COMPRESSED = /^(text\/|application\/(json|javascript|octet-stream)|image\/svg)/;
 
 // A request for a path in `gates` waits until that promise is done (check 42 holds the runtime's manifest back this way).
 // Playwright's page.route does not see a worker's requests, so the server does the holding.
@@ -71,14 +74,23 @@ function fileServer(root, pages = {}) {
     const range = /^bytes=(\d+)-(\d*)$/.exec(request.headers.range ?? "");
     const from = range ? Number(range[1]) : 0;
     const to = range && range[2] !== "" ? Math.min(Number(range[2]), body.length - 1) : body.length - 1;
-    const part = range ? body.subarray(from, to + 1) : body;
+    const type = pages[url.pathname] !== undefined ? "text/html" : TYPES[path.extname(url.pathname)] ?? "application/octet-stream";
+    // Like GitHub Pages, a whole file of a compressible type is sent gzipped to a browser that accepts it (wheels and
+    // fonts are octet-stream, and GitHub Pages compresses those): the length on the wire is not the file's length.
+    const gzipped = !range && /\bgzip\b/.test(request.headers["accept-encoding"] ?? "") && COMPRESSED.test(type);
+    const part = range ? body.subarray(from, to + 1) : gzipped ? gzipSync(body) : body;
     response.writeHead(range ? 206 : 200, {
-      "Content-Type": pages[url.pathname] !== undefined ? "text/html" : TYPES[path.extname(url.pathname)] ?? "application/octet-stream",
+      "Content-Type": type,
       "Content-Length": part.length,
       "Accept-Ranges": "bytes",
       ...(range ? { "Content-Range": `bytes ${from}-${to}/${body.length}` } : {}),
+      ...(gzipped ? { "Content-Encoding": "gzip", "Vary": "Accept-Encoding" } : {}),
       "Access-Control-Allow-Origin": "*",
     });
+    if (request.method === "HEAD") {
+      response.end();
+      return;
+    }
     for (let start = 0; start < part.length; start += 65536) response.write(part.subarray(start, start + 65536));
     response.end();
   });
@@ -132,6 +144,8 @@ async function editorText(page) {
 // Replaces the code the way typing does (select all, then insert text).
 // A small sketch that runs at once (check 12).
 const BLANK_TEXT_FOR_TEST = "import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    f.background(\"gold\")\n\n\nf.run()\n";
+// A sketch that draws the camera (check 55).
+const CAMERA_SKETCH = "import funground as f\n\ncam = f.camera()\n\n\ndef setup():\n    f.size(160, 120)\n    cam.start(160, 120)\n\n\ndef draw():\n    f.background(\"black\")\n    f.image(cam, 0, 0)\n\n\nf.run()\n";
 
 async function typeCode(page, text) {
   await page.locator(".cm-content").click();
@@ -190,7 +204,9 @@ strangerServer.on("request", (request, response) => {
   response.writeHead(200, { "Content-Type": "text/html" }).end(strangerPage(`${PREVIEW}/preview.html?editor=${EDITOR}&runner=${EDITOR}/play/runner/`));
 });
 
-const browser = await chromium.launch({ executablePath: CHROME, headless: true });
+// Chrome's fake camera stands in for any real one (check 55); the visitor's camera is never opened.
+const browser = await chromium.launch({ executablePath: CHROME, headless: true,
+  args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
 console.log(`editor ${EDITOR}; preview ${PREVIEW}; iframe sandbox: allow-scripts${scriptsOnly ? "" : " allow-same-origin"}`);
 const context = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"], viewport: { width: 1280, height: 900 } });
 const problems = [];
@@ -1882,6 +1898,19 @@ f.run()
     await ctx.setOffline(false);
     await page.close();
     await ctx.close();
+  });
+
+  await check(55, "the preview may use the camera: a sketch that draws f.camera() shows Chrome's fake camera", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    const allow = await page.locator(".play-preview").getAttribute("allow");
+    assert(allow.split(";").map((s) => s.trim()).includes("camera"), `the iframe allows "${allow}"`);
+    await typeCode(page, CAMERA_SKETCH);
+    await runButton(page).click();
+    // The fake camera is a moving pattern on green: many colours, and the centre is not the black background.
+    const seen = await waitForPicture(frameOf(page, PREVIEW), (p) => p.colours > 8 && p.centre.join() !== "0,0,0", 30000);
+    await page.close();
+    return `${seen.picture.colours} colours, centre ${seen.picture.centre.join()} after ${seen.ms} ms`;
   });
 } finally {
   await browser.close();
