@@ -14,7 +14,8 @@ changes nothing in the funground checkout. Three jobs, and a fourth with ``--run
 1. Copy the pages and pictures into their place on the site.
 2. Rewrite every link that points outside the site (``../../CREDITS.md``, ``../../examples/x.py``)
    to its address on GitHub, and every link between copied pages to the page's new place.
-3. Write the gallery: an index with a grid of pictures, and one page per example.
+3. Write the gallery: an index with a grid of pictures, and one page per example. Each says which guide
+   sections use it, found by reading the guide (S-215).
 4. With ``--runner`` (the ``runner/`` folder of ``funground-hq/funground-web``, its ``runtime/`` built by
    that repository's ``tools/build_runtime.py``): copy the browser runner to ``play/runner/``, list the
    examples it can run in ``play/examples.json``, and give each of those gallery pages a "Play with it online"
@@ -228,6 +229,139 @@ def heading_slug(text: str) -> str:
     return re.sub(r"[-\s]+", "-", text)
 
 
+# ---- where the guide uses the gallery (S-215)
+
+@dataclass(frozen=True)
+class Place:
+    """One place in the guide: a chapter, and the section of it that mentions an example."""
+    page: str                 # the chapter's page on the site, e.g. "guide/09_paths_and_clipping.md"
+    chapter: str              # the chapter's title, without its number
+    heading: str | None       # the nearest ## or ### heading, or None before the first one
+    anchor: str | None        # that heading's id on the page
+
+
+GUIDE_ANCHOR = re.compile(r"gallery/README\.md#([\w-]+)")
+GUIDE_SCRIPT = re.compile(r"examples/gallery/(\w+)/(\w+)\.py")
+GUIDE_HEADING = re.compile(r"^(#{1,3})\s+(.+?)\s*#*$")
+
+
+def plain_heading(text: str) -> str:
+    """A heading as the reader sees it: links, code marks and emphasis taken off."""
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    return re.sub(r"[`*]", "", text).strip()
+
+
+def title_mentioned(title: str, paragraph: str) -> bool:
+    """Does the paragraph name the example by its title ("a mirror of dots")? Needs two words, so "Text" never matches."""
+    words = re.sub(r"^(a|an|the)\s+", "", title.strip().lower())
+    return len(words.split()) >= 2 and re.search(rf"(?<!\w){re.escape(words)}(?!\w)", paragraph.lower()) is not None
+
+
+def read_guide_page(text: str, page: str, examples: list[Example], areas: dict[str, str]):
+    """The places one guide page uses the gallery: ({example id: [Place]}, {area: [Place]}, {area: [Place]}).
+
+    An example is used where the guide shows its picture, links to its heading in the gallery README, names its
+    .py file, or (in a paragraph that says "gallery") names it by its title. The second dictionary holds the places
+    that link to an area's heading on purpose (a chapter's "See also"); the third, the places that use one of an
+    area's examples.
+    """
+    by_slug = {heading_slug(e.title): e for e in examples}
+    by_area = {heading_slug(name): area for area, name in areas.items()}
+    by_script = {(e.area, e.name): e for e in examples}
+    used: dict[str, list[Place]] = {}
+    linked_areas: dict[str, list[Place]] = {}
+    example_areas: dict[str, list[Place]] = {}
+    chapter, heading, anchor, seen = "", None, None, {}
+    paragraph: list[str] = []
+
+    def add(found: dict[str, list[Place]], key: str) -> None:
+        here = Place(page, chapter, heading, anchor)
+        if here not in found.setdefault(key, []):
+            found[key].append(here)
+
+    def flush() -> None:
+        words = " ".join(paragraph)
+        paragraph.clear()
+        found = [e for e in examples if f"gallery/images/{e.id}.png" in words]
+        found += [by_slug[m] for m in GUIDE_ANCHOR.findall(words) if m in by_slug]
+        found += [by_script[m] for m in GUIDE_SCRIPT.findall(words) if m in by_script]
+        if "gallery" in words.lower():
+            found += [e for e in examples if title_mentioned(e.title, words)]
+        for e in found:
+            add(used, e.id)
+            add(example_areas, e.area)
+        for m in GUIDE_ANCHOR.findall(words):
+            if m in by_area:
+                add(linked_areas, by_area[m])
+
+    in_code = False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            flush()
+            in_code = not in_code
+            continue
+        match = None if in_code else GUIDE_HEADING.match(line)
+        if match:
+            flush()
+            title = plain_heading(match.group(2))
+            if len(match.group(1)) == 1:
+                chapter, heading, anchor = re.sub(r"^\d+\.\s*", "", title), None, None
+            else:
+                slug = heading_slug(title)
+                seen[slug] = seen.get(slug, -1) + 1             # a repeated heading gets _1, _2 ... from MkDocs
+                heading, anchor = title, slug if not seen[slug] else f"{slug}_{seen[slug]}"
+        elif in_code or not line.strip():
+            flush()
+        else:
+            paragraph.append(line)
+    flush()
+    return used, linked_areas, example_areas
+
+
+def read_guide_use(funground: Path, examples: list[Example], areas: dict[str, str]):
+    """Where the guide uses each example and each gallery area, found by reading the guide itself.
+
+    Returns ({example id: [Place]}, {area: [Place]}), in the guide's order. The guide's own contents page is skipped.
+    An area is credited to the chapters that link to its heading; only an area that no chapter links to falls back to
+    the chapters that use its examples. That keeps out chapters that borrow many pictures without teaching the area
+    (the "Coming from" chapters).
+    """
+    used: dict[str, list[Place]] = {}
+    linked: dict[str, list[Place]] = {}
+    by_example: dict[str, list[Place]] = {}
+    for file in sorted((funground / "docs" / "guide").rglob("*.md")):
+        if file.name == "README.md":
+            continue
+        page = "guide/" + file.relative_to(funground / "docs" / "guide").as_posix()
+        found = read_guide_page(file.read_text(encoding="utf-8"), page, examples, areas)
+        for here, total in zip(found, (used, linked, by_example)):
+            for key, places in here.items():
+                total.setdefault(key, []).extend(places)
+    return used, {area: linked.get(area) or by_example.get(area, []) for area in areas}
+
+
+def guide_link(place: Place, from_page: str, section: bool = True) -> str:
+    """A link to a place in the guide, written for a gallery page at ``from_page`` (e.g. "gallery/index.md")."""
+    target = posixpath.relpath(place.page, posixpath.dirname(from_page))
+    chapter = f"[{md_text(place.chapter)}]({target})"
+    if not (section and place.heading):
+        return chapter
+    return f"{chapter} › [{md_text(place.heading)}]({target}#{place.anchor})"
+
+
+def guide_line(places: list[Place], from_page: str, section: bool = True) -> str:
+    """"In the guide: ..." with a link for each place, or nothing at all when the guide does not use it."""
+    if not places:
+        return ""
+    unique = dict.fromkeys(guide_link(p, from_page, section) for p in places)
+    return "In the guide: " + "; ".join(unique)
+
+
+def chapters_only(places: list[Place]) -> list[Place]:
+    """The chapters of some places, once each (an area is taught by a whole chapter)."""
+    return list(dict.fromkeys(Place(p.page, p.chapter, None, None) for p in places))
+
+
 def md_text(text: str) -> str:
     """Plain text made safe to put inside a Markdown link or sentence."""
     return re.sub(r"([\\`*_\[\]<>])", r"\\\1", text)
@@ -251,8 +385,12 @@ def walk_links(previous: Example | None, following: Example | None, bottom: bool
 
 
 def example_page(example: Example, funground: Path, runnable: bool = False, area_name: str | None = None,
-                 previous: Example | None = None, following: Example | None = None) -> str:
-    """One example's page. ``previous`` and ``following`` are its neighbours in the gallery's order (S-206)."""
+                 previous: Example | None = None, following: Example | None = None,
+                 guide_places: list[Place] | None = None) -> str:
+    """One example's page. ``previous`` and ``following`` are its neighbours in the gallery's order (S-206).
+
+    ``guide_places`` are the guide sections that use the example (S-215); with none, the page has no such line.
+    """
     area_name = area_name or example.area.title()
     lines = [
         # No left column: an example page is not in the navigation, so the column stood empty (maintainer, 15 Oct).
@@ -289,6 +427,9 @@ def example_page(example: Example, funground: Path, runnable: bool = False, area
                                if example.time_dependent else ""),
         "",
     ]
+    in_guide = guide_line(guide_places or [], f"gallery/{example.area}/{example.name}.md")
+    if in_guide:
+        lines += [in_guide, ""]
     if example.how:
         lines += ["## How it works", ""] + [f"- {point}" for point in example.how] + [""]
     if example.make:
@@ -316,7 +457,9 @@ def example_page(example: Example, funground: Path, runnable: bool = False, area
     return "\n".join(lines)
 
 
-def gallery_index(examples: list[Example], areas: dict[str, str]) -> str:
+def gallery_index(examples: list[Example], areas: dict[str, str],
+                  area_places: dict[str, list[Place]] | None = None) -> str:
+    """The tiles page. Under each area's heading: the guide chapters that teach it (S-215)."""
     # A playground page: pictures across the whole width, no sidebar (the maintainer, 13 Oct).
     lines = [
         "---",
@@ -337,7 +480,11 @@ def gallery_index(examples: list[Example], areas: dict[str, str]) -> str:
             if current is not None:
                 lines += ["</div>", ""]
             current = example.area
-            lines += [f"## {areas.get(current, current.title())}", "", '<div class="gallery-grid" markdown>', ""]
+            lines += [f"## {areas.get(current, current.title())}", ""]
+            in_guide = guide_line(chapters_only((area_places or {}).get(current, [])), "gallery/index.md", section=False)
+            if in_guide:
+                lines += [in_guide, ""]
+            lines += ['<div class="gallery-grid" markdown>', ""]
         link = f"{example.area}/{example.name}.md"
         lines += [f"[![{example.title}](images/{example.id}.png){{ loading=lazy }}]({link})",
                   f"[{example.title}]({link})", ""]
@@ -349,14 +496,16 @@ def write_gallery(funground: Path, docs: Path, runnable: frozenset[str] = frozen
     """The gallery index and pages; an example whose id is in ``runnable`` gets a "Play with it online" button and link."""
     areas = read_areas(funground)
     examples = read_examples(funground, areas)
-    (docs / "gallery" / "index.md").write_text(gallery_index(examples, areas), encoding="utf-8", newline="\n")
+    used, used_areas = read_guide_use(funground, examples, areas)
+    (docs / "gallery" / "index.md").write_text(gallery_index(examples, areas, used_areas), encoding="utf-8", newline="\n")
     for number, example in enumerate(examples):
         page = docs / "gallery" / example.area / f"{example.name}.md"
         page.parent.mkdir(parents=True, exist_ok=True)
         previous = examples[number - 1] if number > 0 else None
         following = examples[number + 1] if number + 1 < len(examples) else None
         text = example_page(example, funground, example.id in runnable,
-                            areas.get(example.area, example.area.title()), previous, following)
+                            areas.get(example.area, example.area.title()), previous, following,
+                            used.get(example.id))
         page.write_text(text, encoding="utf-8", newline="\n")
     return len(examples)
 
