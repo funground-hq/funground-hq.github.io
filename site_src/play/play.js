@@ -180,7 +180,7 @@ const mineBar = element("div", { class: "fg-play__mine", role: "group", "aria-la
 const divider = element("div", { class: "fg-play__divider", role: "separator", tabindex: "0", "aria-orientation": "vertical",
   "aria-label": "Share of the width between the code and the picture (arrow keys move it)" });
 
-const preview = element("iframe", { class: "play-preview", title: "The sketch", sandbox: SANDBOX, allow: "autoplay; microphone" });
+const preview = element("iframe", { class: "play-preview", title: "The sketch", sandbox: SANDBOX, allow: "autoplay; microphone; camera" });
 // The example's gallery picture, over the frame until the first Run (S-209): marked as a picture, with the status over it.
 const stillImage = element("img", { class: "fg-play__still-image", alt: "What the example draws", loading: "eager", decoding: "async" });
 const stillNote = element("span", { class: "fg-status fg-status--loading fg-play__still-note" });
