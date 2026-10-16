@@ -3,12 +3,14 @@
 // Nothing here is written by hand about the API. The learner's own variables are not suggested, except through
 // CodeMirror's local words from lang-python, which keep working beside this source.
 //
-// Four places give suggestions:
+// Five places give suggestions:
 //   1. after `f.`            every funground name (f is whatever `import funground as ...` says; the default is f)
 //   2. a bare word           with `from funground import *`, the names marked "star" (two letters or more)
 //   3. inside a string       the words that funground call takes there: colour names, or an option list
 //   4. inside a namespace    after `f.COLORS.` the colour names, after `f.CONSTANTS.` the groups and after
 //                            `f.CONSTANTS.ALIGN.` the group's words (with `from funground import *`: no `f.`)
+//   5. after an object's dot the methods and properties of the class funground gave back: `f.path().`,
+//                            `f.path().rect(0, 0, 9, 9).`, or `p.` after `p = f.path()` (see typeBefore)
 import { autocompletion } from "@codemirror/autocomplete";
 import { EditorState, StateEffect, StateField } from "@codemirror/state";
 import { EditorView, hoverTooltip, keymap, showTooltip } from "@codemirror/view";
@@ -26,7 +28,7 @@ function infoNode(entry) {
   const box = document.createElement("div");
   box.className = "fg-complete-info";
   const detail = document.createElement("code");
-  detail.textContent = entry.name + entry.detail;
+  detail.textContent = entry.kind === "property" ? entry.name + (entry.detail ? ": " + entry.detail : "") : entry.name + entry.detail;
   const summary = document.createElement("p");
   summary.textContent = entry.summary;
   const link = document.createElement("a");
@@ -65,6 +67,22 @@ function namespaceOptions(entry) {
   return found;
 }
 
+// The suggestions after a dot for each class funground gives back, and its members by name (for the hint and the hover).
+// A member knows its class (`owner`), so the hint can tell `PathBuilder.rect` from the function `rect`.
+function classOptions(classes) {
+  const found = new Map();
+  for (const [className, cls] of Object.entries(classes)) {
+    const members = cls.members.map((member) => ({ ...member, owner: className }));
+    found.set(className, {
+      byName: new Map(members.map((member) => [member.name, member])),
+      options: members.map((member) => ({
+        label: member.name, detail: member.detail, type: member.kind === "method" ? "method" : "property", info: () => infoNode(member),
+      })),
+    });
+  }
+  return found;
+}
+
 export function prepare(data) {
   const stars = [];
   const inside = new Map();
@@ -81,6 +99,7 @@ export function prepare(data) {
     star: stars,
     inside,
     byName: new Map(data.names.map((entry) => [entry.name, entry])),
+    classes: classOptions(data.classes ?? {}),
     parameters: new Map(data.names.map((entry) => [entry.name, parameterNames(entry.signature)])),
     colourParams: new Set(data.color_params.map((p) => `${p.function}.${p.parameter}`)),
     colours: data.colors.map((c) => ({ label: c.name, type: "constant", swatch: c.hex })),
@@ -96,6 +115,7 @@ function readCode(text, end) {
   const open = [];
   let string = null;                        // { from: first letter, quote: the quote marks, at: the first quote mark }
   let comment = false;
+  let commentAt = null;                     // where the comment on this line began
   for (let i = 0; i < end; i++) {
     const c = text[i];
     if (string) {
@@ -104,8 +124,8 @@ function readCode(text, end) {
       else if (c === "\n" && string.quote.length === 1) string = null;          // a short string ends at its line
       continue;
     }
-    if (comment) { if (c === "\n") comment = false; continue; }
-    if (c === "#") comment = true;
+    if (comment) { if (c === "\n") { comment = false; commentAt = null; } continue; }
+    if (c === "#") { comment = true; commentAt = i; }
     else if (c === '"' || c === "'") {
       const quote = text.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
       string = { from: i + quote.length, quote, at: i };
@@ -114,7 +134,7 @@ function readCode(text, end) {
     else if (")]}".includes(c)) open.pop();
     else if (c === "," && open.length) { open.at(-1).commas++; open.at(-1).argFrom = i + 1; }
   }
-  return { string, comment, open };
+  return { string, comment, commentAt, open };
 }
 
 // The names this code gives funground: `import funground as f` gives "f". Without any, "f" (the usual one).
@@ -128,15 +148,111 @@ function aliasesIn(text) {
 const usesStar = (text) => /^\s*from\s+funground\s+import\s+\*/m.test(text);
 
 // Which funground function does this open bracket belong to? Gives its name, or null: not a call, not a funground
-// name, or reached through a name that is not an alias of funground. `needStar` also asks for the star import when
-// the name stands alone (the hint wants it; string suggestions have never asked).
+// name, or reached through a name that is not an alias of funground (or through a `)`, as in `f.path().rect(`: that is
+// a method, see memberNamed). `needStar` also asks for the star import when the name stands alone (the hint wants it;
+// string suggestions have never asked).
 function functionOf(text, call, data, aliases, needStar = false) {
   if (call.bracket !== "(") return null;
-  const named = /(?:([A-Za-z_]\w*)\s*\.\s*)?([A-Za-z_]\w*)\s*$/.exec(text.slice(0, call.at));
+  const named = /(?:([A-Za-z_]\w*|[)\]])\s*\.\s*)?([A-Za-z_]\w*)\s*$/.exec(text.slice(0, call.at));
   if (!named || !data.byName.has(named[2])) return null;
   if (named[1] && !aliases.has(named[1])) return null;
   if (!named[1] && needStar && !usesStar(text)) return null;
   return named[2];
+}
+
+// ---- the type of an object before a dot (S-214)
+
+// Reads the dotted expression that ends at `end` back to front into steps. "f.path().rect(0, 0, 9, 9)" gives
+// [{ name: "f" }, { name: "path", call: true }, { name: "rect", call: true }], each with `at`, where its name starts.
+// Null when the text before is not a plain chain of names and calls.
+function stepsBefore(text, end) {
+  const steps = [];
+  let i = end;
+  for (;;) {
+    i = skipSpacesBack(text, i);
+    const call = text[i - 1] === ")";
+    if (call) i = skipSpacesBack(text, openingOf(text, i - 1));
+    const word = i > 0 && /([A-Za-z_]\w*)$/.exec(text.slice(Math.max(0, i - 80), i));
+    if (!word) return null;
+    i -= word[0].length;
+    steps.unshift({ name: word[1], call, at: i });
+    i = skipSpacesBack(text, i);
+    if (text[i - 1] !== ".") return steps;
+    i--;
+  }
+}
+
+const skipSpacesBack = (text, i) => { while (i > 0 && /\s/.test(text[i - 1])) i--; return i; };
+
+// The bracket that opens the one closed at `close`, looking back past other brackets and over strings. -1: none.
+function openingOf(text, close) {
+  let depth = 0;
+  for (let i = close; i >= 0; i--) {
+    const c = text[i];
+    if (c === '"' || c === "'") i = text.lastIndexOf(c, i - 1);                  // jump back over a string
+    else if (")]}".includes(c)) depth++;
+    else if ("([{".includes(c) && --depth === 0) return i;
+  }
+  return -1;
+}
+
+// Where the statement that begins at `from` ends: the first line end with no bracket open, before any comment.
+function statementEnd(text, from) {
+  let lineEnd = text.indexOf("\n", from);
+  for (;;) {
+    const end = lineEnd < 0 ? text.length : lineEnd;
+    const read = readCode(text, end);
+    if (lineEnd < 0 || !read.open.length) return read.commentAt ?? end;
+    lineEnd = text.indexOf("\n", lineEnd + 1);
+  }
+}
+
+// The class of a variable at `before`: the funground class its last assignment `name = ...` above gives, or null.
+// The last assignment is enough; the lines are not followed into functions or loops.
+function variableType(text, name, before, data, aliases) {
+  const assigned = [...text.slice(0, before).matchAll(new RegExp(`^[ \\t]*${name}[ \\t]*=(?!=)`, "gm"))];
+  for (const m of assigned.reverse()) {
+    const end = statementEnd(text, m.index + m[0].length);
+    if (end <= before) return typeBefore(text, end, data, aliases);               // not the statement being typed
+  }
+  return null;
+}
+
+// The funground class of the expression that ends at `end` (just before a dot), or null when it cannot be told. It
+// starts from `f.path()` (or `path()` after the star import) or from a variable, then follows each method or property
+// by what completions.json says it gives back ("returns"). Anything else is unknown: no suggestions, never a guess.
+function typeBefore(text, end, data, aliases) {
+  const steps = stepsBefore(text, end);
+  if (!steps) return null;
+  const [head, ...rest] = steps;
+  let type = null;
+  if (aliases.has(head.name) && !head.call) {
+    const first = rest.shift();
+    type = first?.call ? data.byName.get(first.name)?.returns ?? null : null;
+  } else if (head.call) {
+    type = usesStar(text) ? data.byName.get(head.name)?.returns ?? null : null;
+  } else type = variableType(text, head.name, head.at, data, aliases);
+  for (const step of rest) {
+    const member = type && data.classes.get(type)?.byName.get(step.name);
+    if (!member || (member.kind === "method") !== step.call) return null;
+    type = member.returns ?? null;
+  }
+  return type;
+}
+
+// The member `name` of the object before the dot at `dotAt`, or null.
+function memberNamed(text, dotAt, name, data, aliases) {
+  const type = typeBefore(text, dotAt, data, aliases);
+  return (type && data.classes.get(type)?.byName.get(name)) || null;
+}
+
+// The entry of the function or method this open bracket calls, or null: a funground function or a method of an object.
+function callOf(text, call, data, aliases, needStar) {
+  const name = functionOf(text, call, data, aliases, needStar);
+  if (name) return data.byName.get(name);
+  const method = call.bracket === "(" && /\.\s*([A-Za-z_]\w*)\s*$/.exec(text.slice(0, call.at));
+  const entry = method && memberNamed(text, method.index, method[1], data, aliases);
+  return entry?.kind === "method" ? entry : null;
 }
 
 // For a cursor inside a string: which funground function and parameter is it the argument of? Gives
@@ -179,11 +295,11 @@ function activePart(parts, argumentSoFar, commas) {
   return parts.findIndex((part) => part.startsWith("*") && part.length > 1);
 }
 
-// The innermost funground call the cursor is inside, looking outward past other brackets: { name, call } or null.
+// The innermost funground call the cursor is inside, looking outward past other brackets: { entry, call } or null.
 function enclosingCall(text, read, data, aliases) {
   for (let i = read.open.length - 1; i >= 0; i--) {
-    const name = functionOf(text, read.open[i], data, aliases, true);
-    if (name) return { name, call: read.open[i] };
+    const entry = callOf(text, read.open[i], data, aliases, true);
+    if (entry) return { entry, call: read.open[i] };
   }
   return null;
 }
@@ -220,10 +336,10 @@ function hintField(getData) {
     if (read.comment) return none;
     const found = enclosingCall(text, read, data, aliasesIn(text));
     if (!found || dismissed === found.call.at) return none;
-    const entry = data.byName.get(found.name);
+    const entry = found.entry;
     const parts = signatureParts(entry.signature);
     const active = activePart(parts, text.slice(found.call.argFrom, head), found.call.commas);
-    const key = `${found.name}:${active}`;
+    const key = `${entry.owner ?? ""}.${entry.name}:${active}`;
     const create = before.key === key ? before.create : () => ({ dom: hintNode(entry, parts, active) });
     return { dismissed, key, create, tooltip: { pos: head, above: true, strictSide: true, arrow: false, at: found.call.at, create } };
   };
@@ -252,13 +368,19 @@ function hoverSource(getData) {
     for (let m; (m = word.exec(line.text)); ) {
       if (line.from + m.index <= pos && pos <= line.from + m.index + m[0].length) { found = { from: line.from + m.index, text: m[0] }; break; }
     }
-    if (!found || !data.byName.has(found.text)) return null;
+    if (!found) return null;
     const read = readCode(text, found.from);
     if (read.string || read.comment) return null;
-    const before = /([A-Za-z_]\w*)\s*\.\s*$/.exec(text.slice(Math.max(0, found.from - 80), found.from));
     const aliases = aliasesIn(text);
-    if (before ? !aliases.has(before[1]) : (text[found.from - 1] === "." || !usesStar(text))) return null;
-    const entry = data.byName.get(found.text);
+    const dot = /\.\s*$/.exec(text.slice(Math.max(0, found.from - 80), found.from));
+    let entry = null;
+    if (!dot) entry = usesStar(text) ? data.byName.get(found.text) : null;                  // a bare name
+    else {
+      const dotAt = found.from - dot[0].length;
+      const owner = /([A-Za-z_]\w*)\s*$/.exec(text.slice(Math.max(0, dotAt - 80), dotAt));
+      entry = owner && aliases.has(owner[1]) ? data.byName.get(found.text) : memberNamed(text, dotAt, found.text, data, aliases);
+    }
+    if (!entry) return null;
     return { pos: found.from, end: found.from + found.text.length, above: true, create: () => ({ dom: infoNode(entry) }) };
   }, { hoverTime: 250 });
 }
@@ -287,6 +409,10 @@ function fungroundSource(getData) {
       if (!words) return null;
       return { from, validFor: WORD, options: words.map((w) => ({ label: w.word, type: "enum", info: w.meaning })) };
     }
+
+    const dotted = context.matchBefore(/\.\w*/);                  // p., f.path().re: the members of an object
+    const type = dotted && typeBefore(text, dotted.from, data, aliases);
+    if (type) return { from: dotted.from + 1, options: data.classes.get(type).options, validFor: /^\w*$/ };
 
     const member = context.matchBefore(/[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\.\w*/);     // f.cir, f.COLORS.TOM
     if (member && text[member.from - 1] !== ".") {

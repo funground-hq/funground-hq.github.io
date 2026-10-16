@@ -47,6 +47,8 @@ leaves with their work. Everything below serves one of those four moments: *see*
 
 8. *The arguments while typing.* Inside `f.circle(` a hint shows `circle(x, y, diameter)` with the current argument
    in bold; hovering a funground name shows its sentence and a Reference link. Same data as the suggestions.
+   After `f.path().` (or a chain, or a variable assigned from such a call, `p = f.path()` then `p.`) the methods of
+   what funground gave back are suggested, with the same hint and hover (S-214). An unknown variable gets nothing.
    (SITE-C-18)
 9. *Errors where they happen.* The error's line is marked in the code, a wavy underline under the name, and the
    plain sentence comes from the errors page with "Did you mean". (S-200 has part of this; SITE-C-19 for the
