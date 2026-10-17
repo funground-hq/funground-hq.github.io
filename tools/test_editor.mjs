@@ -1979,6 +1979,112 @@ f.run()
     assert(link.startsWith("https://funground-hq.github.io/reference/API/#cls-PathBuilder-rect"), `the link is ${link}`);
     await page.close();
   });
+
+  // ---- the course in Play (S-216)
+  const COURSE = JSON.parse(readFileSync(path.join(FUNGROUND, "examples", "course", "play.json"), "utf8"));
+  const POSITIONS = COURSE.experiments.find((e) => e.sketch === "01_positions.py");
+  const lessonOne = COURSE.lessons["1"];
+  const panel = (page) => page.locator(".fg-lesson");
+  const fontSize = (page, selector) => page.locator(selector).evaluate((e) => parseFloat(getComputedStyle(e).fontSize));
+
+  await check(60, "a course example opens with the lesson panel: where it is, a link back to the section, and the words to predict and compare", async () => {
+    const page = await freshEditor("&example=course-01_positions");
+    assert(await panel(page).isVisible(), "no lesson panel");
+    const where = await panel(page).locator(".fg-lesson__where").innerText();
+    assert(where === `Lesson 1 · ${POSITIONS.section}`, `the panel says "${where}"`);
+    const predict = await panel(page).locator(".fg-lesson__predict").innerText();
+    assert(predict === `Predict: ${POSITIONS.predict}`, `Predict says "${predict}"`);
+    const back = panel(page).getByRole("link", { name: "Back to the lesson" });
+    const href = await back.getAttribute("href");
+    assert(href.endsWith("course/01_look_frame_compose/#4-experiment-a-change-position-keep-the-mark"), `the link goes to ${href}`);
+    assert(await back.getAttribute("target") === null, "the link opens another tab");
+    assert(await panel(page).getAttribute("data-stage") === "predict", "Predict is not the first line");
+    assert(await fontSize(page, ".fg-lesson__predict") > await fontSize(page, ".fg-lesson__compare"), "Predict is not the prominent line");
+    // The picker lists the lesson's experiments under a heading of their own; there is no gallery picture to show.
+    const groups = await page.locator(".fg-play__choose optgroup").evaluateAll((all) => all.map((g) => g.label));
+    assert(groups.includes(`Course, lesson 1: ${lessonOne.title}`), `the picker's groups are ${groups}`);
+    assert(!(await page.locator(".fg-play__still").isVisible()), "a picture shows for a sketch that has none");
+    // The page's own file for the lesson: the section really is a heading there.
+    const lessonText = readFileSync(path.join(docs, "course", "01_look_frame_compose.md"), "utf8");
+    assert(lessonText.split("\n").includes(`## ${POSITIONS.section}`), "the lesson page has no such heading");
+    await page.close();
+  });
+
+  await check(61, "after the first Run the Compare line is the prominent one; another example starts with Predict again", async () => {
+    const page = await freshEditor("&example=course-01_positions");
+    await runButton(page).click();
+    await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque && p.colours > 1);
+    assert(await panel(page).getAttribute("data-stage") === "compare", "Compare did not take over");
+    assert(await fontSize(page, ".fg-lesson__compare") > await fontSize(page, ".fg-lesson__predict"), "Compare is not the prominent line");
+    assert(await panel(page).locator(".fg-lesson__predict").isVisible(), "Predict went away");
+    await page.getByRole("button", { name: /^Next/ }).click();
+    await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "course-01_space");
+    assert(await panel(page).getAttribute("data-stage") === "predict", "the next example did not start with Predict");
+    assert((await panel(page).locator(".fg-lesson__predict").innerText()).includes("In which panel will you notice the frame first?"), "the panel did not change");
+    await typeCode(page, "# a draft of my own\n");
+    await page.locator(".fg-play__choose").selectOption("course-01_positions");
+    await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "course-01_positions");
+    assert(await panel(page).isVisible(), "the panel went when the example was opened again");
+    await page.close();
+  });
+
+  await check(62, "Keep this opens a note with the lesson's words; Save makes a My sketch that starts with the lesson line and the note; Cancel keeps nothing", async () => {
+    const page = await freshEditor("&example=course-01_positions");
+    const original = await editorText(page);
+    await panel(page).getByRole("button", { name: "Keep this" }).click();
+    const note = panel(page).getByLabel("Your note");
+    assert(await note.inputValue() === lessonOne.keep, "the note does not start from the lesson's words");
+    await panel(page).getByRole("button", { name: "Cancel" }).click();
+    assert((await mineNames(page)).length === 0, "Cancel kept a sketch");
+    assert(!(await note.isVisible()), "the form is still open after Cancel");
+    await panel(page).getByRole("button", { name: "Keep this" }).click();
+    await note.fill("I kept the low circle.\nIt looks deliberate.");
+    await panel(page).getByRole("button", { name: "Save", exact: true }).click();
+    await tabIs(page, "Lesson 1: Look, frame and compose");
+    assert((await mineNames(page)).join() === "Lesson 1: Look, frame and compose", `My sketches lists ${await mineNames(page)}`);
+    const expected = `# Lesson 1: ${lessonOne.title} - ${POSITIONS.section}\n# I kept the low circle.\n# It looks deliberate.\n\n${original}`;
+    assert((await editorText(page)) === expected, `the code begins ${JSON.stringify((await editorText(page)).slice(0, 160))}`);
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("funground.play.sketches")));
+    assert(stored.length === 1 && stored[0].code.startsWith("# Lesson 1:"), "the sketch is not in storage");
+    assert(!(await panel(page).isVisible()), "the lesson panel shows for the learner's own sketch");
+    await page.close();
+  });
+
+  await check(63, "a gallery example shows no lesson panel", async () => {
+    const page = await freshEditor(`&example=${FIRST_SKETCH}`);
+    assert(!(await panel(page).isVisible()), "a lesson panel shows for a gallery example");
+    await page.locator(".fg-play__choose").selectOption("course-03_values");
+    await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "course-03_values");
+    assert(await panel(page).isVisible(), "no lesson panel for a lesson 3 example");
+    await page.locator(".fg-play__choose").selectOption("starter");
+    await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "starter");
+    assert(!(await panel(page).isVisible()), "a lesson panel shows for the starter sketch");
+    await page.close();
+  });
+
+  await check(64, "on a phone the panel is one line that opens", async () => {
+    const page = await freshEditor("&example=course-01_positions");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.keyboard.press("Escape");                                           // a first visit opened the help, which would move the page
+    const head = await panel(page).boundingBox();
+    assert(head.height < 90, `the closed panel is ${head.height}px tall`);
+    assert(!(await panel(page).locator(".fg-lesson__predict").isVisible()), "Predict shows while the panel is closed");
+    await panel(page).getByRole("button", { name: "Show" }).click();
+    assert(await panel(page).locator(".fg-lesson__predict").isVisible(), "Predict does not show once opened");
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "the page scrolls sideways");
+    await page.close();
+  });
+
+  await check(65, "the lesson page has an Open in Play link beside its sketch; lessons not in play.json have none", async () => {
+    const lesson = readFileSync(path.join(docs, "course", "01_look_frame_compose.md"), "utf8");
+    assert(lesson.includes('href="../../play/?example=course-01_positions">Open in Play</a>'), "no Open in Play link for 01_positions");
+    assert(lesson.includes("course/01_positions.py"), "the link to the sketch itself went");
+    const other = readFileSync(path.join(docs, "course", "02_weight_balance_hierarchy.md"), "utf8");
+    assert(!other.includes("Open in Play"), "lesson 2 has Open in Play links");
+    const examples = JSON.parse(readFileSync(path.join(docs, "play", "examples.json"), "utf8"));
+    assert(examples.filter((e) => e.lesson).length === COURSE.experiments.length, "examples.json lacks some experiments");
+    assert(examples.findIndex((e) => e.lesson) > examples.findLastIndex((e) => !e.lesson), "the course is not after the gallery");
+  });
 } finally {
   await browser.close();
   for (const server of [editorServer, previewServer, strangerServer]) server.close();
