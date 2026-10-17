@@ -22,6 +22,8 @@ changes nothing in the funground checkout. Three jobs, and a fourth with ``--run
    button that opens it on the Play page, the editor (S-151).
 5. Copy funground's ``funground/completions.json`` (the editor's suggestions, S-196) to ``play/completions.json``,
    if the checkout has it.
+6. With ``--runner`` and funground's ``examples/course/play.json`` (S-216): list the course's experiments on the Play
+   page, each with its lesson, and put an "Open in Play" link beside the lesson's link to the sketch.
 
 Standard library only, Python 3.11 or newer.
 """
@@ -63,6 +65,9 @@ FILES = [
 RUNNER_FILES = ("runner.js", "worker.js", "audio.js", "camera.js", "microphone-worklet.js")
 # The examples that are not gallery examples, and their heading on the Play page.
 OTHER_AREAS = {"session1": "Session 1: first steps"}
+# The course's experiments for Play (S-216): funground's list of them, and the folder of the course sketches.
+COURSE_PLAY = "examples/course/play.json"
+COURSE_AREA = "course"
 
 LINK = re.compile(r"(\]\()([^)\s]+)(\))")        # the (target) of a markdown link or image
 HAS_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
@@ -88,14 +93,18 @@ def plan_copies(funground: Path) -> dict[str, str]:
     return copies
 
 
-def copy_pages(funground: Path, docs: Path, copies: dict[str, str], link_map: dict[str, str]) -> None:
-    """Copy the files; ``link_map`` says where every funground path a link may name lands on the site."""
+def copy_pages(funground: Path, docs: Path, copies: dict[str, str], link_map: dict[str, str],
+               playable: dict[str, str] | None = None) -> None:
+    """Copy the files; ``link_map`` says where every funground path a link may name lands on the site.
+
+    ``playable`` is {sketch path in funground: its id on the Play page}: a link to such a sketch gets an "Open in Play" link.
+    """
     for source, page in copies.items():
         target = docs / page
         target.parent.mkdir(parents=True, exist_ok=True)
         if source.endswith(".md"):
             text = (funground / source).read_text(encoding="utf-8")
-            text = fix_markdown(text, source, page, link_map, funground)
+            text = fix_markdown(text, source, page, link_map, funground, playable or {})
             target.write_text(text, encoding="utf-8", newline="\n")
         else:
             shutil.copyfile(funground / source, target)
@@ -117,19 +126,37 @@ def copy_completions(funground: Path, docs: Path) -> bool:
 
 # ---- fixing one page
 
-def fix_markdown(text: str, source: str, page: str, copies: dict[str, str], funground: Path) -> str:
-    """Rewrite the links of one page, and let MkDocs read markdown inside <details>."""
+def fix_markdown(text: str, source: str, page: str, copies: dict[str, str], funground: Path,
+                 playable: dict[str, str] | None = None) -> str:
+    """Rewrite the links of one page, let MkDocs read markdown inside <details>, and add "Open in Play" links."""
     lines = []
     in_code = False
     for line in text.splitlines():
         if line.lstrip().startswith("```"):
             in_code = not in_code
         elif not in_code:
-            line = LINK.sub(lambda m: m.group(1) + fix_link(m.group(2), source, page, copies, funground) + m.group(3), line)
+            line = LINK.sub(lambda m: m.group(1) + fix_link(m.group(2), source, page, copies, funground) + m.group(3)
+                            + play_link(m.group(2), source, page, playable or {}), line)
             if line.strip() == "<details>":
                 line = line.replace("<details>", '<details markdown="1">')
         lines.append(line)
     return "\n".join(lines) + "\n"
+
+
+def play_link(target: str, source: str, page: str, playable: dict[str, str]) -> str:
+    """" (Open in Play)" to follow a link to a sketch that has an experiment on the Play page, else nothing (S-216).
+
+    Plain HTML, as on the gallery pages: a markdown link to ``play/?example=`` would be checked as a file. The page
+    is shown at its own folder's address (``course/01_x/``), so the Play page is found from there.
+    """
+    if HAS_SCHEME.match(target) or target.startswith("#"):
+        return ""
+    sketch = posixpath.normpath(posixpath.join(posixpath.dirname(source), target.partition("#")[0]))
+    if sketch not in playable:
+        return ""
+    shown_at = posixpath.dirname(page) if posixpath.basename(page) == "index.md" else posixpath.splitext(page)[0]
+    play = posixpath.relpath("play", shown_at)
+    return f' (<a class="fg-course-play" href="{play}/?example={playable[sketch]}">Open in Play</a>)'
 
 
 def fix_link(target: str, source: str, page: str, copies: dict[str, str], funground: Path) -> str:
@@ -532,12 +559,68 @@ def readable_title(title: str) -> str:
     return f"{int(number)}. {words.replace('_', ' ').capitalize()}"
 
 
+def read_course_play(funground: Path) -> dict | None:
+    """funground's list of the course experiments for Play (S-216), or None for a checkout that has none."""
+    path = funground / COURSE_PLAY
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+
+def course_playable(course: dict | None, entries: list[dict]) -> dict[str, str]:
+    """{sketch path in funground: id on the Play page} for the experiments the runtime can run."""
+    ids = {entry["id"] for entry in entries}
+    found = {}
+    for experiment in (course or {}).get("experiments", []):
+        sketch_id = f"{COURSE_AREA}-{Path(experiment['sketch']).stem}"
+        if sketch_id in ids:
+            found[f"examples/{COURSE_AREA}/{experiment['sketch']}"] = sketch_id
+    return found
+
+
+def lesson_section_anchor(funground: Path, page: str, section: str) -> str:
+    """The anchor MkDocs gives the ``##`` heading ``section`` of a lesson page; stops if the lesson has no such heading."""
+    seen: dict[str, int] = {}
+    for line in (funground / "docs" / COURSE_AREA / page).read_text(encoding="utf-8").splitlines():
+        match = GUIDE_HEADING.match(line)
+        if match and len(match.group(1)) == 2:
+            title = plain_heading(match.group(2))
+            slug = heading_slug(title)
+            seen[slug] = seen.get(slug, -1) + 1             # a repeated heading gets _1, _2 ... from MkDocs
+            if title == section:
+                return slug if not seen[slug] else f"{slug}_{seen[slug]}"
+    raise SystemExit(f"{COURSE_PLAY}: {page} has no heading '## {section}'")
+
+
+def course_examples(course: dict, entries: list[dict], funground: Path) -> list[dict]:
+    """The course's experiments for the Play page, in play.json's order, each under its lesson's heading.
+
+    Each has a ``lesson`` object: its number, title and section, the words to predict and compare with, the note to
+    keep, and ``back``, the link to that section of the lesson (from /play/).
+    """
+    by_id = {entry["id"]: entry for entry in entries}
+    listed = []
+    for experiment in course["experiments"]:
+        entry = by_id.get(f"{COURSE_AREA}-{Path(experiment['sketch']).stem}")
+        if entry is None:
+            continue                                        # a runtime older than play.json: leave it out
+        number = experiment["lesson"]
+        lesson = course["lessons"][number]
+        anchor = lesson_section_anchor(funground, lesson["page"], experiment["section"])
+        listed.append({**entry, "title": experiment["title"], "area": f"{COURSE_AREA}-{number}",
+                       "heading": f"Course, lesson {number}: {lesson['title']}", "page": None,
+                       "lesson": {"number": number, "title": lesson["title"], "section": experiment["section"],
+                                  "predict": experiment["predict"], "compare": experiment["compare"],
+                                  "keep": lesson["keep"],
+                                  "back": f"../{COURSE_AREA}/{Path(lesson['page']).stem}/#{anchor}"}})
+    return listed
+
+
 def play_examples(entries: list[dict], areas: dict[str, str], funground: Path) -> list[dict]:
     """The Play page's list: the runtime's examples in gallery order, each with its heading and gallery page.
 
     ``entries`` come from the runtime, built from the funground branch the runner runs; the headings and
     the gallery pages come from the funground checkout the site is built from. An example only the runtime
     has is listed without a gallery page, and one with no gallery picture has no ``picture``.
+    The course's experiments come after the gallery: only the sketches in play.json, not every course sketch (S-216).
     """
     gallery = {f"{p.parent.name}-{p.stem}" for p in (funground / "examples" / "gallery").glob("*/*.py")}
     headings = {**OTHER_AREAS, **areas}
@@ -545,6 +628,8 @@ def play_examples(entries: list[dict], areas: dict[str, str], funground: Path) -
     listed = []
     for entry in entries:
         parts = entry["source"].split("/")                      # gallery/<area>/<name>.py or session1/<name>.py
+        if parts[0] == COURSE_AREA:
+            continue                                            # listed below, from play.json
         area = parts[1] if parts[0] == "gallery" else parts[0]
         page = f"../gallery/{area}/{Path(parts[-1]).stem}/" if entry["id"] in gallery else None
         item = {**entry, "title": readable_title(entry["title"]), "area": area,
@@ -554,7 +639,8 @@ def play_examples(entries: list[dict], areas: dict[str, str], funground: Path) -
         listed.append(item)
     rank = {area: i for i, area in enumerate(order)}
     listed.sort(key=lambda e: (rank.get(e["area"], len(order)), e["area"], e["source"]))
-    return listed
+    course = read_course_play(funground)
+    return listed + (course_examples(course, entries, funground) if course else [])
 
 
 def write_play(runner: Path, docs: Path, entries: list[dict], funground: Path) -> int:
@@ -610,9 +696,9 @@ def main(argv: list[str]) -> int:
     link_map["docs/gallery/README.md"] = "gallery/index.md"       # the old gallery page: now the generated index
     link_map.update(example_pages(funground))                     # a link to an example's .py: its gallery page
     link_map.update(example_anchors(funground))                   # a link to an example's heading: its gallery page
-    copy_pages(funground, docs, copies, link_map)
-    copy_completions(funground, docs)
     entries = read_runner(runner) if runner else []
+    copy_pages(funground, docs, copies, link_map, course_playable(read_course_play(funground), entries))
+    copy_completions(funground, docs)
     count = write_gallery(funground, docs, frozenset(entry["id"] for entry in entries))
     playable = write_play(runner, docs, entries, funground) if runner else 0
 
