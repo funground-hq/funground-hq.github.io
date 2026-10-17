@@ -168,3 +168,31 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-play__minenote:empty { display: none; }
 .fg-play__minenote--warn { background: var(--gold); color: #191970; font-weight: 700; }
 .fg-play__minenote .fg-play__minebtn { margin-left: 6px; }
+
+/* The course lesson's panel (S-216), above the code: where the lesson is, what to predict before the first Run and what to
+   compare after it. The line that matters now (data-stage) has a gold bar and full-size text; the other is quieter.
+   On a phone only the head shows until "Show" opens the rest. */
+.fg-lesson { padding: 6px var(--space-4); border-bottom: 1.5px solid var(--dot); background: var(--paper-raised); color: var(--ink);
+  font: 400 14px/1.45 var(--font-body); max-height: 14rem; overflow: auto; }
+.fg-lesson__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); }
+.fg-lesson__where { font-weight: 700; flex: 1 1 auto; min-width: 0; }
+.fg-lesson__back { color: var(--link); text-decoration: underline; white-space: nowrap; }
+.fg-lesson__toggle { display: none; }
+.fg-lesson p { margin: var(--space-1) 0 0; padding-left: var(--space-2); border-left: 4px solid transparent; }
+.fg-lesson[data-stage="predict"] .fg-lesson__predict,
+.fg-lesson[data-stage="compare"] .fg-lesson__compare { border-left-color: var(--gold); font-size: 15px; }
+.fg-lesson[data-stage="predict"] .fg-lesson__compare,
+.fg-lesson[data-stage="compare"] .fg-lesson__predict { color: var(--ink-muted); font-size: 13px; }
+.fg-lesson__keep { margin-top: var(--space-2); }
+.fg-lesson__form { margin-top: var(--space-2); }
+.fg-lesson__form label { display: block; font-weight: 700; }
+.fg-lesson__note { display: block; width: 100%; box-sizing: border-box; margin: var(--space-1) 0 var(--space-2); padding: 6px 8px;
+  font: 400 14px/1.4 var(--font-body); color: var(--ink); background: var(--paper); border: 1.5px solid var(--ink); border-radius: var(--radius-sm); }
+.fg-lesson__form .fg-play__minebtn + .fg-play__minebtn { margin-left: var(--space-2); }
+@media (max-width: 900px) {
+  .fg-lesson { max-height: none; }
+  .fg-lesson__toggle { display: inline-block; font: 700 12px/1 var(--font-body); color: var(--ink); background: var(--paper); border: 1.5px solid var(--ink);
+    border-radius: var(--radius-sm); padding: 4px 9px; cursor: pointer; }
+  .fg-lesson__where { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fg-lesson:not(.is-open) .fg-lesson__body { display: none; }
+}
