@@ -177,6 +177,24 @@ const storageNote = element("div", { class: "fg-play__minenote fg-play__minenote
   "This browser is not keeping sketches: download yours with Download .py");
 const mineBar = element("div", { class: "fg-play__mine", role: "group", "aria-label": "My sketches" },
   newButton, openFileButton, keepButton, renameButton, duplicateButton, downloadButton, deleteButton, openFileInput);
+// The course lesson's panel (S-216): an example with a `lesson` (assemble.py reads it from funground's
+// examples/course/play.json) shows it. It is shown only while an example from a lesson is open. Before the first Run the
+// Predict line stands out; after it, the Compare line does (data-stage). On a phone the head is one line that opens the rest.
+const lessonWhere = element("span", { class: "fg-lesson__where" });
+const lessonBack = element("a", { class: "fg-lesson__back" }, "Back to the lesson");
+const lessonToggle = element("button", { class: "fg-lesson__toggle", type: "button", "aria-expanded": "false" }, "Show");
+const lessonPredict = element("p", { class: "fg-lesson__predict" });
+const lessonCompare = element("p", { class: "fg-lesson__compare" });
+const lessonKeep = element("button", { class: "fg-play__minebtn fg-lesson__keep", type: "button",
+  title: "Keep this version in My sketches, with a note about your choice" }, "Keep this");
+const keepNote = element("textarea", { class: "fg-lesson__note", rows: "4", "aria-label": "Your note" });
+const keepSave = element("button", { class: "fg-play__minebtn", type: "submit" }, "Save");
+const keepCancel = element("button", { class: "fg-play__minebtn", type: "button" }, "Cancel");
+const keepForm = element("form", { class: "fg-lesson__form", hidden: "" },
+  element("label", {}, "Say in a sentence why you chose this version.", keepNote), element("div", {}, keepSave, keepCancel));
+const lessonPanel = element("section", { class: "fg-lesson", "aria-label": "Course lesson", hidden: "" },
+  element("div", { class: "fg-lesson__head" }, lessonWhere, lessonBack, lessonToggle),
+  element("div", { class: "fg-lesson__body" }, lessonPredict, lessonCompare, lessonKeep, keepForm));
 const divider = element("div", { class: "fg-play__divider", role: "separator", tabindex: "0", "aria-orientation": "vertical",
   "aria-label": "Share of the width between the code and the picture (arrow keys move it)" });
 
@@ -203,7 +221,7 @@ const output = element("div", { class: "fg-console__body play-output", "aria-liv
 const fab = element("button", { class: "fg-play__fab", type: "button", "aria-label": "Run", title: "Run", hidden: "", disabled: "" }, "▶");
 
 const work = element("div", { class: "fg-play__work" },
-  element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, nameInput, lineCount), mineBar, mineNote, storageNote, editorBox),
+  element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, nameInput, lineCount), lessonPanel, mineBar, mineNote, storageNote, editorBox),
   divider,
   element("div", { class: "fg-play__stage" },
     // The messages are above the picture and take no room while there are none: the rest belongs to the sketch.
@@ -436,6 +454,7 @@ let sharedBase = null;        // the #code= text of the shared sketch on the pag
 let current = null;           // the example, or null
 let files = {};               // the example's data files, sent with each run
 let stillAllowed = false;     // an example is open and has not been run yet (S-209)
+let ranOnce = false;          // the open example has been run (S-216: the lesson's Compare line takes over from Predict)
 
 // The example's gallery picture shows only while it is true to the code: an example, not run yet, and the code as the
 // example has it (a draft or an edit may no longer match the picture). A blank, starter or shared sketch has none.
@@ -517,6 +536,7 @@ async function open(wanted) {
   flushMine();
   if (wanted.startsWith(MINE) && !mine.some((sketch) => MINE + sketch.id === wanted)) wanted = STARTER;      // deleted since
   stillAllowed = false;
+  ranOnce = false;
   updateStill();
   stopSketch();
   clearOutput();
@@ -549,12 +569,74 @@ async function open(wanted) {
   remember(LAST_NAME, isMine() ? key : null);
   showMine();
   aboutText.textContent = current ? current.title : "";
+  showLesson();
   howLink.hidden = !current?.page;
   if (current?.page) howLink.href = current.page;
   if (useDraft) setStatus("Your unsaved changes are back. Reset goes back to the original.");
   else if (key === SHARED) setStatus("Shared sketch: press Run.");
   else if (previewReady) setStatus("Ready. Press Run.", "ready");
 }
+
+// ---- the course lesson's panel (S-216)
+
+const lesson = () => (key === SHARED ? undefined : current?.lesson);
+
+function showLesson() {
+  const info = lesson();
+  lessonPanel.hidden = !info;
+  closeKeep();
+  if (!info) return;
+  lessonWhere.textContent = `Lesson ${info.number} · ${info.section}`;
+  lessonBack.href = info.back;
+  lessonPredict.replaceChildren(element("strong", {}, "Predict:"), ` ${info.predict}`);
+  lessonCompare.replaceChildren(element("strong", {}, "Compare:"), ` ${info.compare}`);
+  lessonPanel.classList.remove("is-open");
+  showLessonStage();
+}
+
+function showLessonStage() {
+  lessonPanel.dataset.stage = ranOnce ? "compare" : "predict";
+  const open = lessonPanel.classList.contains("is-open");
+  lessonToggle.textContent = open ? "Hide" : "Show";
+  lessonToggle.setAttribute("aria-expanded", String(open));
+}
+
+lessonToggle.addEventListener("click", () => {
+  lessonPanel.classList.toggle("is-open");
+  showLessonStage();
+});
+
+function closeKeep() {
+  keepForm.hidden = true;
+  lessonKeep.hidden = false;
+}
+
+lessonKeep.addEventListener("click", () => {
+  keepNote.value = lesson().keep;
+  keepForm.hidden = false;
+  lessonKeep.hidden = true;
+  keepNote.focus();
+});
+keepCancel.addEventListener("click", () => {
+  closeKeep();
+  lessonKeep.focus();
+});
+keepNote.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  event.stopPropagation();                  // Esc here closes the form, it does not stop the sketch
+  keepCancel.click();
+});
+
+// The kept sketch starts with comments that say where it came from and why it was kept, then the code as it is now.
+keepForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const info = lesson();
+  const note = keepNote.value.trim().split("\n").map((line) => `# ${line}`.trimEnd()).join("\n");
+  const code = `# Lesson ${info.number}: ${info.title} - ${info.section}\n${note}\n\n${editor.getText()}`;
+  const sketch = addSketch(`Lesson ${info.number}: ${info.title}`, code);
+  await open(MINE + sketch.id);
+  say(`Kept as "${sketch.name}" in My sketches. Your note is at the top of the code.`);
+});
 
 // ---- My sketches (S-213): the learner's own sketches, kept in this browser and nowhere else
 //
@@ -1023,6 +1105,8 @@ window.addEventListener("message", (event) => {
 function runSketch() {
   clearTimeout(autoTimer);
   if (!previewReady) return;
+  ranOnce = true;
+  if (lesson()) showLessonStage();
   clearOutput();
   errorLine = null;
   startedThisRun = false;
