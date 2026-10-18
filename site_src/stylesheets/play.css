@@ -196,3 +196,17 @@ body:has(.fg-play) .md-main { overflow: hidden; }
   .fg-lesson__where { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .fg-lesson:not(.is-open) .fg-lesson__body { display: none; }
 }
+
+/* My files (S-221): a list that opens under the sketch's buttons. */
+.fg-play__files { border-bottom: 1.5px solid var(--dot); padding: 6px var(--space-4); font: 400 13px/1.4 var(--font-body); color: var(--ink); }
+.fg-play__files summary { cursor: pointer; font-weight: 700; }
+.fg-play__files summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.fg-play__filesabout { margin: 6px 0; }
+.fg-play__filelist { list-style: none; margin: 0; padding: 0; }
+.fg-play__file, .fg-play__filesnone { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; padding: 3px 0; }
+.fg-play__filename { font-family: var(--font-mono); font-weight: 700; word-break: break-all; }
+.fg-play__filesize { margin-right: auto; }
+.fg-play__filesbar { margin-top: 6px; }
+.fg-play__files .fg-play__minenote { padding: 6px 0 0; border-bottom: 0; }
+/* A saved line and its Keep button (S-221). */
+.fg-play__savedrow { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
