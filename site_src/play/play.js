@@ -9,6 +9,8 @@
 // this folder. The code editor is CodeMirror, bundled into vendor/codemirror.js (tools/codemirror/).
 //
 // "My sketches" (S-213): the learner's own sketches are kept in this browser only (localStorage), one list under one key.
+// "My files" (S-221, D-108): files the learner keeps (what a sketch saved, or a file from their computer) are in this browser
+// only (IndexedDB, myfiles.js), and every run gets them by name, so f.load_clip("take.gif") and open("notes.txt") find them.
 // ?example=<id> opens one example (the gallery pages link here that way). #code=<text> opens a shared sketch.
 //
 // The page is the editor and nothing else: a toolbar, and the code beside the picture with the messages above it.
@@ -16,6 +18,7 @@
 // (index.md) becomes the help behind the "?" button.
 
 import { createEditor } from "./vendor/codemirror.js";
+import * as myFiles from "./myfiles.js";
 
 const play = document.getElementById("funground-play");
 
@@ -28,6 +31,10 @@ const PREVIEW_URL = "https://funground-run.github.io/preview.html";
 const SANDBOX = "allow-scripts allow-same-origin";
 const LOCAL_HOSTS = ["localhost", "127.0.0.1"];
 const AUTO_RUN_MS = 400;
+// My files (S-221): what Add file takes (the kinds funground reads: pictures, sounds, text), and the most one file may be.
+const ADD_KINDS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "wav", "mp3", "ogg", "json", "txt", "csv"];
+const ADD_ACCEPT = ADD_KINDS.map((kind) => `.${kind}`).join(",");
+const MAX_KEPT = 25 * 1024 * 1024;
 
 // For testing on a computer, `?preview=<origin>` points the page at a preview server of your own. It is accepted
 // ONLY when this page is served from localhost or 127.0.0.1: a shared link opened on the real site cannot use it.
@@ -175,6 +182,15 @@ const openFileInput = element("input", { type: "file", accept: ".py,text/x-pytho
 const mineNote = element("div", { class: "fg-play__minenote", role: "status" });
 const storageNote = element("div", { class: "fg-play__minenote fg-play__minenote--warn", role: "status", hidden: "" },
   "This browser is not keeping sketches: download yours with Download .py");
+// My files (S-221): a list that opens under the buttons. Each file has Download and Delete; Add file brings one from the computer.
+const filesSummary = element("summary", {}, "My files");
+const filesList = element("ul", { class: "fg-play__filelist" });
+const addFileButton = mineButton("Add file", "Keep a picture, GIF, sound or text file from this computer, for your sketches to open by name");
+const addFileInput = element("input", { type: "file", multiple: "", hidden: "", "aria-label": "Add a file", accept: ADD_ACCEPT });
+const filesNote = element("div", { class: "fg-play__minenote", role: "status" });
+const filesPanel = element("details", { class: "fg-play__files" }, filesSummary,
+  element("p", { class: "fg-play__filesabout" }, "Sketches can open these by name, for example f.load_clip(\"take.gif\")."),
+  filesList, element("div", { class: "fg-play__filesbar" }, addFileButton, addFileInput), filesNote);
 const mineBar = element("div", { class: "fg-play__mine", role: "group", "aria-label": "My sketches" },
   newButton, openFileButton, keepButton, renameButton, duplicateButton, downloadButton, deleteButton, openFileInput);
 // The course lesson's panel (S-216): an example with a `lesson` (assemble.py reads it from funground's
@@ -221,7 +237,7 @@ const output = element("div", { class: "fg-console__body play-output", "aria-liv
 const fab = element("button", { class: "fg-play__fab", type: "button", "aria-label": "Run", title: "Run", hidden: "", disabled: "" }, "▶");
 
 const work = element("div", { class: "fg-play__work" },
-  element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, nameInput, lineCount), lessonPanel, mineBar, mineNote, storageNote, editorBox),
+  element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, nameInput, lineCount), lessonPanel, mineBar, mineNote, storageNote, filesPanel, editorBox),
   divider,
   element("div", { class: "fg-play__stage" },
     // The messages are above the picture and take no room while there are none: the rest belongs to the sketch.
@@ -842,6 +858,153 @@ openFileInput.addEventListener("change", async () => {
   say(`Opened "${file.name}" as "${sketch.name}".`);
 });
 
+// ---- My files (S-221, D-108): files kept in this browser (myfiles.js), listed under the buttons and sent with every run
+//
+// The list in memory has each file's name, size and type; the bytes are read only for a run, a download or an undo. If the
+// browser cannot store files (a private window), one plain line says so and the rest of Play goes on as before.
+
+let kept = [];                    // [{ name, size, type, added }], by name
+let filesWork = true;             // false when the browser cannot keep files
+let filesTimer = null;
+
+const nameOrder = (a, b) => (a.name < b.name ? -1 : 1);
+
+function sayFile(text, ...extra) {
+  clearTimeout(filesTimer);
+  filesNote.replaceChildren(text, ...extra);
+  filesTimer = setTimeout(() => filesNote.replaceChildren(), extra.length ? UNDO_MS : 12000);
+}
+
+function showFiles() {
+  filesSummary.textContent = kept.length ? `My files (${kept.length})` : "My files";
+  if (!filesWork) {
+    filesList.replaceChildren(element("li", { class: "fg-play__filesnone" }, "This browser is not keeping files, so My files is not available here."));
+    addFileButton.disabled = true;
+    return;
+  }
+  addFileButton.disabled = false;
+  if (!kept.length) {
+    filesList.replaceChildren(element("li", { class: "fg-play__filesnone" }, "Nothing yet. Press Keep on a file a sketch saves, or Add file."));
+    return;
+  }
+  filesList.replaceChildren(...kept.map((file) => {
+    const download = element("button", { class: "fg-play__minebtn", type: "button", title: `Save ${file.name} on this computer` }, "Download");
+    const remove = element("button", { class: "fg-play__minebtn", type: "button", title: `Delete ${file.name} (you can undo for a few seconds)` }, "Delete");
+    download.addEventListener("click", () => downloadKept(file.name));
+    remove.addEventListener("click", () => deleteKept(file.name));
+    return element("li", { class: "fg-play__file" },
+      element("span", { class: "fg-play__filename" }, file.name), element("span", { class: "fg-play__filesize" }, fileSize(file.size)), download, remove);
+  }));
+}
+
+async function loadFiles() {
+  try {
+    kept = (await myFiles.list()).sort(nameOrder);
+  } catch {
+    filesWork = false;
+  }
+  showFiles();
+}
+
+// Why a file could not be kept: no room is the one case worth its own words.
+function cannotKeep(error, name) {
+  if (error?.name === "QuotaExceededError") sayFile(`This browser has no room left for "${name}". Delete a file in My files, or free some space, and try again.`);
+  else sayFile(`This browser would not keep "${name}".`);
+}
+
+// Stores one file, or says why not. Returns true if it is kept.
+async function storeFile(name, bytes, type) {
+  if (!filesWork) {
+    sayFile("This browser is not keeping files, so My files is not available here.");
+    return false;
+  }
+  if (bytes.byteLength > MAX_KEPT) {
+    sayFile(`"${name}" is bigger than ${MAX_KEPT / 1024 / 1024} MB, so it was not kept.`);
+    return false;
+  }
+  try {
+    await myFiles.keep(name, bytes, type);
+  } catch (error) {
+    cannotKeep(error, name);
+    return false;
+  }
+  kept = [...kept.filter((file) => file.name !== name), { name, size: bytes.byteLength, type, added: Date.now() }].sort(nameOrder);
+  showFiles();
+  return true;
+}
+
+// Keep, beside a saved line: the file is stored by the name the sketch gave it. Keeping it again replaces the kept copy.
+async function keepSaved(name, blob, button) {
+  const again = kept.some((file) => file.name === name);
+  if (await storeFile(name, await blob.arrayBuffer(), blob.type)) {
+    button.textContent = "Kept";
+    sayFile(`${again ? "Replaced" : "Kept"} ${name} in My files. Sketches can open it by name.`);
+  }
+}
+
+async function downloadKept(name) {
+  try {
+    const record = await myFiles.read(name);
+    if (record) downloadNow(name, new Blob([record.bytes], { type: record.type }));
+  } catch {
+    sayFile(`This browser would not give "${name}" back.`);
+  }
+}
+
+// Delete: at once, with a few seconds to undo, as for sketches. The record is held in memory for the undo.
+async function deleteKept(name) {
+  let record;
+  try {
+    record = await myFiles.read(name);
+    await myFiles.remove(name);
+  } catch {
+    sayFile(`This browser would not delete "${name}".`);
+    return;
+  }
+  kept = kept.filter((file) => file.name !== name);
+  showFiles();
+  const undo = element("button", { class: "fg-play__minebtn", type: "button" }, "Undo");
+  undo.addEventListener("click", async () => {
+    try {
+      await myFiles.restore(record);
+    } catch (error) {
+      cannotKeep(error, name);
+      return;
+    }
+    await loadFiles();
+    sayFile(`"${name}" is back.`);
+  }, { once: true });
+  sayFile(`Deleted "${name}". `, undo);
+}
+
+// The kept files as { name: Uint8Array }, ready to send with a run. With none, the store is not asked.
+async function keptBytes() {
+  await filesLoaded;
+  if (!filesWork || !kept.length) return {};
+  try {
+    return await myFiles.allBytes();
+  } catch {
+    return {};
+  }
+}
+
+addFileButton.addEventListener("click", () => addFileInput.click());
+addFileInput.addEventListener("change", async () => {
+  const chosen = [...addFileInput.files];
+  addFileInput.value = "";                  // so the same file can be chosen again
+  for (const file of chosen) {
+    const kind = file.name.split(".").pop().toLowerCase();
+    if (!file.name.includes(".") || !ADD_KINDS.includes(kind)) {
+      sayFile(`"${file.name}" was not added. My files takes pictures (PNG, JPG, GIF, WebP), sounds (WAV, MP3, OGG) and text (TXT, CSV, JSON).`);
+    } else if (file.size > MAX_KEPT) {
+      sayFile(`"${file.name}" is bigger than ${MAX_KEPT / 1024 / 1024} MB, so it was not added.`);
+    } else if (await storeFile(file.name, await file.arrayBuffer(), file.type)) {
+      sayFile(`Added ${file.name} to My files.`);
+    }
+  }
+});
+const filesLoaded = loadFiles();            // a run waits for it, so the first run has the files
+
 // ---- editing: drafts are kept in this browser, and Auto-run runs again after a pause
 
 let autoTimer = null;
@@ -933,7 +1096,12 @@ function showSavedFile(name, blob) {
   URL.revokeObjectURL(savedFiles.get(name)?.url ?? "");
   const url = URL.createObjectURL(blob);
   const link = element("a", { class: "fg-play__download", href: url, download: baseName(name) }, "Download");
-  const line = element("div", { class: "fg-play__saved" }, `Saved ${name} (${fileSize(blob.size)}) \u2014 `, link);
+  const text = element("div", { class: "fg-play__saved" }, `Saved ${name} (${fileSize(blob.size)}) \u2014 `, link);
+  // Keep sits beside the line, not in it, so the line stays just the file's name, size and Download.
+  const keepFile = element("button", { class: "fg-play__minebtn fg-play__keepfile", type: "button",
+    title: "Keep this file in My files, so every sketch can open it by name" }, "Keep");
+  keepFile.addEventListener("click", () => keepSaved(name, blob, keepFile));
+  const line = element("div", { class: "fg-play__savedrow" }, text, keepFile);
   savedFiles.set(name, { line, url });
   output.append(line);
   output.scrollTop = output.scrollHeight;
@@ -1102,9 +1270,11 @@ window.addEventListener("message", (event) => {
   if (fromPreview(event)) handlers[event.data?.type]?.(event.data);
 });
 
-function runSketch() {
+async function runSketch() {
   clearTimeout(autoTimer);
   if (!previewReady) return;
+  // My files are read first (they can be megabytes). The example's own files win on a name clash.
+  const withKept = { ...await keptBytes(), ...files };
   ranOnce = true;
   if (lesson()) showLessonStage();
   clearOutput();
@@ -1113,7 +1283,7 @@ function runSketch() {
   ranFilename = current ? current.source.split("/").pop() : "sketch.py";
   startedAt = performance.now();
   setStatus("Starting...", "running");
-  tell({ type: "run", source: editor.getText(), filename: ranFilename, files });
+  tell({ type: "run", source: editor.getText(), filename: ranFilename, files: withKept });
 }
 
 function stopSketch() {

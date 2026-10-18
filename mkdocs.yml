@@ -109,6 +109,7 @@ nav:
             - "7. Scratch-card reveal": guide/projects/07_scratch_card.md
             - "8. Flow-field print": guide/projects/08_flow_field_print.md
             - "9. Generative posters": guide/projects/09_generative_posters.md
+            - "10. From pixels to marks": guide/projects/10_pixels_to_marks.md
     - Creative practice with funground:
         - course/index.md
         - "1. Look, frame and compose": course/01_look_frame_compose.md

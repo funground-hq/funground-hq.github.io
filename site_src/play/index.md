@@ -20,6 +20,7 @@ blank sketch. With **Auto-run** on, the sketch runs again a moment after you sto
 <kbd>↑</kbd> or <kbd>↓</kbd> to change it. Add <kbd>Shift</kbd> for bigger steps. Or hold <kbd>Alt</kbd> and drag it.</li>
 <li><strong>Share</strong> copies a link that holds your code. Anyone who opens it sees your code and can run it.</li>
 <li><strong>Reset</strong> goes back to the original. Unsaved changes stay in this browser only.</li>
+<li><strong>My files:</strong> keep what a sketch saves, or add your own, and every sketch can open them by name. They stay in this browser only.</li>
 <li class="fg-keys-only">Drag the bar between the code and the picture to give either one more room.</li>
 <li>Your sketches run in a separate, sandboxed website (funground-run.github.io), so a sketch can never reach
 this site. To keep sketches on GitHub, use the <a href="https://github.com/funground-hq/sketchbook">sketchbook</a> and the
