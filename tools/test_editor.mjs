@@ -20,7 +20,7 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { gzipSync } from "node:zlib";
+import { deflateSync, gzipSync } from "node:zlib";
 
 const { chromium } = await import("./codemirror/node_modules/playwright-core/index.mjs");
 
@@ -2084,6 +2084,215 @@ f.run()
     const examples = JSON.parse(readFileSync(path.join(docs, "play", "examples.json"), "utf8"));
     assert(examples.filter((e) => e.lesson).length === COURSE.experiments.length, "examples.json lacks some experiments");
     assert(examples.findIndex((e) => e.lesson) > examples.findLastIndex((e) => !e.lesson), "the course is not after the gallery");
+  });
+
+  // ---- My files (S-221, D-108)
+  // A sketch that saves note.txt, one that reads it, and one that draws dot.png (a solid red square, made here).
+  const NOTE_TEXT = "hello from my files";
+  const WRITES_NOTE = `import funground as f
+
+
+def setup():
+    f.size(200, 100)
+    with open("note.txt", "w") as note:
+        note.write("${NOTE_TEXT}")
+
+
+def draw():
+    f.background("gold")
+
+
+f.run()
+`;
+  const READS_NOTE = `import funground as f
+
+print("note says: " + open("note.txt").read())
+
+
+def setup():
+    f.size(200, 100)
+
+
+def draw():
+    f.background("gold")
+
+
+f.run()
+`;
+  const DRAWS_DOT = `import funground as f
+
+dot = f.load_image("dot.png")
+
+
+def setup():
+    f.size(100, 100)
+
+
+def draw():
+    f.background("blue")
+    f.image(dot, 0, 0, 100, 100)
+
+
+f.run()
+`;
+  // A PNG of one colour, written by hand: signature, header, one compressed block of pixels, end.
+  function solidPng(size, [red, green, blue]) {
+    const crcTable = Array.from({ length: 256 }, (_, n) => {
+      let c = n;
+      for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      return c >>> 0;
+    });
+    const crc = (bytes) => {
+      let c = 0xffffffff;
+      for (const b of bytes) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+      return (c ^ 0xffffffff) >>> 0;
+    };
+    const chunk = (type, data) => {
+      const body = Buffer.concat([Buffer.from(type), data]);
+      const out = Buffer.alloc(body.length + 8);
+      out.writeUInt32BE(data.length, 0);
+      body.copy(out, 4);
+      out.writeUInt32BE(crc(body), body.length + 4);
+      return out;
+    };
+    const header = Buffer.alloc(13);
+    header.writeUInt32BE(size, 0);
+    header.writeUInt32BE(size, 4);
+    header.set([8, 2, 0, 0, 0], 8);                                      // 8 bits, RGB
+    const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: size }, () => [red, green, blue]).flat())]);
+    return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", header),
+      chunk("IDAT", deflateSync(Buffer.concat(Array.from({ length: size }, () => row)))), chunk("IEND", Buffer.alloc(0))]);
+  }
+  const filesSummary = (page) => page.locator(".fg-play__files summary");
+  const filesRows = (page) => page.locator(".fg-play__file .fg-play__filename");
+  const filesNote = (page) => page.locator(".fg-play__files .fg-play__minenote");
+  const filesNoteHas = (page, text) => page.waitForFunction((t) => document.querySelector(".fg-play__files .fg-play__minenote")?.textContent.includes(t), text, { timeout: 10000 });
+  // A page with nothing stored (drafts and kept files), ready to run, with My files open.
+  async function freshFilesEditor() {
+    const page = await freshEditor();
+    await page.evaluate(() => new Promise((resolve, reject) => {
+      const request = indexedDB.open("funground-play", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("files", { keyPath: "name" });
+      request.onsuccess = () => {
+        const transaction = request.result.transaction("files", "readwrite");
+        transaction.objectStore("files").clear();
+        transaction.oncomplete = () => { request.result.close(); resolve(); };
+      };
+      request.onerror = () => reject(request.error);
+    }));
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+    await filesSummary(page).click();
+    return page;
+  }
+  // Runs a sketch that saves note.txt and presses Keep on its line.
+  async function keepNote(page) {
+    await typeCode(page, WRITES_NOTE);
+    await page.locator(".fg-play__savedrow").waitFor({ timeout: 20000 });
+    await page.locator(".fg-play__savedrow").getByRole("button", { name: "Keep", exact: true }).click();
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 1);
+  }
+
+  await check(66, "My files: a sketch that saves note.txt shows Keep; Keep puts it in My files and it stays over a reload", async () => {
+    const page = await freshFilesEditor();
+    assert((await page.locator(".fg-play__filesnone").innerText()).startsWith("Nothing yet"), "the empty list says nothing");
+    await typeCode(page, WRITES_NOTE);
+    const row = page.locator(".fg-play__savedrow");
+    await row.waitFor({ timeout: 20000 });
+    assert(/^Saved note\.txt \(\d+ bytes\) — Download$/.test(await row.locator(".fg-play__saved").innerText()), "the saved line changed");
+    await row.getByRole("button", { name: "Keep", exact: true }).click();
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 1);
+    assert((await filesRows(page).allInnerTexts()).join() === "note.txt", "note.txt is not listed");
+    assert((await filesSummary(page).innerText()) === "My files (1)", `the summary says ${await filesSummary(page).innerText()}`);
+    assert((await page.locator(".fg-play__file .fg-play__filesize").innerText()) === `${NOTE_TEXT.length} bytes`, "the size is wrong");
+    assert((await row.getByRole("button", { name: "Kept" }).count()) === 1, "the line does not say Kept");
+    // Keeping it again replaces the kept copy: still one file.
+    await row.getByRole("button", { name: "Kept" }).click();
+    await filesNoteHas(page, "Replaced note.txt");
+    assert((await filesRows(page).count()) === 1, "keeping again made a second file");
+    await page.reload();
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 1);
+    await page.close();
+    return "kept, replaced, still there after a reload";
+  });
+
+  await check(67, "My files: another sketch opens note.txt by name; Download gives the kept bytes", async () => {
+    const page = await freshFilesEditor();
+    await keepNote(page);
+    await typeCode(page, READS_NOTE);
+    await page.waitForFunction((t) => document.querySelector(".play-output")?.textContent.includes(t), `note says: ${NOTE_TEXT}`, { timeout: 20000 });
+    assert((await page.locator(".play-output .stderr").count()) === 0, "the sketch printed an error");
+    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }),
+      page.locator(".fg-play__file").getByRole("button", { name: "Download" }).click()]);
+    assert(download.suggestedFilename() === "note.txt" && readFileSync(await download.path(), "utf8") === NOTE_TEXT, "Download gave another file");
+    await page.close();
+  });
+
+  await check(68, "My files: Add file keeps a PNG from the computer and a sketch can load it", async () => {
+    const page = await freshFilesEditor();
+    await page.locator(".fg-play__files input[type=file]").setInputFiles({ name: "dot.png", mimeType: "image/png", buffer: solidPng(8, [255, 0, 0]) });
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 1);
+    await filesNoteHas(page, "Added dot.png");
+    await typeCode(page, DRAWS_DOT);
+    const { picture: drawn } = await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque && p.width >= 100 && p.centre[0] > 200 && p.centre[1] < 60 && p.centre[2] < 60);
+    assert((await page.locator(".play-output .stderr").count()) === 0, "the sketch printed an error");
+    await page.close();
+    return `the centre is ${drawn.centre}`;
+  });
+
+  await check(69, "My files: Delete removes a file and Undo brings it back", async () => {
+    const page = await freshFilesEditor();
+    await page.locator(".fg-play__files input[type=file]").setInputFiles({ name: "dot.png", mimeType: "image/png", buffer: solidPng(8, [255, 0, 0]) });
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 1);
+    await page.locator(".fg-play__file").getByRole("button", { name: "Delete" }).click();
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 0);
+    assert((await filesSummary(page).innerText()) === "My files", "the count stayed after Delete");
+    await filesNoteHas(page, 'Deleted "dot.png"');
+    await filesNote(page).getByRole("button", { name: "Undo" }).click();
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 1);
+    await filesNoteHas(page, '"dot.png" is back');
+    await page.reload();
+    await filesSummary(page).click();
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 1);
+    await page.locator(".fg-play__file").getByRole("button", { name: "Delete" }).click();
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 0);
+    await page.reload();
+    await filesSummary(page).click();
+    assert((await page.locator(".fg-play__filesnone").count()) === 1, "a deleted file came back after a reload");
+    await page.close();
+  });
+
+  await check(70, "My files: a type that is not taken and a file over 25 MB each give one plain line and add nothing", async () => {
+    const page = await freshFilesEditor();
+    const input = page.locator(".fg-play__files input[type=file]");
+    assert((await input.getAttribute("accept")).includes(".gif") && (await input.getAttribute("accept")).includes(".wav"), "the input does not ask for GIF and WAV");
+    await input.setInputFiles({ name: "program.exe", mimeType: "application/octet-stream", buffer: Buffer.from("MZ") });
+    await filesNoteHas(page, '"program.exe" was not added');
+    assert(/^"program\.exe" was not added\. My files takes pictures/.test(await filesNote(page).innerText()), "the line is not plain");
+    await input.setInputFiles({ name: "huge.txt", mimeType: "text/plain", buffer: Buffer.alloc(26 * 1024 * 1024, 97) });
+    await filesNoteHas(page, '"huge.txt" is bigger than 25 MB');
+    assert((await filesRows(page).count()) === 0, "a refused file was added");
+    assert((await filesNote(page).allInnerTexts()).length === 1, "more than one line");
+    await page.close();
+  });
+  await check(71, "My files: a sketch that rewrites a kept file shows a new Saved line, so the new version can be kept", async () => {
+    const page = await freshFilesEditor();
+    await keepNote(page);
+    const again = "a newer take";
+    await typeCode(page, `import funground as f
+
+with open("note.txt", "w") as out:
+    out.write("${again}")
+print("written")
+`);
+    const row = page.locator(".fg-play__savedrow");
+    await page.waitForFunction((n) => [...document.querySelectorAll(".fg-play__saved")].some((l) => l.textContent.includes(`note.txt (${n} bytes)`)),
+      again.length, { timeout: 20000 });
+    await row.getByRole("button", { name: "Keep", exact: true }).click();
+    await filesNoteHas(page, "note.txt");
+    assert((await page.locator(".fg-play__file .fg-play__filesize").innerText()) === `${again.length} bytes`, "the kept copy was not replaced");
+    await page.close();
+    return "rewritten, shown and kept again";
   });
 } finally {
   await browser.close();
