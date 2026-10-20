@@ -9,10 +9,11 @@ In a terminal, in the folder where you keep your sketches:
 ```
 python -m venv .venv
 .venv\Scripts\activate        # Windows;  on macOS or Linux:  source .venv/bin/activate
-python -m pip install git+https://github.com/funground-hq/funground
+python -m pip install funground
 ```
 
-funground 0.1 is not on PyPI yet. Once it is, `python -m pip install funground` will do.
+This installs funground 0.1.0, the latest release. A few pages of the guide and the gallery are marked
+**Since 0.2**: those things work in Play now, and come to your computer with funground 0.2.
 
 On Linux, install the Cairo library first. On Debian or Ubuntu that is
 `sudo apt install libcairo2-dev pkg-config python3-dev`.
