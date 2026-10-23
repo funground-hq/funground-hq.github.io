@@ -199,8 +199,13 @@ const mineBar = element("div", { class: "fg-play__mine", role: "group", "aria-la
 const lessonWhere = element("span", { class: "fg-lesson__where" });
 const lessonBack = element("a", { class: "fg-lesson__back" }, "Back to the lesson");
 const lessonToggle = element("button", { class: "fg-lesson__toggle", type: "button", "aria-expanded": "false" }, "Show");
+const lessonLead = element("p", { class: "fg-lesson__lead", hidden: "" });
 const lessonPredict = element("p", { class: "fg-lesson__predict" });
 const lessonCompare = element("p", { class: "fg-lesson__compare" });
+// The Extend step (S-226, D-113 b): once the experiment has been run, a line offers the same experiment written with funground's
+// studio tools (f.variations or f.mark), if play.json has one for it.
+const extendButton = element("button", { class: "fg-play__minebtn fg-lesson__extendbtn", type: "button" });
+const lessonExtend = element("p", { class: "fg-lesson__extend", hidden: "" }, extendButton);
 const lessonKeep = element("button", { class: "fg-play__minebtn fg-lesson__keep", type: "button",
   title: "Keep this version in My sketches, with a note about your choice" }, "Keep this");
 const keepNote = element("textarea", { class: "fg-lesson__note", rows: "4", "aria-label": "Your note" });
@@ -210,7 +215,7 @@ const keepForm = element("form", { class: "fg-lesson__form", hidden: "" },
   element("label", {}, "Say in a sentence why you chose this version.", keepNote), element("div", {}, keepSave, keepCancel));
 const lessonPanel = element("section", { class: "fg-lesson", "aria-label": "Course lesson", hidden: "" },
   element("div", { class: "fg-lesson__head" }, lessonWhere, lessonBack, lessonToggle),
-  element("div", { class: "fg-lesson__body" }, lessonPredict, lessonCompare, lessonKeep, keepForm));
+  element("div", { class: "fg-lesson__body" }, lessonLead, lessonPredict, lessonCompare, lessonExtend, lessonKeep, keepForm));
 const divider = element("div", { class: "fg-play__divider", role: "separator", tabindex: "0", "aria-orientation": "vertical",
   "aria-label": "Share of the width between the code and the picture (arrow keys move it)" });
 
@@ -602,8 +607,11 @@ function showLesson() {
   lessonPanel.hidden = !info;
   closeKeep();
   if (!info) return;
-  lessonWhere.textContent = `Lesson ${info.number} · ${info.section}`;
+  lessonWhere.textContent = `Lesson ${info.number} · ${info.section}${info.stage === "extend" ? " · Extend" : ""}`;
   lessonBack.href = info.back;
+  lessonLead.hidden = info.stage !== "extend";
+  lessonLead.textContent = info.stage === "extend" ? info.lead : "";
+  extendButton.textContent = info.extend?.offer ?? "";
   lessonPredict.replaceChildren(element("strong", {}, "Predict:"), ` ${info.predict}`);
   lessonCompare.replaceChildren(element("strong", {}, "Compare:"), ` ${info.compare}`);
   lessonPanel.classList.remove("is-open");
@@ -612,10 +620,16 @@ function showLesson() {
 
 function showLessonStage() {
   lessonPanel.dataset.stage = ranOnce ? "compare" : "predict";
+  lessonExtend.hidden = !(ranOnce && lesson()?.extend);              // after Compare, and only if there is an Extend sketch
   const open = lessonPanel.classList.contains("is-open");
   lessonToggle.textContent = open ? "Hide" : "Show";
   lessonToggle.setAttribute("aria-expanded", String(open));
 }
+
+extendButton.addEventListener("click", () => {
+  const next = lesson()?.extend;
+  if (next) open(next.id);                  // the same path as choosing it in the picker: a draft is kept as it is
+});
 
 lessonToggle.addEventListener("click", () => {
   lessonPanel.classList.toggle("is-open");
@@ -643,15 +657,57 @@ keepNote.addEventListener("keydown", (event) => {
   keepCancel.click();
 });
 
+// Keep this also keeps the picture (S-226, D-113 b): while a sketch is running or has drawn, the preview runs f.keep(note) for it, and
+// the files that makes (studio/001.png, .py and .json) go into My files, because the learner already chose Keep this. The sketch
+// is asked first: opening the kept sketch stops the one that is running. Nothing running: the picture is not kept, and a line says so.
+const NOT_KEPT = "The picture was not kept. Run the sketch, then Keep this, to keep its picture too.";
+let keepAnswer = null;                // the promise's resolve, while a keep is waiting for the preview's answer
+const KEEP_WAIT = 8000;           // an older preview ignores "keep": do not wait for it for long
+
+// Resolves { files: [{ name, blob }] } for the files this keep made (they arrived as `file` messages just before the answer), or
+// { files: [], problem } when nothing was kept: problem is null if no sketch was running, or the preview's own sentence.
+function keepPicture(text) {
+  if (!previewReady || !drawn) return Promise.resolve({ files: [], problem: null });
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => finish({ files: [], problem: "The sketch did not answer in time." }), KEEP_WAIT);
+    const finish = (answer) => { clearTimeout(timer); keepAnswer = null; resolve(answer); };
+    keepAnswer = finish;
+    tell({ type: "keep", note: text });
+  });
+}
+
+// A sentence that says the sketch is not there to keep is the same as nothing running; anything else is told as it is.
+const notRunning = (reason) => !reason || /not running/i.test(reason);
+
+// The files are stored by name in My files (the learner chose Keep this), and shown as saved lines as any file is.
+async function keepStudioFiles(files) {
+  const stored = [];
+  for (const { name, blob } of files) {
+    showSavedFile(name, blob);
+    if (await storeFile(name, await blob.arrayBuffer(), blob.type)) {
+      stored.push(name);
+      const button = savedFiles.get(name)?.keepFile;
+      if (button) button.textContent = "Kept";
+    }
+  }
+  return stored;
+}
+
 // The kept sketch starts with comments that say where it came from and why it was kept, then the code as it is now.
 keepForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const info = lesson();
+  keepSave.disabled = true;
+  const picture = await keepPicture(keepNote.value.trim());
+  keepSave.disabled = false;
   const note = keepNote.value.trim().split("\n").map((line) => `# ${line}`.trimEnd()).join("\n");
   const code = `# Lesson ${info.number}: ${info.title} - ${info.section}\n${note}\n\n${editor.getText()}`;
   const sketch = addSketch(`Lesson ${info.number}: ${info.title}`, code);
   await open(MINE + sketch.id);
-  say(`Kept as "${sketch.name}" in My sketches. Your note is at the top of the code.`);
+  const stored = await keepStudioFiles(picture.files);
+  const base = `Kept as "${sketch.name}" in My sketches. Your note is at the top of the code.`;
+  if (stored.length) say(`${base} Its picture and record are in My files: ${stored.join(", ")}.`);
+  else say(`${base} ${notRunning(picture.problem) ? NOT_KEPT : `The picture was not kept: ${picture.problem}`}`);
 });
 
 // ---- My sketches (S-213): the learner's own sketches, kept in this browser and nowhere else
@@ -1075,7 +1131,7 @@ clearButton.addEventListener("click", clearOutput);
 // blob URL (the file's bytes in this page's memory); it is let go when the messages are cleared or a new run starts. A file
 // saved again (the same name) replaces its line.
 
-const savedFiles = new Map();     // name -> { line, url }
+const savedFiles = new Map();     // name -> { line, url, blob, keepFile }
 
 function forgetSavedFiles() {
   for (const { url } of savedFiles.values()) URL.revokeObjectURL(url);
@@ -1102,7 +1158,7 @@ function showSavedFile(name, blob) {
     title: "Keep this file in My files, so every sketch can open it by name" }, "Keep");
   keepFile.addEventListener("click", () => keepSaved(name, blob, keepFile));
   const line = element("div", { class: "fg-play__savedrow" }, text, keepFile);
-  savedFiles.set(name, { line, url });
+  savedFiles.set(name, { line, url, blob, keepFile });
   output.append(line);
   output.scrollTop = output.scrollHeight;
 }
@@ -1191,6 +1247,7 @@ function showError(text) {
   return line;
 }
 
+let drawn = false;            // a sketch is running or has drawn, and has not been stopped or failed (Keep this can keep its picture)
 let focusOnStart = false;     // the run came from the Run button: give the sketch the keys once it starts
 let errorLine = null;
 let startedThisRun = false;
@@ -1239,9 +1296,17 @@ const handlers = {
       fitPicture();
     }
   },
+  // The reply to "keep": the files it made have already arrived as `file` messages, so they are in savedFiles.
+  kept(message) {
+    if (!keepAnswer) return;
+    const names = message.ok === true && Array.isArray(message.files) ? message.files : [];
+    const files = names.filter((name) => savedFiles.has(name)).map((name) => ({ name, blob: savedFiles.get(name).blob }));
+    keepAnswer({ files, problem: files.length ? null : message.reason ?? "Nothing was drawn yet." });
+  },
   started(message) {
     endStill();
     startedThisRun = true;
+    drawn = true;
     savePicture.disabled = false;
     sizeKnown = true;
     sketchSize = { width: message.width, height: message.height };
@@ -1253,6 +1318,7 @@ const handlers = {
     focusOnStart = false;
   },
   finished(message) {
+    if (message.reason !== "ended") drawn = false;          // stopped or failed: its picture is gone ("ended" is a script that has drawn)
     if (message.reason === "error") {
       setStatus(errorLine === null ? "Your sketch stopped with an error: the message is above the picture."
         : `Your sketch stopped with an error on line ${errorLine}: the message is above the picture.`, "error");
@@ -1276,6 +1342,7 @@ async function runSketch() {
   // My files are read first (they can be megabytes). The example's own files win on a name clash.
   const withKept = { ...await keptBytes(), ...files };
   ranOnce = true;
+  drawn = false;
   if (lesson()) showLessonStage();
   clearOutput();
   errorLine = null;
@@ -1289,6 +1356,7 @@ async function runSketch() {
 function stopSketch() {
   clearTimeout(autoTimer);
   if (!previewReady) return;
+  drawn = false;
   tell({ type: "stop" });
   stopButton.disabled = true;
 }
