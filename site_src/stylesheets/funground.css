@@ -378,3 +378,11 @@ body:has(.fg-playground) .md-sidebar { display: none; }
   .fg-tile:hover, .fg-tile:focus-visible, .fg-tile:nth-child(3n):hover { transform: none; }
   .fg-try, .fg-hero__stickers .fg-sticker { transform: none; }
 }
+
+/* "Since 0.2." under a name in the API reference (funground S-229): a name that is not in the released funground. Gold with
+   navy text in both themes, so it reads as a label, not a sentence. */
+.md-typeset .fg-since {
+  display: inline-block; margin: 0 0 var(--space-2); padding: 1px var(--space-2);
+  border-radius: var(--radius-pill); background: var(--gold); color: #191970;
+  font-family: var(--font-body); font-size: 0.8em; font-weight: 700;
+}

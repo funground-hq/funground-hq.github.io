@@ -20,6 +20,7 @@ blank sketch. With **Auto-run** on, the sketch runs again a moment after you sto
 <kbd>↑</kbd> or <kbd>↓</kbd> to change it. Add <kbd>Shift</kbd> for bigger steps. Or hold <kbd>Alt</kbd> and drag it.</li>
 <li><strong>Share</strong> copies a link that holds your code. Anyone who opens it sees your code and can run it.</li>
 <li><strong>Reset</strong> goes back to the original. Unsaved changes stay in this browser only.</li>
+<li><strong>Course lessons:</strong> an example from the course shows what to predict and compare. After Compare, <strong>Extend</strong> opens the same experiment written with funground's studio tools. <strong>Keep this</strong> copies your sketch, with your note, into My sketches. If the sketch is running, it also keeps its picture, a copy of the code and a record in My files (they are called studio/001.png, studio/001.py and studio/001.json).</li>
 <li><strong>My files:</strong> keep what a sketch saves, or add your own, and every sketch can open them by name. They stay in this browser only.</li>
 <li class="fg-keys-only">Drag the bar between the code and the picture to give either one more room.</li>
 <li>Your sketches run in a separate, sandboxed website (funground-run.github.io), so a sketch can never reach
