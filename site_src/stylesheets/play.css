@@ -183,6 +183,9 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-lesson[data-stage="compare"] .fg-lesson__compare { border-left-color: var(--gold); font-size: 15px; }
 .fg-lesson[data-stage="predict"] .fg-lesson__compare,
 .fg-lesson[data-stage="compare"] .fg-lesson__predict { color: var(--ink-muted); font-size: 13px; }
+/* The Extend step (S-226): a lead line on the Extend sketch's own panel, and the offer under Compare on the experiment's. */
+.fg-lesson__lead { color: var(--ink-muted); }
+.fg-lesson__extend { margin-top: var(--space-2); }
 .fg-lesson__keep { margin-top: var(--space-2); }
 .fg-lesson__form { margin-top: var(--space-2); }
 .fg-lesson__form label { display: block; font-weight: 700; }

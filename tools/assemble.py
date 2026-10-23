@@ -595,11 +595,19 @@ def course_examples(course: dict, entries: list[dict], funground: Path) -> list[
 
     Each has a ``lesson`` object: its number, title and section, the words to predict and compare with, the note to
     keep, and ``back``, the link to that section of the lesson (from /play/).
+
+    An entry with ``"stage": "extend"`` (S-226, D-113 b) is the same experiment written with funground's studio tools.
+    Its ``lesson`` has ``stage: "extend"`` and a ``lead`` line, and the experiment it comes ``after`` gets
+    ``extend: {id, offer}``, so its panel can offer the Extend sketch once the learner has run it. An Extend sketch the
+    runtime does not have is left out, and its experiment offers nothing.
     """
     by_id = {entry["id"]: entry for entry in entries}
+    sketch_id = lambda name: f"{COURSE_AREA}-{Path(name).stem}"
+    offers = {e["after"]: {"id": sketch_id(e["sketch"]), "offer": e["offer"]}
+              for e in course["experiments"] if e.get("stage") == "extend" and sketch_id(e["sketch"]) in by_id}
     listed = []
     for experiment in course["experiments"]:
-        entry = by_id.get(f"{COURSE_AREA}-{Path(experiment['sketch']).stem}")
+        entry = by_id.get(sketch_id(experiment["sketch"]))
         if entry is None:
             continue                                        # a runtime older than play.json: leave it out
         number = experiment["lesson"]
@@ -610,7 +618,9 @@ def course_examples(course: dict, entries: list[dict], funground: Path) -> list[
                        "lesson": {"number": number, "title": lesson["title"], "section": experiment["section"],
                                   "predict": experiment["predict"], "compare": experiment["compare"],
                                   "keep": lesson["keep"],
-                                  "back": f"../{COURSE_AREA}/{Path(lesson['page']).stem}/#{anchor}"}})
+                                  "back": f"../{COURSE_AREA}/{Path(lesson['page']).stem}/#{anchor}",
+                                  **({"stage": "extend", "lead": experiment["lead"]} if experiment.get("stage") == "extend" else {}),
+                                  **({"extend": offers[experiment["sketch"]]} if experiment["sketch"] in offers else {})}})
     return listed
 
 

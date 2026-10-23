@@ -2055,6 +2055,7 @@ f.run()
     assert(!(await panel(page).isVisible()), "a lesson panel shows for a gallery example");
     await page.locator(".fg-play__choose").selectOption("course-03_values");
     await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "course-03_values");
+    await panel(page).waitFor({ state: "visible", timeout: 5000 }).catch(() => {});  // the panel is drawn once the sketch has loaded
     assert(await panel(page).isVisible(), "no lesson panel for a lesson 3 example");
     await page.locator(".fg-play__choose").selectOption("starter");
     await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "starter");
@@ -2293,6 +2294,97 @@ print("written")
     assert((await page.locator(".fg-play__file .fg-play__filesize").innerText()) === `${again.length} bytes`, "the kept copy was not replaced");
     await page.close();
     return "rewritten, shown and kept again";
+  });
+
+  // ---- the Extend step and Keep through f.keep (S-226, D-113 b)
+  const POSITIONS_EXTEND = COURSE.experiments.find((e) => e.stage === "extend" && e.after === "01_positions.py");
+  const runAndFinish = async (page) => {
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.startsWith("Finished"), null, { timeout: 60000 });
+  };
+  // A kept file's bytes, read straight from the page's IndexedDB.
+  const keptRecord = (page, name) => page.evaluate((n) => new Promise((resolve, reject) => {
+    const request = indexedDB.open("funground-play", 1);
+    request.onsuccess = () => {
+      const got = request.result.transaction("files").objectStore("files").get(n);
+      got.onsuccess = () => resolve(got.result ? { type: got.result.type, bytes: Array.from(new Uint8Array(got.result.bytes)) } : null);
+      got.onerror = () => reject(got.error);
+    };
+    request.onerror = () => reject(request.error);
+  }), name);
+
+  await check(72, "Extend: after Compare the panel offers the Extend sketch, which opens with its own lead, predict and compare", async () => {
+    const examples = JSON.parse(readFileSync(path.join(docs, "play", "examples.json"), "utf8"));
+    const extendIds = examples.filter((e) => e.lesson?.stage === "extend").map((e) => e.id);
+    assert(extendIds.join() === "course-01_positions_variations,course-03_palettes_variations,course-05_rhythm_mark", `the Extend sketches are ${extendIds}`);
+    const page = await freshEditor("&example=course-01_positions");
+    const offer = panel(page).locator(".fg-lesson__extend");
+    assert(!(await offer.isVisible()), "Extend shows before the first Run");
+    await runAndFinish(page);
+    assert(await offer.isVisible(), "Extend does not show after Run");
+    const button = offer.getByRole("button", { name: POSITIONS_EXTEND.offer });
+    assert(await button.count() === 1, "the Extend button is missing");
+    assert(await fontSize(page, ".fg-lesson__compare") > await fontSize(page, ".fg-lesson__predict"), "Compare is not the line that stands out");
+    await button.click();
+    await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "course-01_positions_variations");
+    assert(/f\.variations\(/.test(await editorText(page)), "the Extend sketch's code is not open");
+    assert((await panel(page).locator(".fg-lesson__where").innerText()) === `Lesson 1 · ${POSITIONS_EXTEND.section} · Extend`, "the panel does not say Extend");
+    assert((await panel(page).locator(".fg-lesson__lead").innerText()) === POSITIONS_EXTEND.lead, "the lead line is wrong");
+    assert((await panel(page).locator(".fg-lesson__predict").innerText()) === `Predict: ${POSITIONS_EXTEND.predict}`, "Predict is wrong");
+    assert((await panel(page).locator(".fg-lesson__compare").innerText()) === `Compare: ${POSITIONS_EXTEND.compare}`, "Compare is wrong");
+    await runAndFinish(page);
+    assert(!(await offer.isVisible()), "the Extend sketch offers an Extend of its own");
+    await page.close();
+  });
+
+  await check(73, "Keep this with a sketch that has run keeps its picture: studio/001.png, .py and .json are in My files, with their lines", async () => {
+    const page = await freshFilesEditor();
+    await page.locator(".fg-play__choose").selectOption("course-01_positions");
+    await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "course-01_positions");
+    await runAndFinish(page);
+    await panel(page).getByRole("button", { name: "Keep this" }).click();
+    await panel(page).getByLabel("Your note").fill("I kept the low circle.");
+    await panel(page).getByRole("button", { name: "Save", exact: true }).click();
+    await tabIs(page, "Lesson 1: Look, frame and compose");
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 3, null, { timeout: 30000 });
+    assert((await filesRows(page).allInnerTexts()).join() === "studio/001.json,studio/001.png,studio/001.py", `My files lists ${await filesRows(page).allInnerTexts()}`);
+    const line = await page.locator(".fg-play__minenote").first().innerText();
+    assert(line.includes("My sketches") && line.includes("studio/001.png"), `the line says "${line}"`);
+    assert((await page.locator(".fg-play__savedrow .fg-play__keepfile", { hasText: "Kept" }).count()) === 3, "the saved lines do not say Kept");
+    assert((await page.locator(".fg-play__saved").allInnerTexts()).length === 3, "the saved lines are not shown");
+    const png = await keptRecord(page, "studio/001.png");
+    assert(png.type === "image/png" && png.bytes.slice(0, 4).join() === "137,80,78,71", "studio/001.png is not a PNG");
+    const record = JSON.parse(Buffer.from((await keptRecord(page, "studio/001.json")).bytes).toString("utf8"));
+    assert(record.note === "I kept the low circle." && record.sketch === "01_positions.py", `the record says ${JSON.stringify(record).slice(0, 120)}`);
+    const copy = Buffer.from((await keptRecord(page, "studio/001.py")).bytes).toString("utf8");
+    assert(copy.includes("f.circle(left + x, top + y, 42)"), "the copy is not the sketch's code");
+    assert((await mineNames(page)).join() === "Lesson 1: Look, frame and compose", "the sketch is not in My sketches");
+    await page.close();
+    return "three files kept, with their lines";
+  });
+
+  await check(74, "Keep this with nothing running keeps the sketch and says the picture was not kept", async () => {
+    const page = await freshFilesEditor();
+    await page.locator(".fg-play__choose").selectOption("course-01_positions");
+    await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "course-01_positions");
+    await panel(page).getByRole("button", { name: "Keep this" }).click();
+    await panel(page).getByRole("button", { name: "Save", exact: true }).click();
+    await tabIs(page, "Lesson 1: Look, frame and compose");
+    const line = await page.locator(".fg-play__minenote").first().innerText();
+    assert(line.includes("Run the sketch, then Keep this, to keep its picture too."), `the line says "${line}"`);
+    assert((await filesRows(page).count()) === 0, "a file was kept");
+    // Stopped is not running either: run it, stop the page's run by opening the sketch again, then keep.
+    await page.locator(".fg-play__choose").selectOption("course-01_space");
+    await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "course-01_space");
+    await runAndFinish(page);
+    await page.locator(".fg-play__choose").selectOption("course-01_positions");
+    await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "course-01_positions");
+    await panel(page).getByRole("button", { name: "Keep this" }).click();
+    await panel(page).getByRole("button", { name: "Save", exact: true }).click();
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__choose optgroup[label='My sketches'] option").length === 2);
+    assert((await page.locator(".fg-play__minenote").first().innerText()).includes("Run the sketch, then Keep this"), "the picture of a sketch that was stopped was kept");
+    assert((await filesRows(page).count()) === 0, "a file was kept for a sketch that was not running");
+    await page.close();
   });
 } finally {
   await browser.close();
