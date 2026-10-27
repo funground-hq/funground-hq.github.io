@@ -30,7 +30,7 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-play__stage { min-height: 0; }
 .fg-play__picture { overflow: hidden; }
 .fg-play__picture.is-zoomed { display: block; overflow: auto; }          /* zoomed in past the room: scroll to see it all */
-.fg-play__picture.is-zoomed .fg-play__frame { margin: 0 auto; }
+.fg-play__picture.is-zoomed .fg-play__frame { margin: 0 auto; max-width: none; }  /* wider than the room: scroll sideways too */
 .fg-play__frame { overflow: hidden; box-sizing: content-box; }
 .fg-play__frame iframe { transform-origin: 0 0; }                         /* play.js sets the size and the scale */
 
