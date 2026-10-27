@@ -438,8 +438,18 @@ try {
     assert(bigger > fitted && smaller < fitted && Math.abs(back - fitted) < 1, `widths ${fitted} ${bigger} ${smaller} ${back}`);
     const caption = await page.locator(".fg-play__caption").innerText();
     assert(/640 × 400, shown at/.test(caption), `caption "${caption}"`);
+    // Zoomed past the room, the whole picture can be scrolled into view, sideways as well as down
+    const zoomIn = page.getByRole("button", { name: "Zoom in" });
+    while (await zoomIn.isEnabled()) await zoomIn.click();
+    const room = await page.locator(".fg-play__picture").evaluate((box) => {
+      const frame = box.querySelector(".fg-play__frame");
+      return { frame: frame.clientWidth, shown: Math.round(frame.querySelector("iframe").getBoundingClientRect().width),
+               scroll: box.scrollWidth, view: box.clientWidth };
+    });
+    assert(room.frame >= room.shown - 1 && room.scroll >= room.shown && room.scroll > room.view,
+           `at the largest zoom the frame is ${room.frame}px for a ${room.shown}px picture, scrolling ${room.scroll}px in ${room.view}px`);
     await page.close();
-    return `fit ${Math.round(fitted)}px, in ${Math.round(bigger)}px, out ${Math.round(smaller)}px`;
+    return `fit ${Math.round(fitted)}px, in ${Math.round(bigger)}px, out ${Math.round(smaller)}px, largest ${room.shown}px scrolls`;
   });
 
   await check(12, "a sketch that cannot stop in time: the status says Python starts again, then the next run works", async () => {
