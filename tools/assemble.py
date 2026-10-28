@@ -52,6 +52,7 @@ FOLDERS = [
     ("docs/course", "course"),
     ("docs/reference/images", "reference/images"),
     ("docs/gallery/images", "gallery/images"),
+    ("docs/book", "book"),                        # S-225: the test chapter of a book, a spread a page
 ]
 # (file in funground, page on the site)
 FILES = [
