@@ -68,6 +68,7 @@ extra:
 # They are left out of the navigation on purpose: there are about ninety of them.
 not_in_nav: |
   /gallery/*/*.md
+  /book/spread_*.md
   /about.md
   /changelog.md
 
@@ -125,6 +126,7 @@ nav:
         - "10. Rules, chance and generative work": course/10_rules_chance.md
         - "11. Make a small visual world": course/11_capstone.md
         - "Epilogue": course/epilogue.md
+    - "A book, Chapter 1 (preview)": book/index.md
   - Gallery: gallery/index.md      # one page, no sidebar
   - Play: play/index.md
   - Reference:
