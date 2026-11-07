@@ -62,8 +62,10 @@ FILES = [
     ("CHANGELOG.md", "changelog.md"),
 ]
 
-# The browser runner's own files (funground-web runner/); runtime/ is copied whole.
-RUNNER_FILES = ("runner.js", "worker.js", "audio.js", "camera.js", "microphone-worklet.js")
+# The browser runner's own files (funground-web runner/), named one by one; runtime/ is copied whole. A script the runner
+# loads must be added here: models-glue.js and models-worker.js were missing, and Play could not start (7 Nov 2026).
+RUNNER_FILES = ("runner.js", "worker.js", "audio.js", "camera.js", "microphone-worklet.js", "models-glue.js",
+                "models-worker.js")
 # The examples that are not gallery examples, and their heading on the Play page.
 OTHER_AREAS = {"session1": "Session 1: first steps"}
 # The course's experiments for Play (S-216): funground's list of them, and the folder of the course sketches.
