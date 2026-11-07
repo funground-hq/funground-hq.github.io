@@ -62,8 +62,11 @@ FILES = [
     ("CHANGELOG.md", "changelog.md"),
 ]
 
-# The browser runner's own files (funground-web runner/); runtime/ is copied whole.
-RUNNER_FILES = ("runner.js", "worker.js", "audio.js", "camera.js", "microphone-worklet.js")
+# The browser runner's own files (funground-web runner/): every script there is copied, so a new one cannot be left
+# behind, as models-worker.js and models-glue.js were (Play's models gave a 404, 7 Nov 2026). These must be among them.
+# runtime/ is copied whole.
+RUNNER_FILES = ("runner.js", "worker.js", "audio.js", "camera.js", "microphone-worklet.js", "models-glue.js",
+                "models-worker.js")
 # The examples that are not gallery examples, and their heading on the Play page.
 OTHER_AREAS = {"session1": "Session 1: first steps"}
 # The course's experiments for Play (S-216): funground's list of them, and the folder of the course sketches.
@@ -658,8 +661,8 @@ def write_play(runner: Path, docs: Path, entries: list[dict], funground: Path) -
     """Copy the runner and its runtime to play/runner/ and write play/examples.json."""
     target = docs / "play" / "runner"
     target.mkdir(parents=True, exist_ok=True)
-    for name in RUNNER_FILES:
-        shutil.copyfile(runner / name, target / name)
+    for script in sorted(runner.glob("*.js")):
+        shutil.copyfile(script, target / script.name)
     shutil.copytree(runner / "runtime", target / "runtime")
     examples = play_examples(entries, read_areas(funground), funground)
     (docs / "play" / "examples.json").write_text(json.dumps(examples, indent=1), encoding="utf-8", newline="\n")
