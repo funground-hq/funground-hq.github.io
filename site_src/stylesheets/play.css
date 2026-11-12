@@ -213,3 +213,35 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-play__files .fg-play__minenote { padding: 6px 0 0; border-bottom: 0; }
 /* A saved line and its Keep button (S-221). */
 .fg-play__savedrow { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+
+/* Embed mode (S-240): play/?example=<id>&embed=1 for a page that holds Play in a frame. play.js puts fg-embed on <html>.
+   Only the code and the picture stay, with Run, Stop and "Open in Play". The frame is the window: the box fills it, the
+   layout is fixed (code left and picture right from 720px, stacked below that) and nothing here scrolls but the editor
+   and the messages. The rules say html.fg-embed so they win over the phone rules above at every width. */
+html.fg-embed, html.fg-embed body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+html.fg-embed .md-header, html.fg-embed .md-tabs, html.fg-embed .md-footer, html.fg-embed .md-top,
+html.fg-embed .md-sidebar, html.fg-embed .md-banner, html.fg-embed h1, html.fg-embed .headerlink { display: none !important; }
+html.fg-embed .fg-play { position: fixed; inset: 0; height: auto; min-height: 0; }
+
+/* Hidden: the picker, My sketches, My files, the lesson, Share, Reset, Guides, help, the divider, the floating Run. */
+html.fg-embed .fg-play__picker, html.fg-embed .fg-play__how, html.fg-embed .fg-play__guides, html.fg-embed .fg-play__link,
+html.fg-embed .fg-play__help, html.fg-embed .fg-play__notice, html.fg-embed .fg-play__mine, html.fg-embed .fg-play__minenote,
+html.fg-embed .fg-play__files, html.fg-embed .fg-lesson, html.fg-embed .fg-play__divider, html.fg-embed .fg-play__fab,
+html.fg-embed .fg-play__share, html.fg-embed .fg-play__reset,
+html.fg-embed .fg-play__bar > .fg-iconbtn { display: none !important; }
+html.fg-embed .fg-play__openplay { text-decoration: none; color: var(--ink); white-space: nowrap; }
+
+/* The layout: two equal columns, the code left. */
+html.fg-embed .fg-play__work { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; }
+html.fg-embed .fg-play__editor { height: auto; min-height: 0; border-top: 0; overflow: hidden; }
+html.fg-embed .fg-play__stage { order: 0; min-height: 0; overflow: hidden; border-left: var(--outline-width) solid var(--ink); }
+html.fg-embed .fg-play__picture { flex: 1; min-height: 0; padding: var(--space-2); }
+html.fg-embed .fg-play__caption { padding: 0 var(--space-2) var(--space-2); flex-wrap: wrap; }
+html.fg-embed .fg-play__bar .fg-status { order: 0; flex: 1 1 6rem; text-align: right; }
+
+/* Narrower than 720px: stacked, the code first, each half the height. */
+@media (max-width: 719px) {
+  html.fg-embed .fg-play__work { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  html.fg-embed .fg-play__stage { border-left: 0; border-top: var(--outline-width) solid var(--ink); }
+  html.fg-embed .fg-play__bar .fg-status { order: 10; flex: 1 1 100%; text-align: left; }
+}

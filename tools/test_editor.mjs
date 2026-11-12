@@ -20,7 +20,7 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { deflateSync, gzipSync } from "node:zlib";
+import { deflateRawSync, deflateSync, gzipSync, inflateRawSync } from "node:zlib";
 
 const { chromium } = await import("./codemirror/node_modules/playwright-core/index.mjs");
 
@@ -105,6 +105,7 @@ const EDITOR_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name
 <body data-md-color-scheme="default"><h1 id="play">Play</h1>
 <div class="fg-play-help"><p>Help text.</p><ul><li>Share copies a link.</li><li class="fg-keys-only">Keys: Ctrl+Enter runs.</li><li class="fg-keys-only">Drag the bar.</li></ul></div>
 <div id="funground-play" class="play"></div>
+<script>if (new URLSearchParams(location.search).get("embed") === "1") document.documentElement.classList.add("fg-embed");</script>
 <script type="module" src="play.js"></script></body></html>`;
 
 // A page on a third origin that holds the preview in a frame and sends it a run, as a stranger's page would.
@@ -2395,6 +2396,150 @@ print("written")
     assert((await page.locator(".fg-play__minenote").first().innerText()).includes("Run the sketch, then Keep this"), "the picture of a sketch that was stopped was kept");
     assert((await filesRows(page).count()) === 0, "a file was kept for a sketch that was not running");
     await page.close();
+  });
+  // ---- embed mode (S-240): play/?example=<id>&embed=1 shows only the code and the picture
+  const EMBED = `&example=${FIRST_SKETCH}&embed=1`;
+  const base64url = (bytes) => Buffer.from(bytes).toString("base64").replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  const unshare = (href) => inflateRawSync(Buffer.from(new URL(href).hash.slice(1).replace(/^code=/, "").replaceAll("-", "+").replaceAll("_", "/"), "base64")).toString("utf8");
+  const openInPlay = (page) => page.getByRole("link", { name: /Open in Play/ });
+  const embedPage = async (width, height, query = EMBED, hash = "") => {
+    const where = await browser.newContext({ viewport: { width, height } });
+    return { page: await openEditor(query, hash, where), where };
+  };
+  const waitFor = (page, test, arg, timeout = 10000) => page.waitForFunction(test, arg, { timeout });
+
+  await check(75, "embed: only the code, the picture, Run, Stop and Open in Play are shown", async () => {
+    const page = await openEditor(EMBED);
+    await page.evaluate(() => {          // what MkDocs puts round the page: the embed must hide it
+      for (const name of ["md-header", "md-tabs", "md-footer"]) document.body.prepend(Object.assign(document.createElement("div"), { className: name, textContent: name }));
+    });
+    assert(await page.evaluate(() => document.documentElement.classList.contains("fg-embed")), "no fg-embed class");
+    const hidden = { "the site header": ".md-header", "the tabs": ".md-tabs", "the footer": ".md-footer", "the page title": "h1", "the picker": ".fg-play__picker",
+      "the sketch list": ".fg-play__choose", "My sketches": ".fg-play__mine", "My files": ".fg-play__files", "the lesson": ".fg-lesson", "the help": "#fg-play-help",
+      "the help button": "[aria-label='Help']", "Guides": ".fg-play__guides", "Share": ".fg-play__share", "Reset": ".fg-play__reset", "the divider": ".fg-play__divider",
+      "the floating Run": ".fg-play__fab", "the link field": ".fg-play__link", "the first-visit note": ".fg-play__notice" };
+    for (const [name, selector] of Object.entries(hidden)) assert(!(await page.locator(selector).first().isVisible()), `${name} is shown`);
+    assert(await page.locator(".cm-content").isVisible(), "the editor is hidden");
+    assert((await page.locator(".cm-content").getAttribute("contenteditable")) === "true", "the editor cannot be edited");
+    assert(await page.locator(".play-preview").count() === 1, "no preview frame");
+    assert(await runButton(page).isVisible() && await page.getByRole("button", { name: "Stop" }).isVisible(), "Run or Stop is hidden");
+    const link = openInPlay(page);
+    assert(await link.isVisible(), "Open in Play is hidden");
+    assert((await link.getAttribute("target")) === "_blank" && (await link.getAttribute("rel")) === "noopener", "Open in Play does not open a new tab safely");
+    assert(await page.locator(".play-status").isVisible() && await page.locator(".cm-editor").isVisible(), "the status line or editor is hidden");
+    const scroll = await page.evaluate(() => ({ page: document.documentElement.scrollHeight - innerHeight, body: document.body.scrollHeight - innerHeight }));
+    assert(scroll.page <= 0 && scroll.body <= 0, `the page scrolls: ${JSON.stringify(scroll)}`);
+    await page.close();
+    const gallery = await openEditor("&example=basics-01_first_sketch&embed=1");      // an example that has a gallery picture
+    await gallery.locator(".fg-play__still-image").waitFor({ state: "visible" });
+    assert(await gallery.locator(".fg-play__still-tag").isVisible(), "the picture's tag is hidden");
+    await gallery.close();
+  });
+
+  await check(76, "embed: Run draws the example's picture; Esc stops it", async () => {
+    const page = await openEditor(EMBED);
+    await runButton(page).click();
+    const { picture: drawn } = await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque && p.centre.join() === "255,99,71");
+    assert(drawn.colours > 1, "a flat picture");
+    await page.locator(".cm-content").click();            // the keys go to the page, not to the sketch that has the focus
+    await page.keyboard.press("Escape");
+    await waitFor(page, () => document.querySelector(".play-status").textContent === "Stopped.");
+    await page.keyboard.press("Control+Enter");
+    await waitFor(page, () => document.querySelector(".play-status").textContent.startsWith("Running"));
+    await page.close();
+    return "Run, Esc and Ctrl+Enter work";
+  });
+
+  await check(77, "embed: Open in Play holds the example, and the code once it is changed", async () => {
+    const page = await openEditor(EMBED);
+    const link = openInPlay(page);
+    await waitFor(page, () => document.querySelector(".fg-play__openplay").href.includes("example="));
+    const first = new URL(await link.getAttribute("href"));
+    assert(first.pathname === "/play/" && first.origin === EDITOR && first.searchParams.get("example") === FIRST_SKETCH, `address ${first}`);
+    assert(first.hash === "" && !first.searchParams.has("embed") && !first.searchParams.has("preview"), `the unchanged address is not plain: ${first}`);
+    const changed = (await editorText(page)).replace('"tomato"', '"gold"');
+    await typeCode(page, changed);
+    await waitFor(page, () => document.querySelector(".fg-play__openplay").href.includes("#code="));
+    const second = new URL(await link.getAttribute("href"));
+    assert(second.searchParams.get("example") === FIRST_SKETCH && !second.searchParams.has("embed"), `address ${second}`);
+    assert(unshare(second.href) === (await editorText(page)), "the code in the link is not the editor's text");
+    await typeCode(page, changed + "# more\n");
+    await sleep(500);
+    assert(unshare(await link.getAttribute("href")) === (await editorText(page)), "the link did not follow the next edit");
+    await page.close();
+  });
+
+  await check(78, "embed: nothing is remembered, and Ctrl+S does nothing", async () => {
+    const where = await browser.newContext({ viewport: { width: 1000, height: 600 } });
+    const page = await openEditor(EMBED, "", where);
+    const state = () => page.evaluate(async () => ({ keys: Object.keys(localStorage), databases: (await indexedDB.databases()).map((d) => d.name) }));
+    const before = await state();
+    await typeCode(page, (await editorText(page)).replace('"tomato"', '"gold"'));
+    await waitForPicture(frameOf(page, PREVIEW), (p) => p.centre.join() === "255,215,0");
+    await page.keyboard.press("Control+S");
+    await sleep(800);                                   // longer than the pause before a draft is written
+    const after = await state();
+    assert(JSON.stringify(before) === JSON.stringify(after), `storage changed: ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
+    assert(after.keys.length === 0 && after.databases.length === 0, `storage is not empty: ${JSON.stringify(after)}`);
+    assert(!(await page.locator(".play-link").isVisible()) && !((await status(page)).startsWith("Link")), "Ctrl+S shared");
+    await where.close();
+  });
+
+  await check(79, "embed: a shared link opens its code, and the example it names", async () => {
+    const code = `${BLANK_TEXT_FOR_TEST.trimEnd()}\n# embedded é☃\n`;
+    const hash = `#code=${base64url(deflateRawSync(Buffer.from(code)))}`;
+    for (const query of ["&embed=1", `&embed=1&example=${FIRST_SKETCH}`]) {
+      const page = await openEditor(query, hash);
+      assert((await editorText(page)).trim() === code.trim(), `the code differs (${query})`);
+      assert((await status(page)).startsWith("Shared sketch: press Run"), `status "${await status(page)}"`);
+      await waitFor(page, () => document.querySelector(".fg-play__openplay").href.includes("#code="));
+      assert(unshare(await openInPlay(page).getAttribute("href")).trim() === code.trim(), "Open in Play lost the code");
+      await runButton(page).click();
+      await waitForPicture(frameOf(page, PREVIEW), (p) => p.centre.join() === "255,215,0");
+      await page.close();
+    }
+  });
+
+  await check(80, "embed: an unknown or missing example says so and leaves an empty editor", async () => {
+    for (const query of ["&embed=1&example=no-such-example", "&embed=1"]) {
+      const page = await openEditor(query);
+      assert((await status(page)) === "This example is not in Play.", `status "${await status(page)}" (${query})`);
+      assert((await editorText(page)) === "", `the editor holds "${await editorText(page)}" (${query})`);
+      assert(await runButton(page).isEnabled() && await page.locator(".fg-play__work").isVisible(), "the page is broken");
+      await page.close();
+    }
+  });
+
+  await check(81, "embed: 500 px stacks the code above the picture; 720 px and wider put them side by side", async () => {
+    const notes = [];
+    for (const [width, height, stacked] of [[500, 700, true], [719, 700, true], [720, 500, false], [800, 500, false], [1000, 500, false]]) {
+      const { page, where } = await embedPage(width, height);
+      const code = await page.locator(".fg-play__editor").boundingBox();
+      const picture = await page.locator(".fg-play__stage").boundingBox();
+      const shape = JSON.stringify({ code, picture });
+      if (stacked) assert(picture.y >= code.y + code.height - 2 && Math.abs(picture.x - code.x) < 2 && picture.height > 100 && code.height > 100, `${width}px is not stacked: ${shape}`);
+      else assert(picture.x >= code.x + code.width - 2 && Math.abs(picture.y - code.y) < 2 && picture.width > 150 && code.width > 150, `${width}px is not side by side: ${shape}`);
+      const scroll = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight);
+      assert(scroll <= 0, `${width}px: the page scrolls by ${scroll}`);
+      const room = await page.locator(".fg-play__picture").boundingBox();
+      const shown = await page.locator(".fg-play__frame").boundingBox();
+      assert(shown.width <= room.width + 1 && shown.height <= room.height + 1, `${width}px: the picture is bigger than its room`);
+      notes.push(`${width}: ${stacked ? "stacked" : "side by side"}`);
+      await where.close();
+    }
+    return notes.join(", ");
+  });
+
+  await check(82, "Play without embed=1 is unchanged", async () => {
+    for (const query of ["", `&example=${FIRST_SKETCH}`, `&example=${FIRST_SKETCH}&embed=0`, `&example=${FIRST_SKETCH}&embed=true`]) {
+      const page = await openEditor(query);
+      assert(!(await page.evaluate(() => document.documentElement.classList.contains("fg-embed"))), `embed mode is on (${query})`);
+      for (const selector of [".fg-play__choose", ".fg-play__mine", ".fg-play__files", ".fg-play__share", ".fg-play__guides", "[aria-label='Help']", ".fg-play__divider"]) {
+        assert(await page.locator(selector).first().isVisible(), `${selector} is hidden (${query})`);
+      }
+      assert((await page.locator(".fg-play__openplay").count()) === 0, "Open in Play was built");
+      await page.close();
+    }
   });
 } finally {
   await browser.close();
