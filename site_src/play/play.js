@@ -22,6 +22,12 @@ import * as myFiles from "./myfiles.js";
 
 const play = document.getElementById("funground-play");
 
+// Embed mode (S-240): play/?example=<id>&embed=1 shows only the code and the picture, for other pages to hold in a frame.
+// It is read once, here. The class on <html> lets play.css hide the rest; nothing is remembered in this browser (see
+// remember, recall and the My files store below), so an embedded copy never changes the learner's own Play.
+const embed = new URLSearchParams(location.search).get("embed") === "1";
+if (embed) document.documentElement.classList.add("fg-embed");
+
 // ---- where the preview is, and how it is fenced in
 
 const PREVIEW_URL = "https://funground-run.github.io/preview.html";
@@ -59,6 +65,7 @@ function element(tag, attributes = {}, ...children) {
 
 // localStorage can be missing or full (private windows, blocked storage): the editor works without it.
 function remember(name, value) {
+  if (embed) return;                // an embed writes nothing
   try {
     if (value === null) localStorage.removeItem(name);
     else localStorage.setItem(name, JSON.stringify(value));
@@ -66,6 +73,7 @@ function remember(name, value) {
 }
 
 function recall(name) {
+  if (embed) return null;           // and reads nothing: it opens what it is given
   try {
     return JSON.parse(localStorage.getItem(name));
   } catch {
@@ -89,6 +97,14 @@ async function decodeCode(encoded) {
   const base64 = encoded.replaceAll("-", "+").replaceAll("_", "/");
   const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
   return new TextDecoder().decode(await throughStream(bytes, new DecompressionStream("deflate-raw")));
+}
+
+// The address of the full Play page for the sketch that is open: the same example, and the code if it is wanted.
+async function playLink(withCode) {
+  const link = new URL(location.pathname, location.origin);
+  if (current) link.searchParams.set("example", current.id);      // so its data files load for whoever opens the link
+  if (withCode) link.hash = `code=${await encodeCode(editor.getText())}`;
+  return link;
 }
 
 function sharedCode() {
@@ -148,13 +164,17 @@ const stopButton = element("button", { class: "fg-btn", disabled: "", title: "St
 const autoRun = element("input", { type: "checkbox", checked: "" });
 const guidesButton = element("button", { class: "fg-btn fg-play__guides", type: "button", "aria-pressed": "false",
   title: "Show a grid and the mouse's x and y over the picture" }, "Guides");
-const shareButton = element("button", { class: "fg-btn", title: "Copy a link that holds the code (Ctrl+S)" }, "Share");
-const resetButton = element("button", { class: "fg-btn", hidden: "", title: "Go back to the original code" }, "Reset");
+const shareButton = element("button", { class: "fg-btn fg-play__share", title: "Copy a link that holds the code (Ctrl+S)" }, "Share");
+const resetButton = element("button", { class: "fg-btn fg-play__reset", hidden: "", title: "Go back to the original code" }, "Reset");
 const helpButton = element("button", { class: "fg-iconbtn", "aria-label": "Help", "aria-expanded": "false",
   "aria-controls": "fg-play-help", title: "How the Play page works" }, "?");
 const status = element("span", { class: "fg-status fg-status--loading play-status", role: "status" },
   "Loading Python. The first time takes a little while...");
 const linkField = element("input", { class: "fg-play__link play-link", type: "text", readonly: "", "aria-label": "Link to share", hidden: "" });
+
+// Embed mode only (S-240): a link to the full Play page, in a new tab. Its address is kept up to date by showOpenInPlay.
+const openInPlay = embed ? element("a", { class: "fg-btn fg-play__openplay", target: "_blank", rel: "noopener",
+  title: "Open this sketch in Play, in a new tab" }, "Open in Play ↗") : null;
 
 const help = element("div", { id: "fg-play-help", class: "fg-help fg-play__help", role: "dialog", "aria-label": "How Play works", hidden: "" });
 const pageText = document.querySelector(".fg-play-help");      // index.md's text, written there so it stays prose
@@ -259,7 +279,7 @@ const work = element("div", { class: "fg-play__work" },
 play.classList.add("fg-play");
 play.replaceChildren(
   element("div", { class: "fg-play__bar play-toolbar" },
-    element("span", { class: "fg-play__picker", role: "group", "aria-label": "Examples" }, previousButton, choose, nextButton), howLink, runButton, stopButton,
+    element("span", { class: "fg-play__picker", role: "group", "aria-label": "Examples" }, previousButton, choose, nextButton), howLink, runButton, stopButton, ...(openInPlay ? [openInPlay] : []),
     element("label", { class: "fg-play__auto" }, autoRun, " Auto-run"), guidesButton,
     element("span", { class: "spacer" }), status, shareButton, resetButton, helpButton),
   linkField,
@@ -303,10 +323,11 @@ function showLineCount() {
 // ---- the page fills the window: everything under the site's header and tabs belongs to the editor
 
 // On a phone (900px or less) the page scrolls instead and the box is as tall as its parts (S-189).
-const phone = window.matchMedia("(max-width: 900px)");
+// An embed has its own layout (play.css): the frame is the window, so it is never "a phone".
+const phone = window.matchMedia(embed ? "not all" : "(max-width: 900px)");
 
 function fillWindow() {
-  if (phone.matches) {
+  if (embed || phone.matches) {      // an embed fills its frame with CSS
     play.style.height = "";
     return;
   }
@@ -392,6 +413,7 @@ if (typeof split === "number") split = setSplit(split);
 else split = 0.86 / 1.86;
 
 divider.addEventListener("pointerdown", (event) => {
+  if (embed) return;
   divider.setPointerCapture(event.pointerId);
   const move = (e) => {
     const box = work.getBoundingClientRect();
@@ -401,6 +423,7 @@ divider.addEventListener("pointerdown", (event) => {
   divider.addEventListener("pointerup", () => divider.removeEventListener("pointermove", move), { once: true });
 });
 divider.addEventListener("keydown", (event) => {
+  if (embed) return;
   const step = { ArrowLeft: -0.05, ArrowRight: 0.05 }[event.key];
   if (step) {
     event.preventDefault();
@@ -441,7 +464,7 @@ helpButton.addEventListener("click", () => showHelp(help.hidden));
 document.addEventListener("pointerdown", (event) => {
   if (!help.hidden && !help.contains(event.target) && event.target !== helpButton) showHelp(false);
 });
-if (!recall(HELP_SEEN)) {
+if (!embed && !recall(HELP_SEEN)) {
   if (phone.matches) { notice.hidden = false; remember(HELP_SEEN, true); }
   else showHelp(true);
 }
@@ -574,6 +597,8 @@ async function open(wanted) {
     files = fetched.data;
   }
   if (key === SHARED) original = await decodeCode(sharedBase);
+  const missing = embed && key === BLANK;      // an embed of an example that is not there: an empty editor and a sentence
+  if (missing) original = "";
   if (key === SHARED) choose.append(sharedOption);
   else sharedOption.remove();
   choose.value = key;
@@ -593,9 +618,24 @@ async function open(wanted) {
   showLesson();
   howLink.hidden = !current?.page;
   if (current?.page) howLink.href = current.page;
-  if (useDraft) setStatus("Your unsaved changes are back. Reset goes back to the original.");
+  showOpenInPlay();
+  if (missing) setStatus(NOT_IN_PLAY, "error");
+  else if (useDraft) setStatus("Your unsaved changes are back. Reset goes back to the original.");
   else if (key === SHARED) setStatus("Shared sketch: press Run.");
   else if (previewReady) setStatus("Ready. Press Run.", "ready");
+}
+
+// ---- Open in Play (embed mode, S-240): the full page, with the example and, if the code was changed, the code
+
+const NOT_IN_PLAY = "This example is not in Play.";
+let linkTicket = 0;               // the newest request wins: the encoding is asynchronous
+
+async function showOpenInPlay() {
+  if (!openInPlay) return;
+  const ticket = ++linkTicket;
+  const text = editor.getText();
+  const link = await playLink(key === SHARED || text !== original);
+  if (ticket === linkTicket) openInPlay.href = link.href;
 }
 
 // ---- the course lesson's panel (S-216)
@@ -1059,7 +1099,8 @@ addFileInput.addEventListener("change", async () => {
     }
   }
 });
-const filesLoaded = loadFiles();            // a run waits for it, so the first run has the files
+if (embed) filesWork = false;               // an embed has no My files: the store is not even opened
+const filesLoaded = embed ? Promise.resolve() : loadFiles();            // a run waits for it, so the first run has the files
 
 // ---- editing: drafts are kept in this browser, and Auto-run runs again after a pause
 
@@ -1080,6 +1121,7 @@ function edited() {
   showReset();
   showLineCount();
   updateStill();
+  showOpenInPlay();
   clearTimeout(autoTimer);
   if (autoRun.checked && previewReady) autoTimer = setTimeout(runSketch, AUTO_RUN_MS);
 }
@@ -1259,7 +1301,8 @@ const handlers = {
     tellGuides();
     // Python is ready, so the loading spinner stops whatever the line says; a more useful message (a restored draft,
     // a shared sketch) stays, and only "Loading ..." is replaced.
-    setStatus(status.textContent.startsWith("Loading") ? "Ready. Press Run." : status.textContent, "ready");
+    setStatus(status.textContent.startsWith("Loading") ? "Ready. Press Run." : status.textContent,
+      status.classList.contains("fg-status--error") ? "error" : "ready");
   },
   output: (message) => addOutput(message.text, message.stream),
   // The last sketch did not stop within a second, so the preview is loading a new Python: say why the run waits.
@@ -1379,7 +1422,7 @@ document.addEventListener("keydown", (event) => {
     runSketch();
   } else if (command && event.key.toLowerCase() === "s") {
     event.preventDefault();                // not the browser's "save page" dialog
-    shareButton.click();
+    if (!embed) shareButton.click();       // an embed has no Share
   } else if (event.key === "Escape") {
     if (!help.hidden) showHelp(false);
     else if (!stopButton.disabled) stopSketch();
@@ -1396,9 +1439,7 @@ function longLinkWarning(link) {
 }
 
 shareButton.addEventListener("click", async () => {
-  const link = new URL(location.pathname, location.origin);
-  if (current) link.searchParams.set("example", current.id);      // so its data files load for whoever opens the link
-  link.hash = `code=${await encodeCode(editor.getText())}`;
+  const link = await playLink(true);
   linkField.value = link.href;
   linkField.hidden = false;
   try {
@@ -1425,6 +1466,10 @@ async function openFromAddress() {
     }
   }
   const example = new URLSearchParams(location.search).get("example");
+  if (embed) {                          // always what the address says: no starter, no last sketch, no draft
+    await open(examples.some((e) => e.id === example) ? example : BLANK);
+    return;
+  }
   // No example and no link: a visitor who has a draft of the blank sketch (from before the starter existed) gets it
   // back; everyone else gets the starter sketch, with their own draft of it if they have one.
   const last = recall(LAST_NAME);

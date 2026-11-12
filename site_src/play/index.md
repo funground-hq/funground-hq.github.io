@@ -37,4 +37,8 @@ your browser, about 12 MB the first time and then from its cache.
   <noscript>The Play page needs JavaScript to run Python in your browser.</noscript>
 </div>
 
+<script>
+  /* Embed mode (S-240): the class goes on at once, so the site's header never flashes in a frame. play.js reads the same address. */
+  if (new URLSearchParams(location.search).get("embed") === "1") document.documentElement.classList.add("fg-embed");
+</script>
 <script type="module" src="play.js"></script>

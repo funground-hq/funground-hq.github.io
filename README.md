@@ -84,7 +84,29 @@ node tools/test_editor.mjs
 It assembles the site into a temporary folder, serves the editor and the preview on two local origins, and checks
 Run, Auto-run, errors, Share, drafts, Stop and the origin check in headless Chrome. Drafts are kept in the browser
 (`localStorage`), and a shared link holds the code in its `#code=` part. It also checks the guides (a grid and the mouse's sketch
-position, at 1:1 and at Fit), the starter sketch of a first visit, and the caption after an early error.
+position, at 1:1 and at Fit), the starter sketch of a first visit, and the caption after an early error. The embed mode (checks 75 to 82) is checked for what it shows and hides, the address of Open in Play, that nothing is stored, and its two layouts.
+
+## Embed Play in a page
+
+Any page can hold one example, with its code and its picture, in a frame (S-240):
+
+```html
+<iframe src="https://funground-hq.github.io/play/?example=basics-01_first_sketch&embed=1"
+        title="Play: first sketch" width="100%" height="480" loading="lazy"
+        style="border: 0"></iframe>
+```
+
+- **The address** is the Play page with `embed=1` and the `example` (an id from the gallery). A shared link works the
+  same way: `play/?embed=1#code=...` opens that code.
+- **Shown:** the code (the reader can change it), the picture, Run, Stop, Auto-run, the status line, the messages, and
+  a link, **Open in Play**, that opens the full page in a new tab with the same example and any change to the code.
+- **Hidden:** the site's header and tabs, the page title, the help, the sketch list, My sketches, My files, the lesson
+  and Keep, Share, Reset and Guides. Ctrl+Enter runs and Esc stops; Ctrl+S does nothing.
+- **Nothing is remembered.** An embed never writes to or reads from the browser's storage, so a copy on another site
+  does not change the reader's own Play.
+- **The layout is fixed:** the code on the left and the picture on the right when the frame is 720 pixels wide or
+  more, and the code above the picture when it is narrower. Give the frame a height of about 480 pixels.
+- An example that is not in Play gives an empty editor and the line "This example is not in Play."
 
 ## Licence
 
