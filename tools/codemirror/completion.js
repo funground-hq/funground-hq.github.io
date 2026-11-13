@@ -3,14 +3,16 @@
 // Nothing here is written by hand about the API. The learner's own variables are not suggested, except through
 // CodeMirror's local words from lang-python, which keep working beside this source.
 //
-// Five places give suggestions:
+// Six places give suggestions:
 //   1. after `f.`            every funground name (f is whatever `import funground as ...` says; the default is f)
 //   2. a bare word           with `from funground import *`, the names marked "star" (two letters or more)
 //   3. inside a string       the words that funground call takes there: colour names, or an option list
 //   4. inside a namespace    after `f.COLORS.` the colour names, after `f.CONSTANTS.` the groups and after
 //                            `f.CONSTANTS.ALIGN.` the group's words (with `from funground import *`: no `f.`)
 //   5. after an object's dot the methods and properties of the class funground gave back: `f.path().`,
-//                            `f.path().rect(0, 0, 9, 9).`, or `p.` after `p = f.path()` (see typeBefore)
+//                            `f.path().rect(0, 0, 9, 9).`, or `p.` after `p = f.path()` (see typeBefore); also
+//                            `cam.` after `cam = camera.open()`
+//   6. after a library's dot `camera.`, `ml.`: the library's functions, after `from funground import camera` (S-278)
 import { autocompletion } from "@codemirror/autocomplete";
 import { EditorState, StateEffect, StateField } from "@codemirror/state";
 import { EditorView, hoverTooltip, keymap, showTooltip } from "@codemirror/view";
@@ -83,6 +85,20 @@ function classOptions(classes) {
   return found;
 }
 
+// The suggestions after a library's dot (`camera.`, `ml.`) and its functions by name, for each of funground's libraries.
+function libraryOptions(libraries) {
+  const found = new Map();
+  for (const [name, entries] of Object.entries(libraries)) {
+    found.set(name, {
+      byName: new Map(entries.map((entry) => [entry.name, entry])),
+      options: entries.map((entry) => ({
+        label: entry.name, detail: entry.detail, type: KIND_TYPE[entry.kind] ?? "variable", info: () => infoNode(entry),
+      })),
+    });
+  }
+  return found;
+}
+
 export function prepare(data) {
   const stars = [];
   const inside = new Map();
@@ -100,6 +116,7 @@ export function prepare(data) {
     inside,
     byName: new Map(data.names.map((entry) => [entry.name, entry])),
     classes: classOptions(data.classes ?? {}),
+    libraries: libraryOptions(data.libraries ?? {}),
     parameters: new Map(data.names.map((entry) => [entry.name, parameterNames(entry.signature)])),
     colourParams: new Set(data.color_params.map((p) => `${p.function}.${p.parameter}`)),
     colours: data.colors.map((c) => ({ label: c.name, type: "constant", swatch: c.hex })),
@@ -143,6 +160,25 @@ function aliasesIn(text) {
   if (/^\s*import\s+funground\s*$/m.test(text)) aliases.add("funground");
   if (!aliases.size) aliases.add("f");
   return aliases;
+}
+
+// The names this code gives funground's libraries: `from funground import camera, ml as m` gives camera -> camera and
+// m -> ml. Only funground's own libraries count; other names imported that way are not libraries.
+function librariesIn(text, data) {
+  const found = new Map();
+  for (const line of text.matchAll(/^\s*from\s+funground\s+import\s+\(?([^)\n#]*)/gm)) {
+    for (const part of line[1].split(",")) {
+      const named = /^\s*([A-Za-z_]\w*)(?:\s+as\s+([A-Za-z_]\w*))?\s*$/.exec(part);
+      if (named && data.libraries.has(named[1])) found.set(named[2] ?? named[1], named[1]);
+    }
+  }
+  return found;
+}
+
+// The entry of `library.name` when `owner` is a library this code imports, or null.
+function libraryEntry(text, data, owner, name) {
+  const library = librariesIn(text, data).get(owner);
+  return (library && data.libraries.get(library).byName.get(name)) || null;
 }
 
 const usesStar = (text) => /^\s*from\s+funground\s+import\s+\*/m.test(text);
@@ -229,6 +265,9 @@ function typeBefore(text, end, data, aliases) {
   if (aliases.has(head.name) && !head.call) {
     const first = rest.shift();
     type = first?.call ? data.byName.get(first.name)?.returns ?? null : null;
+  } else if (!head.call && librariesIn(text, data).has(head.name)) {    // camera.open(): what the library's function gives
+    const first = rest.shift();
+    type = first?.call ? libraryEntry(text, data, head.name, first.name)?.returns ?? null : null;
   } else if (head.call) {
     type = usesStar(text) ? data.byName.get(head.name)?.returns ?? null : null;
   } else type = variableType(text, head.name, head.at, data, aliases);
@@ -251,6 +290,9 @@ function callOf(text, call, data, aliases, needStar) {
   const name = functionOf(text, call, data, aliases, needStar);
   if (name) return data.byName.get(name);
   const method = call.bracket === "(" && /\.\s*([A-Za-z_]\w*)\s*$/.exec(text.slice(0, call.at));
+  const owner = method && /([A-Za-z_]\w*)\s*$/.exec(text.slice(Math.max(0, method.index - 80), method.index));
+  const inLibrary = owner && libraryEntry(text, data, owner[1], method[1]);                // camera.open(
+  if (inLibrary) return inLibrary.kind === "function" ? inLibrary : null;
   const entry = method && memberNamed(text, method.index, method[1], data, aliases);
   return entry?.kind === "method" ? entry : null;
 }
@@ -378,7 +420,8 @@ function hoverSource(getData) {
     else {
       const dotAt = found.from - dot[0].length;
       const owner = /([A-Za-z_]\w*)\s*$/.exec(text.slice(Math.max(0, dotAt - 80), dotAt));
-      entry = owner && aliases.has(owner[1]) ? data.byName.get(found.text) : memberNamed(text, dotAt, found.text, data, aliases);
+      entry = owner && aliases.has(owner[1]) ? data.byName.get(found.text)
+        : (owner && libraryEntry(text, data, owner[1], found.text)) || memberNamed(text, dotAt, found.text, data, aliases);
     }
     if (!entry) return null;
     return { pos: found.from, end: found.from + found.text.length, above: true, create: () => ({ dom: infoNode(entry) }) };
@@ -418,6 +461,8 @@ function fungroundSource(getData) {
     if (member && text[member.from - 1] !== ".") {
       const parts = member.text.split(".");
       const partial = parts.pop();
+      const library = parts.length === 1 && librariesIn(text, data).get(parts[0]);       // camera.: the library's names
+      if (library) return { from: member.to - partial.length, options: data.libraries.get(library).options, validFor: /^\w*$/ };
       let path = null;                                           // the names between f and the cursor: [] or ["COLORS"]
       if (aliases.has(parts[0])) path = parts.slice(1);
       else if (usesStar(text) && data.inside.has(parts.join("."))) path = parts;
