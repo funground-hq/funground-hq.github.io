@@ -2581,6 +2581,21 @@ print("written")
       await page.close();
     }
   });
+
+  // ---- input() in Play (S-279)
+  await check(83, "input() shows its prompt, then says in one sentence that Play cannot wait for typing", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await typeCode(page, 'name = input("Your name? ")\nprint("never")\n');
+    await runButton(page).click();
+    await page.locator(".fg-play__error").waitFor({ timeout: 30000 });
+    const error = await page.locator(".fg-play__error").innerText();
+    assert(error.includes("Play cannot wait for typing yet. Run this on your computer, or put the answer in the code."), `the error says "${error}"`);
+    const output = await page.locator(".play-output").innerText();
+    assert(output.includes("Your name? ") && !output.includes("OSError") && !output.includes("never"), `the output is "${output}"`);
+    await page.close();
+    return error;
+  });
 } finally {
   await browser.close();
   for (const server of [editorServer, previewServer, strangerServer]) server.close();
