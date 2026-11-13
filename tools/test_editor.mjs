@@ -1,6 +1,6 @@
 // Tests the Play page, the funground editor (S-151 part 2), in headless Chrome.
 //
-//   node tools/test_editor.mjs [--same-origin] [--only 3,4]
+//   node tools/test_editor.mjs [--same-origin] [--only 3,4 | --part 1/2]
 //
 // It assembles the site with the browser runner, serves the editor on one local origin (http://localhost:PORT) and the
 // preview (the funground-run.github.io repository) on another (http://127.0.0.1:PORT), and drives the editor like a
@@ -9,6 +9,8 @@
 //
 // --scripts-only  run with the iframe sandboxed as just "allow-scripts" (the runner cannot start then: this shows it)
 // --only 3,4      run only those checks (numbers as in the list below)
+// --part 1/2      run the first of two equal ranges of check numbers (S-278: the whole file takes about 13 minutes on
+//                 the maintainer's machine; each half fits in 10). Run --part 1/2, then --part 2/2
 // --shots <dir>  save pictures of the suggestions popup (checks 13 to 15), the hint, night and the toolbar (check 33), the guides (check 34) and the first visit (check 35) in that folder
 // --debug         print what every page and frame writes to the console, and every failed request
 //
@@ -37,7 +39,17 @@ const CHROME = "C:/Users/samirj/AppData/Local/Google/Chrome/Application/chrome.e
 const scriptsOnly = process.argv.includes("--scripts-only");
 const debug = process.argv.includes("--debug");
 const shotsDir = process.argv.includes("--shots") ? process.argv[process.argv.indexOf("--shots") + 1] : null;
-const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1].split(",").map(Number) : null;
+const argumentAfter = (flag) => (process.argv.includes(flag) ? process.argv[process.argv.indexOf(flag) + 1] : null);
+// The checks of part `n` of `m`: the numbers 1 to the last check's, cut into m equal ranges. The last number is read
+// from this file, so a new check joins the last part without anything to update here.
+function partOf(text) {
+  const [n, m] = text.split("/").map(Number);
+  if (!(n >= 1 && n <= m)) throw new Error(`--part ${text}: give it as 1/2`);
+  const last = Math.max(...[...readFileSync(fileURLToPath(import.meta.url), "utf8").matchAll(/await check\((\d+),/g)].map((c) => Number(c[1])));
+  const size = Math.ceil(last / m);
+  return Array.from({ length: size }, (_, i) => (n - 1) * size + i + 1).filter((number) => number <= last);
+}
+const only = argumentAfter("--only")?.split(",").map(Number) ?? (argumentAfter("--part") ? partOf(argumentAfter("--part")) : null);
 
 // ---- the servers: plain files with a length, in 64 KB writes, open to every origin (as GitHub Pages is)
 
@@ -117,6 +129,9 @@ const strangerPage = (previewUrl) => `<!doctype html><html><body>
 const results = [];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// A check throws Skip when what it tests is switched off on purpose, saying why; it is reported, never counted as passed.
+class Skip extends Error {}
+
 async function check(number, name, body) {
   if (only && !only.includes(number)) return;
   const began = Date.now();
@@ -124,10 +139,11 @@ async function check(number, name, body) {
     const note = await body();
     results.push({ number, name, ok: true, seconds: (Date.now() - began) / 1000, note });
   } catch (error) {
-    results.push({ number, name, ok: false, seconds: (Date.now() - began) / 1000, note: error.message });
+    results.push({ number, name, ok: error instanceof Skip ? "skip" : false, seconds: (Date.now() - began) / 1000, note: error.message });
   }
   const r = results.at(-1);
-  console.log(`${r.ok ? "PASS" : "FAIL"} ${r.number}. ${r.name} (${r.seconds.toFixed(1)} s)${r.note ? ` - ${r.note}` : ""}`);
+  const word = r.ok === "skip" ? "SKIP" : r.ok ? "PASS" : "FAIL";
+  console.log(`${word} ${r.number}. ${r.name} (${r.seconds.toFixed(1)} s)${r.note ? ` - ${r.note}` : ""}`);
 }
 
 function assert(condition, message) {
@@ -146,7 +162,7 @@ async function editorText(page) {
 // A small sketch that runs at once (check 12).
 const BLANK_TEXT_FOR_TEST = "import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    f.background(\"gold\")\n\n\nf.run()\n";
 // A sketch that draws the camera (check 55).
-const CAMERA_SKETCH = "import funground as f\n\ncam = f.camera()\n\n\ndef setup():\n    f.size(160, 120)\n    cam.start(160, 120)\n\n\ndef draw():\n    f.background(\"black\")\n    f.image(cam, 0, 0)\n\n\nf.run()\n";
+const CAMERA_SKETCH = "import funground as f\nfrom funground import camera\n\ncam = camera.open()\n\n\ndef setup():\n    f.size(160, 120)\n    cam.start(160, 120)\n\n\ndef draw():\n    f.background(\"black\")\n    f.image(cam, 0, 0)\n\n\nf.run()\n";
 
 async function typeCode(page, text) {
   await page.locator(".cm-content").click();
@@ -948,6 +964,9 @@ try {
     const page = await openEditor();
     await clearDrafts(page);
     await runButton(page).click();
+    // The caption says 640 × 400 before any run, so wait for this run to start: otherwise its late "started" is taken
+    // for the next run's (a race in Play too, noted in S-278; the caption is all it touches).
+    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.startsWith("Running"), null, { timeout: 60000 });
     await page.waitForFunction(() => /640 × 400/.test(document.querySelector(".fg-play__caption").textContent), null, { timeout: 20000 });
     await typeCode(page, SKETCH_WITH("pass").replace("f.size(200, 100)", "f.size(200, 100)\n    f.circl(1, 2, 3)"));
     await page.locator(".fg-play__error").waitFor({ timeout: 20000 });
@@ -1791,6 +1810,13 @@ f.run()
     return `1366: ${wide.rows} row, code ${wide.code}px; 390: ${narrow.rows} rows, code ${narrow.code}px`;
   });
   // ---- the runtime stays on the device (S-210). Each check has its own browser context, so its caches start empty.
+  // S-210 was rolled back in sprint 27 (a first visit hung on GitHub Pages): the preview's sw.js caches nothing until it
+  // is fixed. While it is in that pass-through mode, the checks that need a cache are skipped, and 53 checks only what
+  // Remove still does. A sw.js that opens a cache again brings every check back.
+  const CACHING = /caches\.open\(/.test(readFileSync(path.join(PREVIEW_REPO, "sw.js"), "utf8"));
+  const needsCache = () => {
+    if (!CACHING) throw new Skip("the preview's sw.js caches nothing (pass-through since S-210 was rolled back)");
+  };
 
   const RUNTIME_DIR = "/play/runner/runtime/";
   const MANIFEST_PATH = `${RUNTIME_DIR}manifest.json`;
@@ -1818,6 +1844,7 @@ f.run()
   }
 
   await check(51, "Service worker: a repeat visit fetches no runtime file, and a font still works", async () => {
+    needsCache();
     const ctx = await trackedContext();
     const page = await openEditor("", "", ctx);
     assert((await runtimeCaches(frameOf(page, PREVIEW))).length === 1, "no runtime cache after the first visit");
@@ -1838,6 +1865,7 @@ f.run()
   });
 
   await check(52, "Service worker: a changed manifest replaces the cache, copies unchanged files, and tells the editor", async () => {
+    needsCache();
     const ctx = await trackedContext();
     const page = await openEditor("", "", ctx);
     const before = await runtimeCaches(frameOf(page, PREVIEW));
@@ -1879,7 +1907,7 @@ f.run()
     const ctx = await trackedContext();
     const page = await openEditor("", "", ctx);
     const frame = frameOf(page, PREVIEW);
-    assert((await cacheNames(frame)).length >= 2, `caches after the first visit: ${await cacheNames(frame)}`);
+    if (CACHING) assert((await cacheNames(frame)).length >= 2, `caches after the first visit: ${await cacheNames(frame)}`);
     assert(await frame.evaluate(async () => Boolean(await navigator.serviceWorker.getRegistration())), "no service worker registered");
     if (!(await page.getByRole("button", { name: "Remove Play from this browser" }).isVisible())) await page.getByRole("button", { name: "Help" }).click();     // a first visit opens the help by itself
     await page.getByRole("button", { name: "Remove Play from this browser" }).click();
@@ -1892,6 +1920,7 @@ f.run()
   });
 
   await check(54, "Service worker: offline, the preview loads again and runs a sketch", async () => {
+    needsCache();
     const ctx = await trackedContext();
     const page = await openEditor(`&example=${FIRST_SKETCH}`, "", ctx);
     await clearDrafts(page);
@@ -1911,7 +1940,7 @@ f.run()
     await ctx.close();
   });
 
-  await check(55, "the preview may use the camera: a sketch that draws f.camera() shows Chrome's fake camera", async () => {
+  await check(55, "the preview may use the camera: a sketch that draws camera.open() shows Chrome's fake camera", async () => {
     const page = await openEditor();
     await clearDrafts(page);
     const allow = await page.locator(".play-preview").getAttribute("allow");
@@ -1939,14 +1968,21 @@ f.run()
     await page.close();
   });
 
-  await check(57, "a variable assigned from f.path() or f.camera() gets that class's methods, and an unknown one gets none", async () => {
+  await check(57, "a variable assigned from f.path() or camera.open() gets that class's methods, and an unknown one gets none", async () => {
     const page = await openEditor();
     await typeSlowly(page, "import funground as f\np = f.path()  # a shape\np.");
     await hasOptions(page, ["triangle", "rect", "union"]);
     await page.keyboard.press("Escape");
-    await typeSlowly(page, "cam = f.camera()\ncam.");
+    await typeSlowly(page, "from funground import camera\ncam = camera.open()\ncam.");
     await hasOptions(page, ["start", "record"]);
     assert(!(await popupLabels(page)).includes("rect"), "a camera was offered path methods");
+    await page.keyboard.press("Escape");
+    await typeSlowly(page, "from funground import camera\ncamera.");  // a library's own names (S-278)
+    await hasOptions(page, ["open", "names"]);
+    await page.keyboard.press("Escape");
+    await typeSlowly(page, "camera.");                                 // not imported: not a library here
+    await page.waitForTimeout(600);
+    assert(!(await popupLabels(page)).includes("open"), "camera. was offered the library without the import");
     await page.keyboard.press("Escape");
     await typeSlowly(page, "x.");
     await page.waitForTimeout(600);
@@ -2302,7 +2338,11 @@ print("written")
       again.length, { timeout: 20000 });
     await row.getByRole("button", { name: "Keep", exact: true }).click();
     await filesNoteHas(page, "note.txt");
-    assert((await page.locator(".fg-play__file .fg-play__filesize").innerText()) === `${again.length} bytes`, "the kept copy was not replaced");
+    // The note named note.txt already, from the first Keep: wait for the list itself to show the new size.
+    const size = page.locator(".fg-play__file .fg-play__filesize");
+    await page.waitForFunction((n) => document.querySelector(".fg-play__file .fg-play__filesize")?.textContent === `${n} bytes`,
+      again.length, { timeout: 10000 }).catch(() => {});
+    assert((await size.innerText()) === `${again.length} bytes`, `the kept copy was not replaced: My files says ${await size.innerText()}`);
     await page.close();
     return "rewritten, shown and kept again";
   });
@@ -2549,5 +2589,6 @@ print("written")
 
 if (problems.length) console.log(`page errors:\n${problems.join("\n")}`);
 const failed = results.filter((r) => !r.ok).length;
-console.log(`${results.length - failed} passed, ${failed} failed`);
+const skipped = results.filter((r) => r.ok === "skip").length;
+console.log(`${results.length - failed - skipped} passed, ${failed} failed${skipped ? `, ${skipped} skipped` : ""}`);
 process.exit(failed ? 1 : 0);
