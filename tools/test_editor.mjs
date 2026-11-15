@@ -2602,8 +2602,9 @@ print("written")
     await clearDrafts(page);
     const sketch = "import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    f.background('gold')\n    f.circle(100, 50, 40)\n\n\nf.run()\n";
     await typeCode(page, sketch);
+    await page.getByLabel("Blocks", { exact: true }).check();      // Blocks is optional (BF-D-031): the switch shows once it is ticked
     const started = Date.now();
-    await page.getByRole("button", { name: "Blocks" }).click();
+    await page.getByRole("button", { name: "Blocks", exact: true }).click();
     const box = page.locator(".fg-play__blocks");
     // the switch is done when Blocks is pressed (Blockly draws its page before the Python has been read)
     await page.waitForFunction(() => [...document.querySelectorAll(".fg-play__view")].some((b) => b.textContent === "Blocks"
@@ -2632,11 +2633,71 @@ print("written")
     await page.getByRole("button", { name: "Python" }).click();
     assert(await page.locator(".fg-play__code").isVisible(), "the code did not come back");
     await typeCode(page, "x = 1\nif x > 0\n    print(x)\n");
-    await page.getByRole("button", { name: "Blocks" }).click();
+    await page.getByRole("button", { name: "Blocks", exact: true }).click();
     await page.waitForFunction(() => document.querySelector(".play-status").innerText.startsWith("Line 2 is not finished Python yet"), null, { timeout: 30000 });
     assert(await page.locator(".fg-play__code").isVisible() && !(await box.isVisible()), "the view did not stay Python");
     await page.close();
     return `blocks shown ${ms} ms after the click (the first time: the bundle loads)`;
+  });
+
+  await check(85, "Blocks is optional: a tick box, remembered, ?blocks=1 and ?blocks=0, nothing fetched while off, a running sketch is told it was stopped (BF-D-031, BF-D-026)", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    const reload = async (query = "") => {
+      await page.goto(`${EDITOR}/play/?preview=${PREVIEW}${query}`);
+      await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+    };
+    const bundleRequests = () => page.evaluate(() => performance.getEntriesByType("resource").filter((e) => e.name.includes("vendor/blockly-fun/")).length);
+    const tick = page.getByLabel("Blocks", { exact: true });
+    const switchShown = () => page.locator(".fg-play__views").isVisible();
+    const blocksShown = (target) => target.waitForFunction(() => [...document.querySelectorAll(".fg-play__view")].some((b) => b.textContent === "Blocks"
+      && b.getAttribute("aria-pressed") === "true"), null, { timeout: 90000 });
+    await reload();
+    assert(!(await tick.isChecked()) && !(await switchShown()), "Blocks is on at first");
+    assert(await bundleRequests() === 0, "the blocks bundle was fetched while Blocks is off");
+
+    // ticked: the switch shows; unticked while the blocks are open: back to Python, switch hidden
+    await tick.check();
+    assert(await switchShown(), "the switch did not show");
+    await page.getByRole("button", { name: "Blocks", exact: true }).click();
+    await blocksShown(page);
+    await tick.uncheck();
+    assert(!(await switchShown()), "the switch is still shown");
+    assert(await page.locator(".fg-play__code").isVisible() && !(await page.locator(".fg-play__blocks").isVisible()), "Play did not go back to Python");
+
+    // remembered; the address can tick or untick it
+    await tick.check();
+    await reload();
+    assert(await tick.isChecked() && await switchShown(), "the tick was not remembered");
+    await reload("&blocks=0");
+    assert(!(await tick.isChecked()) && !(await switchShown()), "?blocks=0 did not untick it");
+    await reload();
+    assert(!(await tick.isChecked()), "?blocks=0 was not remembered");
+    await reload("&blocks=1");
+    assert(await tick.isChecked() && await switchShown(), "?blocks=1 did not tick it");
+    await reload();
+    assert(await tick.isChecked(), "?blocks=1 was not remembered");
+    await tick.uncheck();
+    await reload();
+    assert(await bundleRequests() === 0, "the blocks bundle was fetched while Blocks is off");
+
+    // Blocks pressed while a sketch runs: it stops, and the output says why
+    await reload("&example=animation-01_bounce&blocks=1");
+    const frame = frameOf(page, PREVIEW);
+    await runButton(page).click();
+    const first = (await waitForPicture(frame, (p) => p.opaque)).picture;
+    await waitForPicture(frame, (p) => p.sum !== first.sum, 5000);       // it moves
+    await page.getByRole("button", { name: "Blocks", exact: true }).click();
+    await page.locator(".play-output", { hasText: "Stopped to show the blocks." }).waitFor({ timeout: 10000 });
+    await page.close();
+
+    // and with nothing running there is no such line
+    const idle = await openEditor("&blocks=1");
+    await idle.getByRole("button", { name: "Blocks", exact: true }).click();
+    await blocksShown(idle);
+    assert(!(await idle.locator(".play-output").innerText()).includes("Stopped to show"), "the line appeared with nothing running");
+    await idle.close();
+    return "tick box, memory, address, no fetch while off, stop line";
   });
 } finally {
   await browser.close();

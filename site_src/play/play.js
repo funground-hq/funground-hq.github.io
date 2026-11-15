@@ -163,6 +163,8 @@ const runButton = element("button", { class: "fg-btn fg-btn--run", "aria-label":
   "▶ Run", element("kbd", {}, "Ctrl ↵"));
 const stopButton = element("button", { class: "fg-btn", disabled: "", title: "Stop (Esc)" }, "Stop");
 const autoRun = element("input", { type: "checkbox", checked: "" });
+// Blocks is optional (BF-D-031): off at first, and while it is off the Python | Blocks switch is hidden.
+const blocksOption = element("input", { type: "checkbox" });
 const guidesButton = element("button", { class: "fg-btn fg-play__guides", type: "button", "aria-pressed": "false",
   title: "Show a grid and the mouse's x and y over the picture" }, "Guides");
 const shareButton = element("button", { class: "fg-btn fg-play__share", title: "Copy a link that holds the code (Ctrl+S)" }, "Share");
@@ -194,7 +196,7 @@ const editorBox = element("div", { class: "fg-play__code play-editor" });
 const pythonViewButton = element("button", { class: "fg-play__view", type: "button", "aria-pressed": "true" }, "Python");
 const blocksViewButton = element("button", { class: "fg-play__view", type: "button", "aria-pressed": "false",
   title: "Show the sketch as blocks that make the same Python" }, "Blocks");
-const viewSwitch = element("span", { class: "fg-play__views", role: "group", "aria-label": "View" }, pythonViewButton, blocksViewButton);
+const viewSwitch = element("span", { class: "fg-play__views", role: "group", "aria-label": "View", hidden: "" }, pythonViewButton, blocksViewButton);
 const blocksBox = element("div", { class: "fg-play__blocks", hidden: "" });
 // My sketches (S-213): the actions on the sketch that is open. New and Open are always there; the rest depend on the sketch.
 const mineButton = (text, title) => element("button", { class: "fg-play__minebtn", type: "button", title }, text);
@@ -287,7 +289,9 @@ play.classList.add("fg-play");
 play.replaceChildren(
   element("div", { class: "fg-play__bar play-toolbar" },
     element("span", { class: "fg-play__picker", role: "group", "aria-label": "Examples" }, previousButton, choose, nextButton), howLink, runButton, stopButton, ...(openInPlay ? [openInPlay] : []),
-    element("label", { class: "fg-play__auto" }, autoRun, " Auto-run"), guidesButton,
+    element("label", { class: "fg-play__auto" }, autoRun, " Auto-run"),
+    element("label", { class: "fg-play__auto", title: "Show a Blocks view of the sketch: blocks that make the same Python" }, blocksOption, " Blocks"),
+    guidesButton,
     element("span", { class: "spacer" }), status, shareButton, resetButton, helpButton),
   linkField,
   help,
@@ -331,9 +335,13 @@ async function showBlocksView() {
   }
   // Reading the code as blocks uses the preview's Python, and a run would stop it: a pending Auto-run waits for the switch
   clearTimeout(autoTimer);
+  // Reading the blocks ends a sketch that is running (BF-D-026): say so once it has ended, so the stop is not a surprise
+  // (if the bundle cannot load, nothing is read and the sketch goes on)
+  const wasRunning = !stopButton.disabled;
   blocksViewButton.disabled = true;
   const shown = await blocks.show();
   blocksViewButton.disabled = false;
+  if (wasRunning && stopButton.disabled) addOutput("Stopped to show the blocks.", "stdout");
   if (!shown) return;
   editorBox.hidden = true;
   pythonViewButton.setAttribute("aria-pressed", "false");
@@ -341,6 +349,22 @@ async function showBlocksView() {
 }
 pythonViewButton.addEventListener("click", showPythonView);
 blocksViewButton.addEventListener("click", showBlocksView);
+
+// The Blocks tick box (BF-D-031): the switch shows only while it is ticked, and the choice is kept in this browser.
+// ?blocks=1 ticks it and ?blocks=0 unticks it. Unticked, blocks.js is never asked to load the bundle (it loads on the first show).
+const BLOCKS_NAME = "funground.play.blocks";
+function showBlocksOption() {
+  viewSwitch.hidden = !blocksOption.checked;
+  if (!blocksOption.checked && blocks.active) showPythonView();      // the blocks are not wanted: back to the code
+}
+const blocksAsked = new URLSearchParams(location.search).get("blocks");
+blocksOption.checked = blocksAsked === "1" || (blocksAsked !== "0" && recall(BLOCKS_NAME) === true);
+if (blocksAsked === "1" || blocksAsked === "0") remember(BLOCKS_NAME, blocksOption.checked ? true : null);
+showBlocksOption();
+blocksOption.addEventListener("change", () => {
+  remember(BLOCKS_NAME, blocksOption.checked ? true : null);
+  showBlocksOption();
+});
 // The suggestions list (funground's own, copied to this folder by assemble.py). It arrives after the editor is
 // there; if it cannot be fetched, the editor simply has no funground suggestions.
 fetch("completions.json")
