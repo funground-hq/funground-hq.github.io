@@ -18,6 +18,7 @@
 // (index.md) becomes the help behind the "?" button.
 
 import { createEditor } from "./vendor/codemirror.js";
+import { createBlocksView } from "./blocks.js";
 import * as myFiles from "./myfiles.js";
 
 const play = document.getElementById("funground-play");
@@ -189,6 +190,12 @@ const fileName = element("button", { class: "fg-play__name", type: "button", dis
 const nameInput = element("input", { class: "fg-play__nameinput", type: "text", maxlength: "40", "aria-label": "Sketch name", hidden: "" });
 const lineCount = element("span", {});
 const editorBox = element("div", { class: "fg-play__code play-editor" });
+// The blocks view (blockly-fun, S-288): the same file as blocks. Python | Blocks in the tab; blocks.js has the rest.
+const pythonViewButton = element("button", { class: "fg-play__view", type: "button", "aria-pressed": "true" }, "Python");
+const blocksViewButton = element("button", { class: "fg-play__view", type: "button", "aria-pressed": "false",
+  title: "Show the sketch as blocks that make the same Python" }, "Blocks");
+const viewSwitch = element("span", { class: "fg-play__views", role: "group", "aria-label": "View" }, pythonViewButton, blocksViewButton);
+const blocksBox = element("div", { class: "fg-play__blocks", hidden: "" });
 // My sketches (S-213): the actions on the sketch that is open. New and Open are always there; the rest depend on the sketch.
 const mineButton = (text, title) => element("button", { class: "fg-play__minebtn", type: "button", title }, text);
 const newButton = mineButton("New sketch", "Start a new sketch from the starter");
@@ -262,7 +269,7 @@ const output = element("div", { class: "fg-console__body play-output", "aria-liv
 const fab = element("button", { class: "fg-play__fab", type: "button", "aria-label": "Run", title: "Run", hidden: "", disabled: "" }, "▶");
 
 const work = element("div", { class: "fg-play__work" },
-  element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, nameInput, lineCount), lessonPanel, mineBar, mineNote, storageNote, filesPanel, editorBox),
+  element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, nameInput, lineCount, viewSwitch), lessonPanel, mineBar, mineNote, storageNote, filesPanel, editorBox, blocksBox),
   divider,
   element("div", { class: "fg-play__stage" },
     // The messages are above the picture and take no room while there are none: the rest belongs to the sketch.
@@ -302,6 +309,38 @@ stillNote.textContent = status.textContent;
 const isDark = () => document.body.getAttribute("data-md-color-scheme") === "slate";
 
 const editor = createEditor({ parent: editorBox, dark: isDark(), onChange: edited });
+const blocks = createBlocksView({
+  box: blocksBox, getText: () => editor.getText(), setText: (text) => editor.setText(text),
+  send: (message) => tell(message), say: setStatus, onClose: showPythonView,
+});
+new ResizeObserver(() => blocks.resize()).observe(blocksBox);
+
+function showPythonView() {
+  blocks.hide();
+  editorBox.hidden = false;
+  pythonViewButton.setAttribute("aria-pressed", "true");
+  blocksViewButton.setAttribute("aria-pressed", "false");
+}
+
+// Python is needed to read the code as blocks, and it runs in the preview: before "ready" the blocks wait.
+async function showBlocksView() {
+  if (blocks.active) return;
+  if (!previewReady) {
+    setStatus("Python is still loading. The blocks need it to read the code: try again in a moment.", "loading");
+    return;
+  }
+  // Reading the code as blocks uses the preview's Python, and a run would stop it: a pending Auto-run waits for the switch
+  clearTimeout(autoTimer);
+  blocksViewButton.disabled = true;
+  const shown = await blocks.show();
+  blocksViewButton.disabled = false;
+  if (!shown) return;
+  editorBox.hidden = true;
+  pythonViewButton.setAttribute("aria-pressed", "false");
+  blocksViewButton.setAttribute("aria-pressed", "true");
+}
+pythonViewButton.addEventListener("click", showPythonView);
+blocksViewButton.addEventListener("click", showBlocksView);
 // The suggestions list (funground's own, copied to this folder by assemble.py). It arrives after the editor is
 // there; if it cannot be fetched, the editor simply has no funground suggestions.
 fetch("completions.json")
@@ -1107,6 +1146,7 @@ const filesLoaded = embed ? Promise.resolve() : loadFiles();            // a run
 let autoTimer = null;
 
 function edited() {
+  blocks.changed();                              // another example, Reset or a draft: the blocks read it again
   const text = editor.getText();
   const own = ownSketch();
   if (own) {
@@ -1295,6 +1335,9 @@ let errorLine = null;
 let startedThisRun = false;
 
 const handlers = {
+  checked(message) {                             // the answer to the blocks' check (blocks.js)
+    blocks.answer(message);
+  },
   ready() {
     previewReady = true;
     runButton.disabled = false;

@@ -11,7 +11,7 @@
 // --only 3,4      run only those checks (numbers as in the list below)
 // --part 1/2      run the first of two equal ranges of check numbers (S-278: the whole file takes about 13 minutes on
 //                 the maintainer's machine; each half fits in 10). Run --part 1/2, then --part 2/2
-// --shots <dir>  save pictures of the suggestions popup (checks 13 to 15), the hint, night and the toolbar (check 33), the guides (check 34) and the first visit (check 35) in that folder
+// --shots <dir>  save pictures of the suggestions popup (checks 13 to 15), the hint, night and the toolbar (check 33), the guides (check 34), the first visit (check 35) and the blocks view (check 84) in that folder
 // --debug         print what every page and frame writes to the console, and every failed request
 //
 // Needs `npm install` in tools/codemirror (playwright-core), Chrome, and a built funground-web runner/runtime.
@@ -53,7 +53,7 @@ const only = argumentAfter("--only")?.split(",").map(Number) ?? (argumentAfter("
 
 // ---- the servers: plain files with a length, in 64 KB writes, open to every origin (as GitHub Pages is)
 
-const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".py": "text/plain" };
+const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".py": "text/plain", ".svg": "image/svg+xml" };
 // The types GitHub Pages compresses on the way (measured 15 Oct: wheels, fonts, SVG and text are gzipped; PNG and WOFF2 are not).
 const COMPRESSED = /^(text\/|application\/(json|javascript|octet-stream)|image\/svg)/;
 
@@ -2595,6 +2595,48 @@ print("written")
     assert(output.includes("Your name? ") && !output.includes("OSError") && !output.includes("never"), `the output is "${output}"`);
     await page.close();
     return error;
+  });
+
+  await check(84, "Blocks shows the sketch as blocks, a block edited changes the Python, unfinished text is refused, Run works (S-288)", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    const sketch = "import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    f.background('gold')\n    f.circle(100, 50, 40)\n\n\nf.run()\n";
+    await typeCode(page, sketch);
+    const started = Date.now();
+    await page.getByRole("button", { name: "Blocks" }).click();
+    const box = page.locator(".fg-play__blocks");
+    // the switch is done when Blocks is pressed (Blockly draws its page before the Python has been read)
+    await page.waitForFunction(() => [...document.querySelectorAll(".fg-play__view")].some((b) => b.textContent === "Blocks"
+      && b.getAttribute("aria-pressed") === "true"), null, { timeout: 90000 }).catch(async (e) => { throw new Error(`${e.message}; the status says "${await status(page)}"`); });
+    const ms = Date.now() - started;
+    assert(!(await page.locator(".fg-play__code").isVisible()), "the code is still shown beside the blocks");
+    const types = await page.evaluate(() => [...new Set(document.querySelector(".fg-play__blocks").blocksEditor.workspace.getAllBlocks(false).map((b) => b.type))]);
+    assert(types.includes("bf_sketch_frame") && types.includes("bf_circle"), `the blocks are ${types}`);
+    assert((await editorText(page)).includes('f.background("gold")'), "the Python was not tidied into double quotes");
+    assert((await status(page)).includes("tidied 1 line"), `the status says "${await status(page)}"`);
+
+    // a block edited: the Python follows at once
+    await page.evaluate(() => {
+      const ws = document.querySelector(".fg-play__blocks").blocksEditor.workspace;
+      ws.getBlocksByType("bf_circle")[0].getInputTargetBlock("D").setFieldValue("77", "NUM");
+    });
+    await page.waitForFunction(() => [...document.querySelectorAll(".cm-line")].some((l) => l.textContent.includes("f.circle(100, 50, 77)")), null, { timeout: 5000 });
+
+    // Run from the blocks view runs the Python the blocks make
+    await runButton(page).click();
+    const { picture: drawn } = await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque && p.colours > 1);
+    assert(drawn.colours > 1, "nothing was drawn");
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_blocks.png") });
+
+    // back to Python, then text that is not finished Python: refused with its line, the view stays Python
+    await page.getByRole("button", { name: "Python" }).click();
+    assert(await page.locator(".fg-play__code").isVisible(), "the code did not come back");
+    await typeCode(page, "x = 1\nif x > 0\n    print(x)\n");
+    await page.getByRole("button", { name: "Blocks" }).click();
+    await page.waitForFunction(() => document.querySelector(".play-status").innerText.startsWith("Line 2 is not finished Python yet"), null, { timeout: 30000 });
+    assert(await page.locator(".fg-play__code").isVisible() && !(await box.isVisible()), "the view did not stay Python");
+    await page.close();
+    return `blocks shown ${ms} ms after the click (the first time: the bundle loads)`;
   });
 } finally {
   await browser.close();
