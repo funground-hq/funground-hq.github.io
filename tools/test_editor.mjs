@@ -483,7 +483,7 @@ try {
   await check(12, "a sketch that cannot stop in time: the status says Python starts again, then the next run works", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    await page.locator(".fg-play__auto input").uncheck();
+    await page.getByLabel("Auto-run", { exact: true }).uncheck();
     // Every frame takes three seconds, so 'stop' cannot be answered within the runner's one second.
     await typeCode(page, "import time\nimport funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    time.sleep(3)\n\n\nf.run()\n");
     await runButton(page).click();
@@ -714,7 +714,7 @@ try {
   await check(27, "f.circl(...) marks the line, underlines circl and links the errors page; editing the line clears both", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    await page.locator(".fg-play__auto input").uncheck();
+    await page.getByLabel("Auto-run", { exact: true }).uncheck();
     await typeCode(page, SKETCH_WITH("f.circl(10, 10, 10)"));
     await runButton(page).click();
     await page.locator(".cm-error-name").waitFor({ timeout: 20000 });
@@ -741,7 +741,7 @@ try {
   await check(28, "a NameError underlines the bare name, a TypeError links its section and underlines nothing", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    await page.locator(".fg-play__auto input").uncheck();
+    await page.getByLabel("Auto-run", { exact: true }).uncheck();
     await typeCode(page, SKETCH_WITH("circl(10, 10, 10)"));
     await runButton(page).click();
     await page.locator(".cm-error-name").waitFor({ timeout: 20000 });
@@ -2750,6 +2750,7 @@ print("written")
     const known = await page.evaluate(() => !!document.querySelector(".fg-play__blocks").blocksEditor.workspace.getBlocksByType("bf_method")[0].bfCatalogue);
     assert(known, "the call block has no catalogue: completions.json did not reach the blocks");
     const found = await openList("b.type === 'bf_method' && b.getFieldValue('NAME') === 'rotate'", "circ");
+    await sleep(1000);   // a learner pauses while typing: the Python has "circ" by now, and Escape must still bring "rotate" back to both
     const circle = found.find((row) => row.name === "circle");
     assert(circle && circle.kit, `searching "circ" gave ${JSON.stringify(found)}`);
     await page.keyboard.press("ArrowDown");
