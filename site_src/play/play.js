@@ -18,6 +18,7 @@
 // (index.md) becomes the help behind the "?" button.
 
 import { createEditor } from "./vendor/codemirror.js";
+import { createBlocksView } from "./blocks.js";
 import * as myFiles from "./myfiles.js";
 
 const play = document.getElementById("funground-play");
@@ -162,6 +163,8 @@ const runButton = element("button", { class: "fg-btn fg-btn--run", "aria-label":
   "▶ Run", element("kbd", {}, "Ctrl ↵"));
 const stopButton = element("button", { class: "fg-btn", disabled: "", title: "Stop (Esc)" }, "Stop");
 const autoRun = element("input", { type: "checkbox", checked: "" });
+// Blocks is optional (BF-D-031): off at first, and while it is off the Python | Blocks switch is hidden.
+const blocksOption = element("input", { type: "checkbox" });
 const guidesButton = element("button", { class: "fg-btn fg-play__guides", type: "button", "aria-pressed": "false",
   title: "Show a grid and the mouse's x and y over the picture" }, "Guides");
 const shareButton = element("button", { class: "fg-btn fg-play__share", title: "Copy a link that holds the code (Ctrl+S)" }, "Share");
@@ -189,6 +192,16 @@ const fileName = element("button", { class: "fg-play__name", type: "button", dis
 const nameInput = element("input", { class: "fg-play__nameinput", type: "text", maxlength: "40", "aria-label": "Sketch name", hidden: "" });
 const lineCount = element("span", {});
 const editorBox = element("div", { class: "fg-play__code play-editor" });
+// The blocks view (blockly-fun, S-288): the same file as blocks. Python | Blocks in the tab; blocks.js has the rest.
+const pythonViewButton = element("button", { class: "fg-play__view", type: "button", "aria-pressed": "true" }, "Python");
+const blocksViewButton = element("button", { class: "fg-play__view", type: "button", "aria-pressed": "false",
+  title: "Show the sketch as blocks that make the same Python" }, "Blocks");
+const viewSwitch = element("span", { class: "fg-play__views", role: "group", "aria-label": "View", hidden: "" }, pythonViewButton, blocksViewButton);
+// The line of Python under each block: on at first, remembered when turned off. Shown only with the blocks.
+const linesOption = element("input", { type: "checkbox" });
+const linesLabel = element("label", { class: "fg-play__lines", hidden: "", title: "Show the line of Python each block makes" },
+  linesOption, " Python on blocks");
+const blocksBox = element("div", { class: "fg-play__blocks", hidden: "" });
 // My sketches (S-213): the actions on the sketch that is open. New and Open are always there; the rest depend on the sketch.
 const mineButton = (text, title) => element("button", { class: "fg-play__minebtn", type: "button", title }, text);
 const newButton = mineButton("New sketch", "Start a new sketch from the starter");
@@ -262,7 +275,7 @@ const output = element("div", { class: "fg-console__body play-output", "aria-liv
 const fab = element("button", { class: "fg-play__fab", type: "button", "aria-label": "Run", title: "Run", hidden: "", disabled: "" }, "▶");
 
 const work = element("div", { class: "fg-play__work" },
-  element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, nameInput, lineCount), lessonPanel, mineBar, mineNote, storageNote, filesPanel, editorBox),
+  element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, nameInput, lineCount, linesLabel, viewSwitch), lessonPanel, mineBar, mineNote, storageNote, filesPanel, editorBox, blocksBox),
   divider,
   element("div", { class: "fg-play__stage" },
     // The messages are above the picture and take no room while there are none: the rest belongs to the sketch.
@@ -280,7 +293,9 @@ play.classList.add("fg-play");
 play.replaceChildren(
   element("div", { class: "fg-play__bar play-toolbar" },
     element("span", { class: "fg-play__picker", role: "group", "aria-label": "Examples" }, previousButton, choose, nextButton), howLink, runButton, stopButton, ...(openInPlay ? [openInPlay] : []),
-    element("label", { class: "fg-play__auto" }, autoRun, " Auto-run"), guidesButton,
+    element("label", { class: "fg-play__auto" }, autoRun, " Auto-run"),
+    element("label", { class: "fg-play__auto", title: "Show a Blocks view of the sketch: blocks that make the same Python" }, blocksOption, " Blocks"),
+    guidesButton,
     element("span", { class: "spacer" }), status, shareButton, resetButton, helpButton),
   linkField,
   help,
@@ -348,15 +363,91 @@ function clearModel(restore = false) {
 const isDark = () => document.body.getAttribute("data-md-color-scheme") === "slate";
 
 const editor = createEditor({ parent: editorBox, dark: isDark(), onChange: edited });
+const blocks = createBlocksView({
+  box: blocksBox, getText: () => editor.getText(), setText: (text) => { editor.setText(text); edited(); },   // a block edit is the learner's: a draft, Reset, Auto-run
+  send: (message) => tell(message), say: setStatus, onClose: showPythonView,
+  catalogue: () => catalogue, pythonLine: () => linesOption.checked,
+});
+const LINES_NAME = "funground.play.blocklines";
+linesOption.checked = recall(LINES_NAME) !== false;
+linesOption.addEventListener("change", () => {
+  remember(LINES_NAME, linesOption.checked ? null : false);
+  blocks.setPythonLine(linesOption.checked);
+});
+new ResizeObserver(() => blocks.resize()).observe(blocksBox);
+
+// The page replaces the text (another example, Reset). The editor tells onChange only of the learner's typing, so the
+// blocks, if shown, are told here and read the new text.
+function replaceText(text) {
+  editor.setText(text);
+  blocks.changed();
+}
+
+function showPythonView() {
+  blocks.hide();
+  editorBox.hidden = false;
+  linesLabel.hidden = true;
+  pythonViewButton.setAttribute("aria-pressed", "true");
+  blocksViewButton.setAttribute("aria-pressed", "false");
+}
+
+// Python is needed to read the code as blocks, and it runs in the preview: before "ready" the blocks wait.
+async function showBlocksView() {
+  if (blocks.active) return;
+  if (!previewReady) {
+    setStatus("Python is still loading. The blocks need it to read the code: try again in a moment.", "loading");
+    return;
+  }
+  // Reading the code as blocks uses the preview's Python, and a run would stop it: a pending Auto-run waits for the switch
+  clearTimeout(autoTimer);
+  // Reading the blocks ends a sketch that is running (BF-D-026): say so once it has ended, so the stop is not a surprise
+  // (if the bundle cannot load, nothing is read and the sketch goes on)
+  const wasRunning = !stopButton.disabled;
+  blocksViewButton.disabled = true;
+  editorBox.hidden = true;           // the code makes room for the blocks at once; it comes back if they cannot be shown
+  const shown = await blocks.show();
+  blocksViewButton.disabled = false;
+  if (wasRunning && stopButton.disabled) addOutput("Stopped to show the blocks.", "stdout");
+  if (!shown) {
+    editorBox.hidden = false;
+    return;
+  }
+  linesLabel.hidden = false;
+  pythonViewButton.setAttribute("aria-pressed", "false");
+  blocksViewButton.setAttribute("aria-pressed", "true");
+}
+pythonViewButton.addEventListener("click", showPythonView);
+blocksViewButton.addEventListener("click", showBlocksView);
+
+// The Blocks tick box (BF-D-031): the switch shows only while it is ticked, and the choice is kept in this browser.
+// ?blocks=1 ticks it and ?blocks=0 unticks it. Unticked, blocks.js is never asked to load the bundle (it loads on the first show).
+const BLOCKS_NAME = "funground.play.blocks";
+function showBlocksOption() {
+  viewSwitch.hidden = !blocksOption.checked;
+  if (!blocksOption.checked && blocks.active) showPythonView();      // the blocks are not wanted: back to the code
+}
+const blocksAsked = new URLSearchParams(location.search).get("blocks");
+blocksOption.checked = blocksAsked === "1" || (blocksAsked !== "0" && recall(BLOCKS_NAME) === true);
+if (blocksAsked === "1" || blocksAsked === "0") remember(BLOCKS_NAME, blocksOption.checked ? true : null);
+showBlocksOption();
+blocksOption.addEventListener("change", () => {
+  remember(BLOCKS_NAME, blocksOption.checked ? true : null);
+  showBlocksOption();
+});
 // The suggestions list (funground's own, copied to this folder by assemble.py). It arrives after the editor is
 // there; if it cannot be fetched, the editor simply has no funground suggestions.
-fetch("completions.json")
+// The blocks read the same list (blockly-fun's catalogue: the call blocks' name list, slot labels, Help): blocks.js
+// waits for it, and without it the blocks work as they do without a catalogue.
+const catalogue = fetch("completions.json")
   .then((response) => {
     if (!response.ok) throw new Error(`completions.json: ${response.status}`);
     return response.json();
   })
-  .then((data) => editor.setCompletions(data))
-  .catch((error) => console.info("Play: no suggestions.", error.message));
+  .catch((error) => {
+    console.info("Play: no suggestions.", error.message);
+    return null;
+  });
+catalogue.then((data) => { if (data) editor.setCompletions(data); });
 
 new MutationObserver(() => editor.setDark(isDark()))
   .observe(document.body, { attributes: true, attributeFilter: ["data-md-color-scheme"] });
@@ -652,7 +743,7 @@ async function open(wanted) {
 
   const draft = isMine() ? null : recall(draftName());
   const useDraft = draft && typeof draft.text === "string" && (key !== SHARED || draft.base === sharedBase);
-  editor.setText(useDraft ? draft.text : original);
+  replaceText(useDraft ? draft.text : original);
   showReset();
   showLineCount();
   stillAllowed = true;
@@ -1153,6 +1244,7 @@ const filesLoaded = embed ? Promise.resolve() : loadFiles();            // a run
 let autoTimer = null;
 
 function edited() {
+  blocks.changed();                              // another example, Reset or a draft: the blocks read it again
   const text = editor.getText();
   const own = ownSketch();
   if (own) {
@@ -1174,7 +1266,7 @@ function edited() {
 
 resetButton.addEventListener("click", () => {
   remember(draftName(), null);
-  editor.setText(original);
+  replaceText(original);
   showReset();
   showLineCount();
   updateStill();
@@ -1341,6 +1433,9 @@ let errorLine = null;
 let startedThisRun = false;
 
 const handlers = {
+  checked(message) {                             // the answer to the blocks' check (blocks.js)
+    blocks.answer(message);
+  },
   ready() {
     previewReady = true;
     runButton.disabled = false;
