@@ -358,11 +358,14 @@ async function showBlocksView() {
   // (if the bundle cannot load, nothing is read and the sketch goes on)
   const wasRunning = !stopButton.disabled;
   blocksViewButton.disabled = true;
+  editorBox.hidden = true;           // the code makes room for the blocks at once; it comes back if they cannot be shown
   const shown = await blocks.show();
   blocksViewButton.disabled = false;
   if (wasRunning && stopButton.disabled) addOutput("Stopped to show the blocks.", "stdout");
-  if (!shown) return;
-  editorBox.hidden = true;
+  if (!shown) {
+    editorBox.hidden = false;
+    return;
+  }
   linesLabel.hidden = false;
   pythonViewButton.setAttribute("aria-pressed", "false");
   blocksViewButton.setAttribute("aria-pressed", "true");
