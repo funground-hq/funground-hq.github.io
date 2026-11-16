@@ -2715,7 +2715,7 @@ print("written")
     const page = await openEditor("&blocks=1");
     await clearDrafts(page);
     const sketch = "import funground as f\nfrom funground import camera, ml\n\ncam = camera.open()\n\n\ndef draw():\n"
-      + "    f.rotate(0.5)\n    f.fill(\"gold\")\n    body = ml.pose(cam)\n    f.circle(body.nose.x, body.nose.y, 40)\n\n\nf.run()\n";
+      + "    f.rotate(-30)\n    f.fill(\"gold\")\n    body = ml.pose(cam)\n    f.circle(body.nose.x, body.nose.y, 40)\n\n\nf.run()\n";
     await typeCode(page, sketch);
     await page.getByRole("button", { name: "Blocks", exact: true }).click();
     await page.waitForFunction(() => document.querySelector(".fg-play__blocks").blocksEditor?.workspace
@@ -2757,7 +2757,8 @@ print("written")
     assert(/\/reference\/API\/#fn-/.test(help) && !help.includes(".md"), `Help links to ${help}`);
     await page.keyboard.press("Escape");
     await page.locator(".bf-cat-row").first().waitFor({ state: "detached", timeout: 5000 });
-    assert((await editorText(page)).includes("f.rotate(0.5)"), "Escape did not leave the name as it was");
+    await page.waitForFunction(() => [...document.querySelectorAll(".cm-line")].some((l) => l.textContent.includes("f.rotate(-30)")), null, { timeout: 5000 })
+      .catch(async () => { throw new Error(`Escape did not leave the name as it was: ${await editorText(page)}`); });
 
     // body = ml.pose(cam): the attribute block on body lists what a Body has, and not f's names
     const parts = (await openList("b.type === 'bf_attribute' && b.getFieldValue('NAME') === 'nose'")).map((row) => row.name);
@@ -2772,6 +2773,52 @@ print("written")
       return child.inputList.flatMap((input) => input.fieldRow).some((field) => typeof field.getOptions === "function");
     });
     assert(grid, "the colour slot has no colour grid");
+
+    // Clicks a field as a learner does: the block found by `pick`, its field `name`
+    const clickField = async (pick, name) => {
+      await page.evaluate(([source, field]) => {
+        const ws = document.querySelector(".fg-play__blocks").blocksEditor.workspace;
+        const block = ws.getAllBlocks(false).find(new Function("b", `return ${source}`));
+        ws.centerOnBlock(block.id);
+        window.clickTarget = block.getField(field);
+      }, [pick, name]);
+      await sleep(500);                       // centerOnBlock scrolls smoothly: the place is read once it has stopped
+      const where = await page.evaluate(() => {
+        const box = window.clickTarget.getSvgRoot().getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      });
+      await page.mouse.click(where.x, where.y);
+    };
+    // the grid's last square, "…", opens the other page, and it stays open
+    await clickField("b.type === 'bf_text' && b.getParent()?.type === 'bf_fill'", "TEXT");
+    await page.locator(".blocklyDropDownDiv [title='More colours'], .blocklyDropDownDiv [aria-label='More colours']").first().click();
+    await sleep(800);                                          // longer than Blockly's fade (0.25 s)
+    const picker = await page.locator(".blocklyDropDownDiv [title='Named colours'], .blocklyDropDownDiv [aria-label='Named colours']").count();
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_blocks_more_colours.png") });
+    assert(picker >= 1, `More colours did not stay open: ${await page.evaluate(() => {
+      const div = document.querySelector(".blocklyDropDownDiv");
+      return JSON.stringify({ opacity: div.style.opacity, titles: [...div.querySelectorAll("[title]")].slice(-3).map((e) => e.title), count: div.querySelectorAll(".blocklyColourSwatch").length });
+    })}`);
+    await page.keyboard.press("Escape");
+    await page.locator(".blocklyDropDownDiv .blocklyColourSwatch").first().waitFor({ state: "detached", timeout: 5000 });
+
+    // the number in f.rotate(...) (degrees, an angle) opens a dial
+    await clickField("b.type === 'bf_number' && b.getParent()?.getFieldValue?.('NAME') === 'rotate'", "NUM");
+    // (Blockly leaves a removed field's click listener on the block: the dial needs the old one taken off, editors/index.js)
+    await page.locator(".blocklyAngleCircle").waitFor({ timeout: 5000 });
+    await page.keyboard.press("Escape");
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_blocks_lines_on.png") });
+
+    // "Python on blocks" takes the lines away and brings them back; the Python is the same
+    const lines = () => page.locator(".fg-play__blocks .bf-python-line").count();
+    const before = await editorText(page);
+    assert(await lines() > 0, "no Python lines at first");
+    await page.getByLabel("Python on blocks").uncheck();
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__blocks .bf-python-line").length === 0, null, { timeout: 5000 });
+    assert(await editorText(page) === before, "turning the lines off changed the Python");
+    await page.getByLabel("Python on blocks").check();
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__blocks .bf-python-line").length > 0, null, { timeout: 5000 });
+    await page.getByLabel("Python on blocks").uncheck();      // left off: the screenshot below shows the blocks without
     if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_blocks_catalogue.png") });
     await page.close();
     return `"circ" found ${found.length} rows; body lists ${parts.length} parts; Help ${help}`;

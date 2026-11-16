@@ -33,7 +33,7 @@ const referenceUrl = (url) => new URL(url.replace(/\.md(#|$)/, "/$1"), SITE).hre
  * @param {() => void} options.onClose  the view closed itself (the text changed and does not read as blocks)
  * @param {() => Promise<object|null>} options.catalogue  funground's catalogue (completions.json), null if it did not load
  */
-export function createBlocksView({ box, getText, setText, send, say, onClose, catalogue = async () => null }) {
+export function createBlocksView({ box, getText, setText, send, say, onClose, catalogue = async () => null, pythonLine = () => true }) {
   let bf = null;
   let editor = null;
   let active = false;
@@ -68,6 +68,7 @@ export function createBlocksView({ box, getText, setText, send, say, onClose, ca
       convert: bf.runnerConverter(preview, files),
       catalogue: names,
       helpBase: referenceUrl,
+      pythonLine: pythonLine(),
       onChange(text) {
         if (!active || converting || text === getText()) return;
         written = text;
@@ -157,6 +158,10 @@ export function createBlocksView({ box, getText, setText, send, say, onClose, ca
 
   return {
     show, hide, changed, answer,
+    /** The line of Python under each block, on or off: the blocks are drawn again, the Python stays the same. */
+    setPythonLine(on) {
+      if (editor && editor.settings().pythonLine !== on) editor.settings({ pythonLine: on });
+    },
     resize: () => editor?.resize(),
     get active() { return active; },
   };

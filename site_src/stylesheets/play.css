@@ -28,6 +28,9 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 /* The blocks view (S-288): in the code's place, as tall; Blockly fills it. */
 .fg-play__blocks { flex: 1; min-height: 24rem; position: relative; }
 .fg-play__blocks[hidden] { display: none; }
+.fg-play__lines { margin-left: auto; font-size: .8em; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+.fg-play__lines[hidden] { display: none; }
+.fg-play__lines:not([hidden]) + .fg-play__views { margin-left: .6rem; }
 .fg-play__views { margin-left: auto; display: inline-flex; border: 1.5px solid var(--dot); border-radius: 6px; overflow: hidden; }
 .fg-play__view { font: inherit; font-size: .8em; padding: .1rem .6rem; border: 0; background: transparent; color: inherit; cursor: pointer; }
 .fg-play__view[aria-pressed="true"] { background: var(--dot); color: var(--ink); }

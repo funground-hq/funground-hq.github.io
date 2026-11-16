@@ -197,6 +197,10 @@ const pythonViewButton = element("button", { class: "fg-play__view", type: "butt
 const blocksViewButton = element("button", { class: "fg-play__view", type: "button", "aria-pressed": "false",
   title: "Show the sketch as blocks that make the same Python" }, "Blocks");
 const viewSwitch = element("span", { class: "fg-play__views", role: "group", "aria-label": "View", hidden: "" }, pythonViewButton, blocksViewButton);
+// The line of Python under each block: on at first, remembered when turned off. Shown only with the blocks.
+const linesOption = element("input", { type: "checkbox" });
+const linesLabel = element("label", { class: "fg-play__lines", hidden: "", title: "Show the line of Python each block makes" },
+  linesOption, " Python on blocks");
 const blocksBox = element("div", { class: "fg-play__blocks", hidden: "" });
 // My sketches (S-213): the actions on the sketch that is open. New and Open are always there; the rest depend on the sketch.
 const mineButton = (text, title) => element("button", { class: "fg-play__minebtn", type: "button", title }, text);
@@ -271,7 +275,7 @@ const output = element("div", { class: "fg-console__body play-output", "aria-liv
 const fab = element("button", { class: "fg-play__fab", type: "button", "aria-label": "Run", title: "Run", hidden: "", disabled: "" }, "▶");
 
 const work = element("div", { class: "fg-play__work" },
-  element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, nameInput, lineCount, viewSwitch), lessonPanel, mineBar, mineNote, storageNote, filesPanel, editorBox, blocksBox),
+  element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, nameInput, lineCount, linesLabel, viewSwitch), lessonPanel, mineBar, mineNote, storageNote, filesPanel, editorBox, blocksBox),
   divider,
   element("div", { class: "fg-play__stage" },
     // The messages are above the picture and take no room while there are none: the rest belongs to the sketch.
@@ -316,13 +320,27 @@ const editor = createEditor({ parent: editorBox, dark: isDark(), onChange: edite
 const blocks = createBlocksView({
   box: blocksBox, getText: () => editor.getText(), setText: (text) => editor.setText(text),
   send: (message) => tell(message), say: setStatus, onClose: showPythonView,
-  catalogue: () => catalogue,
+  catalogue: () => catalogue, pythonLine: () => linesOption.checked,
+});
+const LINES_NAME = "funground.play.blocklines";
+linesOption.checked = recall(LINES_NAME) !== false;
+linesOption.addEventListener("change", () => {
+  remember(LINES_NAME, linesOption.checked ? null : false);
+  blocks.setPythonLine(linesOption.checked);
 });
 new ResizeObserver(() => blocks.resize()).observe(blocksBox);
+
+// The page replaces the text (another example, Reset). The editor tells onChange only of the learner's typing, so the
+// blocks, if shown, are told here and read the new text.
+function replaceText(text) {
+  editor.setText(text);
+  blocks.changed();
+}
 
 function showPythonView() {
   blocks.hide();
   editorBox.hidden = false;
+  linesLabel.hidden = true;
   pythonViewButton.setAttribute("aria-pressed", "true");
   blocksViewButton.setAttribute("aria-pressed", "false");
 }
@@ -345,6 +363,7 @@ async function showBlocksView() {
   if (wasRunning && stopButton.disabled) addOutput("Stopped to show the blocks.", "stdout");
   if (!shown) return;
   editorBox.hidden = true;
+  linesLabel.hidden = false;
   pythonViewButton.setAttribute("aria-pressed", "false");
   blocksViewButton.setAttribute("aria-pressed", "true");
 }
@@ -675,7 +694,7 @@ async function open(wanted) {
 
   const draft = isMine() ? null : recall(draftName());
   const useDraft = draft && typeof draft.text === "string" && (key !== SHARED || draft.base === sharedBase);
-  editor.setText(useDraft ? draft.text : original);
+  replaceText(useDraft ? draft.text : original);
   showReset();
   showLineCount();
   stillAllowed = true;
@@ -1198,7 +1217,7 @@ function edited() {
 
 resetButton.addEventListener("click", () => {
   remember(draftName(), null);
-  editor.setText(original);
+  replaceText(original);
   showReset();
   showLineCount();
   updateStill();
