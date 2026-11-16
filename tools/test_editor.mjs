@@ -2601,7 +2601,7 @@ print("written")
   // S-307: a model's download and start are in the status line. No real model is downloaded: the table of models.json is replaced by
   // one where "hand" is a 3 MB file of zeros on this server (held back until the check lets it go), and "pose" is a file that is not there.
   // The zeros are not an ONNX file, so the start ends in "failed" and a "ready" is sent by hand from the preview's frame.
-  await check(87, "a model's download and start show in the status line: downloading, starting, failed, ready, and Stop clears them", async () => {
+  await check(87, "a model's download and start show in the status line and as one changing line in the output: downloading, starting, failed, ready, and Stop clears them", async () => {
     const RUNTIME = "/play/runner/runtime/";
     const FAKE = "/play/fake-models/hand.bin";
     const bytes = Buffer.alloc(3_000_000);
@@ -2643,6 +2643,10 @@ print("written")
       await waitForStatus('text.startsWith("Downloading the hand model: ") && text.endsWith(" of 3 MB...")');
       const title = await page.locator(".play-status").getAttribute("title");
       assert(title === await status(page), `the title is "${title}"`);
+      // the output has the same wait as one line that changes in place, with the turning mark (data-state busy)
+      const modelLine = () => page.evaluate(() => [...document.querySelectorAll(".fg-play__modelline")].map((l) => ({ text: l.textContent, state: l.dataset.state })));
+      const busy = await modelLine();
+      assert(busy.length === 1 && busy[0].state === "busy" && busy[0].text.startsWith("Downloading the hand model: "), `the output's model line is ${JSON.stringify(busy)}`);
       release();
       await waitForStatus('isError && text.includes("hand")');
       const seen = await lines();
@@ -2650,9 +2654,15 @@ print("written")
       assert(seen.includes("Starting the hand model..."), `no start line: ${seen.join(" | ")}`);
       const failed = await status(page);
       assert(failed.startsWith("ml.hand()"), `the failed line is "${failed}"`);
+      const after = await modelLine();
+      assert(after.length === 1 && after[0].state === "failed" && after[0].text === "The hand model did not load: the reason is below.", `the output's model line is ${JSON.stringify(after)}`);
+      const printed = await page.locator(".play-output").innerText();
+      assert(!/Downloading the hand model, d+ MB, once/.test(printed), "the runner still printed its fixed download line");
       // A model that is ready puts back the line the status had before: the one for a running sketch.
       await frameOf(page, PREVIEW).evaluate(() => window.parent.postMessage({ type: "model", task: "hand", word: "hand", state: "ready" }, "*"));
       await waitForStatus('text.startsWith("Running.") && !isError');
+      const ready = await modelLine();
+      assert(ready.length === 1 && ready[0].state === "done" && ready[0].text === "The hand model is ready.", `the output's model line is ${JSON.stringify(ready)}`);
       // Stop clears it; a late message from the old run says nothing.
       await page.getByRole("button", { name: "Stop", exact: true }).click();
       await waitForStatus('text === "Stopped."');

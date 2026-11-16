@@ -307,13 +307,38 @@ stillNote.textContent = status.textContent;
 let runGoing = false;
 let beforeModel = null;
 const megabytes = (size) => Math.max(1, Math.round(size / 1e6));
-function showModel({ word, state, done, total, reason }) {
+function showModel({ task, word, state, done, total, reason }) {
   if (!runGoing) return;
   beforeModel ??= { text: status.textContent, kind: statusKind };
-  if (state === "downloading") setStatus(`Downloading the ${word} model: ${megabytes(done)} of ${megabytes(total)} MB...`, "loading");
-  else if (state === "starting") setStatus(`Starting the ${word} model...`, "loading");
-  else if (state === "failed") setStatus(typeof reason === "string" && reason ? reason : `The ${word} model could not start.`, "error");
-  else if (state === "ready") clearModel(true);
+  if (state === "downloading") {
+    const text = `Downloading the ${word} model: ${megabytes(done)} of ${megabytes(total)} MB`;
+    setStatus(`${text}...`, "loading");
+    setModelLine(task, `${text}. Only this once: after that the browser keeps a copy.`, "busy");
+  } else if (state === "starting") {
+    setStatus(`Starting the ${word} model...`, "loading");
+    setModelLine(task, `Starting the ${word} model`, "busy");
+  } else if (state === "failed") {
+    setStatus(typeof reason === "string" && reason ? reason : `The ${word} model could not start.`, "error");
+    setModelLine(task, `The ${word} model did not load: the reason is below.`, "failed");
+  } else if (state === "ready") {
+    clearModel(true);
+    setModelLine(task, `The ${word} model is ready.`, "done");
+  }
+}
+
+// The same wait as one line in the output, changed in place (the maintainer, 16 Nov: the eye is on the output, so the line
+// there moves, with a turning mark while it waits). One line for each model in a run.
+const modelLines = new Map();      // task -> its line in the output
+function setModelLine(task, text, state) {
+  let line = modelLines.get(task);
+  if (!line?.isConnected) {
+    line = element("div", { class: "stdout fg-play__modelline" });
+    output.append(line);
+    modelLines.set(task, line);
+  }
+  line.textContent = text;
+  line.dataset.state = state;      // busy (the mark turns), done, failed
+  output.scrollTop = output.scrollHeight;
 }
 /** Forget the model status. With `restore`, the line from before it comes back (a model became ready, the run goes on). */
 function clearModel(restore = false) {
@@ -1420,6 +1445,7 @@ async function runSketch() {
   startedAt = performance.now();
   runGoing = true;
   clearModel();
+  modelLines.clear();                // a new run gets new model lines; the last run's stay in the output as they ended
   setStatus("Starting...", "running");
   tell({ type: "run", source: editor.getText(), filename: ranFilename, files: withKept });
 }
