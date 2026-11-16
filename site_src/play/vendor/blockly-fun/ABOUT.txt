@@ -9,5 +9,5 @@ The blocks view of Play (`../../blocks.js`, story S-288). These files are `npm r
 | `blockly_fun/` | The converter (Python to blocks), sent to the preview's Python with each `check` |
 | `media/` | Blockly's icons and sounds |
 
-Built from blockly-fun commit fd2739b (branch `bf-catalogue`). To update: build there and copy `dist/` here whole.
+Built from blockly-fun commit 759af7e (branch `bf-catalogue`). To update: build there and copy `dist/` here whole.
 Licences: blockly-fun Apache-2.0, Blockly Apache-2.0.
