@@ -37,6 +37,9 @@ PREFIX = "bf_"
 
 # Modules a named block needs; the generator writes their imports at the top itself.
 IMPORT_ORDER = ("math", "random", "time")
+# funground's libraries, written `from funground import sound` (python.js LIBRARIES): alphabetical, one line each,
+# after `import funground as f`.
+LIBRARIES = ("camera", "ml", "sangeet", "sound")
 
 # Phase C+ (BF-D-022): funground's drawing kit, for a program that starts with `import funground as f`.
 # (method, number of arguments) -> (block, its slots in order)
@@ -49,11 +52,62 @@ _DRAWING = {
     ("rect", 4): ("rectangle", ("X", "Y", "W", "H")),
     ("line", 4): ("line", ("X1", "Y1", "X2", "Y2")),
     ("text", 3): ("write", ("TEXT", "X", "Y")),
+    # part 2 (BF-D-033); text_align has a dropdown, not a slot (_TEXT_ALIGN)
+    ("no_stroke", 0): ("no_outline", ()),
+    ("no_fill", 0): ("no_fill", ()),
+    ("stroke_width", 1): ("outline_width", ("N",)),
+    ("text_size", 1): ("text_size", ("N",)),
 }
-_SKETCH_VALUES = ("mouse_x", "mouse_y", "width", "height", "frame_count")
-_HATS = {"setup": "sketch_start", "draw": "sketch_frame"}
-_TOP_BLOCKS = {"bf_def", "bf_sketch_start", "bf_sketch_frame"}   # each a stack of its own (BF-D-013)
-_KIT = {PREFIX + kind for kind in (*_HATS.values(), *(kind for kind, _ in _DRAWING.values()), "sketch_value")}
+_TEXT_ALIGN = ("left", "center", "right")   # f.text_align("left"); any other argument stays a call block
+_SKETCH_VALUES = ("mouse_x", "mouse_y", "width", "height", "frame_count", "key")
+# def name -> hat. The sketch's two (BF-D-022) and the events' (BF-D-034).
+_HATS = {"setup": "sketch_start", "draw": "sketch_frame", "key_pressed": "key_pressed", "mouse_pressed": "mouse_pressed"}
+# The hats that need the loop: a program with one ends with f.run(), not f.show()
+_FRAME_HATS = {PREFIX + kind for kind in ("sketch_frame", "key_pressed", "mouse_pressed")}
+# Calls of funground's libraries that have a block (BF-D-035, BF-D-036), read as blocks only in a program that imports
+# the library (BF-D-032), with exactly these arguments and no keywords.
+# (library, function, number of arguments) -> (block, its slots in order). Blocks in _LIBRARY_STATEMENTS stand as
+# statements; the others are values.
+_LIBRARY = {
+    ("sound", "melody", 1): ("sound_melody", ("TEXT",)),
+    ("sound", "note", 2): ("sound_note", ("NOTE", "SECONDS")),
+    ("sound", "tone", 2): ("sound_tone", ("HZ", "SECONDS")),
+    ("sound", "microphone", 0): ("sound_microphone", ()),
+    ("camera", "open", 0): ("camera_open", ()),
+    ("ml", "pose", 1): ("ml_pose", ("SRC",)),
+    ("ml", "hand", 1): ("ml_hand", ("SRC",)),
+    ("ml", "guess", 1): ("ml_guess", ("SRC",)),
+    ("ml", "words", 1): ("ml_words", ("SRC",)),
+    ("ml", "sound", 1): ("ml_sound", ("SRC",)),
+    ("ml", "teach", 2): ("ml_teach", ("NAME", "SRC")),
+}
+_LIBRARY_STATEMENTS = {"ml_teach"}
+# A program's header (BF-7): the first stack, when it holds nothing but comments and one docstring. The generator
+# writes it above the imports it writes. python.js (headerStack) has the same two tests, so the two agree on it.
+_STRING_STATEMENT = re.compile(
+    r"""[rRuU]?(?:"{3}(?:[^"\\]|\\[\s\S]|"(?!""))*"{3}|'{3}(?:[^'\\]|\\[\s\S]|'(?!''))*'{3}"""
+    r"""|"(?:[^"\\\n]|\\[\s\S])*"|'(?:[^'\\\n]|\\[\s\S])*')""")
+
+
+def _is_header(blocks: list[dict]) -> bool:
+    """Whether the generator takes these blocks, a stack, for a header: "Python code" blocks of comment lines and
+    at most one string (the docstring)."""
+    strings = 0
+    for block in blocks:
+        text = block.get("fields", {}).get("TEXT", "")
+        if block["type"] != PREFIX + "code" or not text.strip():
+            return False
+        if all(line.lstrip().startswith("#") for line in text.split("\n")):
+            continue
+        strings += 1
+        if strings > 1 or not _STRING_STATEMENT.fullmatch(text):
+            return False
+    return True
+
+
+_TOP_BLOCKS = {PREFIX + "def", *(PREFIX + kind for kind in _HATS.values())}   # each a stack of its own (BF-D-013)
+# The blocks that need `import funground as f` (the sound, camera and ml blocks need their own library's import instead)
+_KIT = {PREFIX + kind for kind in (*_HATS.values(), *(kind for kind, _ in _DRAWING.values()), "text_align", "sketch_value")}
 
 # The names a "Python code" block's text uses, as the generator reads them (python.js sharedNames): comments and
 # strings left out, and a name after a dot is an attribute, not a name.
@@ -231,8 +285,10 @@ class _Comment:
 
 
 class _Converter:
-    def __init__(self, source: str):
+    def __init__(self, source: str, library_limit: int | None = None, take_imports: bool = True):
         self.source = source
+        self.take_imports = take_imports  # False: every import stays as written (a header the generator would not keep)
+        self.library_limit = library_limit  # how many `from funground import name` lines may be taken in (None: all)
         self.lines = _NEWLINE.split(source)
         try:
             self.tree = ast.parse(source)
@@ -260,6 +316,11 @@ class _Converter:
         self.own_functions = {node.name for node in self.tree.body
                               if isinstance(node, ast.FunctionDef) and self._is_simple_def(node)}
         self.kept_whole = self._top_statements_kept_whole()
+        # The libraries the program imports from funground, anywhere (`*` is all of them). The generator writes an import
+        # for a call on `sound` only when the program has one, so a `sound` that is a variable of its own stays one.
+        named = {alias.name for node in ast.walk(self.tree) if isinstance(node, ast.ImportFrom)
+                 and node.module == "funground" and node.level == 0 for alias in node.names}
+        self.library_imports = set(LIBRARIES) if "*" in named else named & set(LIBRARIES)
         self.indent = ""  # the indentation of the statement being converted (its value's lines are written under it)
         self.funground = False  # the program starts with `import funground as f`: the drawing kit's blocks apply
         self.hats: list[tuple[dict, ast.FunctionDef, list[str]]] = []  # each hat made, its def, its global names
@@ -300,17 +361,26 @@ class _Converter:
     # -- the program --------------------------------------------------------------------------------------------
 
     def workspace(self) -> dict:
-        imports = self._taken_imports()
-        # Imports below a comment (a file's header) stay as written, so the comment stays above them.
-        if imports and any(row < imports[0].lineno for row in self.comments):
-            imports = []
+        imports = self._taken_imports() if self.take_imports else []
+        # Imports after a header (a docstring and/or comments) are taken in too (BF-7), when the generator would write
+        # the text back as it stands: the first import on the line under the header, as 156 of the 183 examples with a
+        # header and an import have it, and all 143 that end in a docstring.
+        if imports:
+            above = self._last_row_above(imports[0])
+            if above and imports[0].lineno - above != 1:
+                imports = []
+        skip = 1 if self._docstring() is not None else 0
         # The kit's blocks apply wherever the program imports funground as f at the top level (below a docstring
         # too); the generator writes the import and the ending only when it took the import in.
         self.funground = any(isinstance(node, ast.Import) and len(node.names) == 1
                              and (node.names[0].name, node.names[0].asname) == ("funground", "f") for node in self.tree.body)
-        statements = self.tree.body[len(imports):]
+        statements = self.tree.body[:skip] + self.tree.body[skip + len(imports):]
         pieces = self._statements(statements, anchor=0, limit=len(self.lines), top=True)
         self._check_hats([block for block, _ in pieces])
+        # The header is the pieces above the first import: a stack of its own, so the generator can tell it (BF-7).
+        header = 0
+        while imports and header < len(pieces) and pieces[header][1] < imports[0].lineno:
+            header += 1
         if not any(block["type"] in _KIT for piece, _ in pieces for block in _walk(piece)):
             self.needs.discard("funground")   # a hat converted again as a def leaves nothing of the kit
 
@@ -320,7 +390,7 @@ class _Converter:
         taken = any(node.names[0].name == "funground" for node in imports)
         ending = self._ending(statements) if taken and "funground" in self.needs else None
         if ending is not None:
-            frame = any(block["type"] == PREFIX + "sketch_frame" for block, _ in pieces)
+            frame = any(block["type"] in _FRAME_HATS for block, _ in pieces)
             if (ending.value.func.attr == "run") == frame:
                 pieces = [piece for piece in pieces if piece[1] != ending.lineno]
             else:
@@ -330,29 +400,57 @@ class _Converter:
 
         # Each "make a block" and each hat is a stack of its own; the statements between them are a stack (BF-D-013).
         stacks: list[list[tuple[dict, int]]] = []
-        for piece in pieces:
-            if piece[0]["type"] in _TOP_BLOCKS or not stacks or stacks[-1][0][0]["type"] in _TOP_BLOCKS:
+        for index, piece in enumerate(pieces):
+            if (piece[0]["type"] in _TOP_BLOCKS or not stacks or stacks[-1][0][0]["type"] in _TOP_BLOCKS
+                    or index == header):
                 stacks.append([piece])
             else:
                 stacks[-1].append(piece)
 
+        # A `from funground import name` line is taken in only if the generator writes it back as it stands (_library_line)
+        # and the lines above it are all taken: the unused imports kept as Python code go above what the generator
+        # writes, so they would change places with it. The lines left out are read again as ordinary statements.
+        libraries = [node for node in imports if isinstance(node, ast.ImportFrom)]
+        if libraries:
+            keep = len(libraries)
+            if any(node.names[0].name not in self.needs for node in imports if isinstance(node, ast.Import)):
+                keep = 0
+            else:
+                keep = next((i for i, node in enumerate(libraries) if node.names[0].name not in self.needs), keep)
+            # the generator writes one blank line after the imports, so the source must have one there
+            while keep and self.lines[libraries[keep - 1].end_lineno].strip() != "":
+                keep -= 1
+            if keep < len(libraries):
+                return _Converter(self.source, library_limit=keep, take_imports=self.take_imports).workspace()
+
         # An import no block needs is kept as written, as Python code at the top.
         unused = [node for node in imports if node.names[0].name not in self.needs]
+        if unused and header:   # they would go above the header, or between it and the code: leave all as written
+            return _Converter(self.source, take_imports=False).workspace()
         if unused:
             stacks.insert(0, [(self._code_statement(node), node.lineno) for node in unused])
+        # The generator takes a first stack of comments and a docstring for the header, whatever the converter meant.
+        # With imports to write, the two must agree, or the text would change (BF-7).
+        if imports and stacks and _is_header([block for block, _ in stacks[0]]) != (header > 0):
+            return _Converter(self.source, take_imports=False).workspace()
         if not stacks:
             return {}
 
         # The generator writes the imports it took in, one blank line, then the program from its first block's blank
         # lines on (two before a def, as PEP 8 has it, is one more). With no imports to write, the first block has none.
-        first = stacks[0][0][0]
-        if "blank" in first.get("extraState", {}):
-            written = not unused and len(imports) > 0
-            first["extraState"]["blank"] -= 1 if written else first["extraState"]["blank"]
-            if not first["extraState"]["blank"]:
-                del first["extraState"]["blank"]
-            if not first["extraState"]:
-                del first["extraState"]
+        # A header comes first, and the code after the imports is the stack under it.
+        written = not unused and len(imports) > 0
+        firsts = [(stacks[0][0][0], None)] if header or not written else []   # None: all of its blank lines go
+        if written and len(stacks) > (1 if header else 0):
+            firsts.append((stacks[1 if header else 0][0][0], 1))
+        for block, count in firsts:
+            extra = block.get("extraState", {})
+            if "blank" in extra:
+                extra["blank"] -= extra["blank"] if count is None else count
+                if not extra["blank"]:
+                    del extra["blank"]
+                if not extra:
+                    del block["extraState"]
 
         tops = []
         for stack in stacks:
@@ -361,18 +459,66 @@ class _Converter:
             tops.append(top)
         return {"blocks": {"languageVersion": 0, "blocks": tops}}
 
-    def _taken_imports(self) -> list[ast.Import]:
-        """The `import math` / `random` / `time` and `import funground as f` lines at the very top: the generator
-        writes these itself."""
-        taken = []
-        for node in self.tree.body:
-            if not (isinstance(node, ast.Import) and len(node.names) == 1 and node.lineno not in self.comments):
+    def _taken_imports(self) -> list[ast.Import | ast.ImportFrom]:
+        """The `import math` / `random` / `time`, `import funground as f` and `from funground import sound` (and
+        `camera`, `ml`, `sangeet`) lines at the very top: the generator writes these itself."""
+        taken: list[ast.Import | ast.ImportFrom] = []
+        docstring = self._docstring()
+        rank = -1   # of the last line taken, in the order the generator writes them: modules, funground, libraries
+        ordered = True   # every line taken so far is in that order, so a library line can follow
+        libraries = 0
+        for node in self.tree.body[1 if docstring is not None else 0:]:
+            if docstring is not None and node.lineno <= docstring.end_lineno:
+                break   # `"""doc"""; import math`: not a line of its own
+            if isinstance(node, ast.ImportFrom):
+                name = self._library_line(node, taken[-1] if taken else None, rank) if ordered else None
+                if name is None or libraries == self.library_limit:
+                    break
+                here, libraries = len(IMPORT_ORDER) + 1 + LIBRARIES.index(name), libraries + 1
+            elif isinstance(node, ast.Import) and len(node.names) == 1 and node.lineno not in self.comments and not libraries:
+                alias = node.names[0]
+                if alias.asname is None and alias.name in IMPORT_ORDER:
+                    here = IMPORT_ORDER.index(alias.name)
+                elif (alias.name, alias.asname) == ("funground", "f"):
+                    here = len(IMPORT_ORDER)
+                else:
+                    break
+            else:
                 break
-            alias = node.names[0]
-            if not (alias.asname is None and alias.name in IMPORT_ORDER or (alias.name, alias.asname) == ("funground", "f")):
-                break
+            ordered, rank = ordered and here > rank, here
             taken.append(node)
         return taken
+
+    def _docstring(self) -> ast.Expr | None:
+        """The program's first statement, when it is a string (a module docstring)."""
+        first = self.tree.body[0] if self.tree.body else None
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+            return first
+        return None
+
+    def _last_row_above(self, node: ast.stmt) -> int:
+        """The last row above the statement with text on it (a header's end), or 0."""
+        return next((row for row in range(node.lineno - 1, 0, -1) if self.lines[row - 1].strip()), 0)
+
+    def _library_line(self, node: ast.ImportFrom, previous: ast.stmt | None, rank: int) -> str | None:
+        """The library's name if this line is exactly what the generator writes at this place: alone on its line,
+        with no comment, the libraries in alphabetical order, one blank line after the standard library's imports,
+        none after `import funground as f` or another library, and nothing above it but those. Otherwise None."""
+        names = node.names
+        if not (node.module == "funground" and node.level == 0 and len(names) == 1 and names[0].asname is None
+                and names[0].name in LIBRARIES):
+            return None
+        name = names[0].name
+        if self.lines[node.lineno - 1] != f"from funground import {name}" or node.end_lineno != node.lineno:
+            return None
+        if rank >= len(IMPORT_ORDER) + 1 + LIBRARIES.index(name):
+            return None   # out of order, or a second copy
+        above = previous.end_lineno if previous else self._last_row_above(node)   # the first line: the header's end
+        blanks = 1 if rank < len(IMPORT_ORDER) and previous is not None else 0
+        gap = range(above + 1, node.lineno)
+        if len(gap) != blanks or any(self.lines[row - 1].strip() for row in gap):
+            return None
+        return name
 
     # -- a sketch (phase C+, BF-D-022) ----------------------------------------------------------------------------
 
@@ -674,10 +820,17 @@ class _Converter:
                 return self._own("own_call", func.id, args)
             return self._call("call", call)
         if (self.funground and positional_only and isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
-                and func.value.id == "f" and (func.attr, len(args)) in _DRAWING):
-            kind, slots = _DRAWING[func.attr, len(args)]
-            self.needs.add("funground")
-            return _block(kind, inputs=self._inputs(**dict(zip(slots, args))))
+                and func.value.id == "f"):
+            if (func.attr, len(args)) in _DRAWING:
+                kind, slots = _DRAWING[func.attr, len(args)]
+                self.needs.add("funground")
+                return _block(kind, inputs=self._inputs(**dict(zip(slots, args))))
+            if (func.attr == "text_align" and len(args) == 1 and isinstance(args[0], ast.Constant)
+                    and args[0].value in _TEXT_ALIGN):
+                self.needs.add("funground")
+                return _block("text_align", fields={"ALIGN": args[0].value})
+        if (library := self._library_block(call, statement=True)) is not None:
+            return library
         if isinstance(func, ast.Attribute) and positional_only and len(args) == 1:
             target, method = func.value, func.attr
             if isinstance(target, ast.Name) and target.id == "time" and method == "sleep":
@@ -792,14 +945,20 @@ class _Converter:
             return None
         parts = [(None, a) for a in call.args] + [(k.arg, k.value) for k in call.keywords]
         fields = {"NAME": name, **{f"KW{i}": key for i, (key, _) in enumerate(parts) if key is not None}}
-        inputs = {}
-        if target is not None:
-            if isinstance(target, ast.Name) and target.id in IMPORT_ORDER:
-                self.needs.add(target.id)
-            inputs.update(self._inputs(OBJ=target))
+        inputs = self._object(target) if target is not None else {}
         inputs.update(self._inputs(**{f"ARG{i}": value for i, (_, value) in enumerate(parts)}))
         extra = {"args": ["k" if key is not None else "p" for key, _ in parts]}
         return _block(kind, fields=fields, extra=extra, inputs=inputs)
+
+    def _object(self, target: ast.expr) -> dict:
+        """The OBJ input of a call or an attribute read. A module the generator imports (math, random, time) or a
+        funground library the program imports is imported for the program; a library's name with no import is not
+        funground's, whatever it is, so it stays Python code and brings no import (BF-D-032)."""
+        if isinstance(target, ast.Name) and (target.id in IMPORT_ORDER or target.id in self.library_imports):
+            self.needs.add(target.id)
+        if isinstance(target, ast.Name) and target.id in LIBRARIES and target.id not in self.library_imports:
+            return {"OBJ": _slot(self._code_value(target))}
+        return self._inputs(OBJ=target)
 
     # -- values --------------------------------------------------------------------------------------------------
 
@@ -897,10 +1056,13 @@ class _Converter:
             if any(isinstance(e, ast.Starred) for e in node.elts):
                 return None
             return self._items("list_of", node.elts) if node.elts else _block("empty_list")
-        if (self.funground and isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
-                and node.value.id == "f" and node.attr in _SKETCH_VALUES):
-            self.needs.add("funground")
-            return _block("sketch_value", fields={"WHAT": node.attr})
+        if isinstance(node, ast.Attribute):
+            if (self.funground and isinstance(node.value, ast.Name)
+                    and node.value.id == "f" and node.attr in _SKETCH_VALUES):
+                self.needs.add("funground")
+                return _block("sketch_value", fields={"WHAT": node.attr})
+            # `object.name` read, any other: the general attribute block (BF-D-037). Setting one stays Python code.
+            return _block("attribute", fields={"NAME": node.attr}, inputs=self._object(node.value)) if is_name(node.attr) else None
         return None
 
     def _constant(self, node: ast.Constant) -> dict | None:
@@ -943,4 +1105,20 @@ class _Converter:
                 if (module, name, len(args)) == ("math", "sqrt", 1):
                     self.needs.add("math")
                     return _block("sqrt", inputs=self._inputs(X=args[0]))
+        if (library := self._library_block(call, statement=False)) is not None:
+            return library
         return self._call("call_value" if isinstance(func, ast.Name) else "method_value", call)
+
+    def _library_block(self, call: ast.Call, statement: bool) -> dict | None:
+        """The block for `sound.melody(t)`, `ml.pose(src)` and the other library calls of _LIBRARY, when the program
+        imports that library (BF-D-032) and the call has exactly the block's arguments. None otherwise: a call block."""
+        func = call.func
+        if call.keywords or not (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
+                                 and func.value.id in self.library_imports):
+            return None
+        found = _LIBRARY.get((func.value.id, func.attr, len(call.args)))
+        if found is None or (found[0] in _LIBRARY_STATEMENTS) != statement:
+            return None
+        kind, slots = found
+        self.needs.add(func.value.id)
+        return _block(kind, inputs=self._inputs(**dict(zip(slots, call.args))))

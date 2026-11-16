@@ -17,6 +17,12 @@
 const VENDOR = new URL("./vendor/blockly-fun/", import.meta.url);
 const ANSWER_WAIT_MS = 60000;   // Python may still be loading on a first visit
 
+// The catalogue names the reference's Markdown file ("reference/API.md#fn-circle"); MkDocs publishes it as a folder,
+// as the code editor's suggestions read it (tools/codemirror/completion.js). Relative to the site, so a local copy
+// links to itself.
+const SITE = new URL("../", import.meta.url);
+const referenceUrl = (url) => new URL(url.replace(/\.md(#|$)/, "/$1"), SITE).href;
+
 /**
  * @param {object} options
  * @param {HTMLElement} options.box       where the blocks go (hidden while the view is Python)
@@ -25,8 +31,9 @@ const ANSWER_WAIT_MS = 60000;   // Python may still be loading on a first visit
  * @param {(message: object) => void} options.send  sends a message to the preview
  * @param {(text: string, kind?: string) => void} options.say  a line in Play's status
  * @param {() => void} options.onClose  the view closed itself (the text changed and does not read as blocks)
+ * @param {() => Promise<object|null>} options.catalogue  funground's catalogue (completions.json), null if it did not load
  */
-export function createBlocksView({ box, getText, setText, send, say, onClose }) {
+export function createBlocksView({ box, getText, setText, send, say, onClose, catalogue = async () => null }) {
   let bf = null;
   let editor = null;
   let active = false;
@@ -54,11 +61,13 @@ export function createBlocksView({ box, getText, setText, send, say, onClose }) 
   async function load() {
     if (editor) return;
     bf = await import(new URL("blockly-fun.js", VENDOR).href);
-    const files = await bf.fetchConverter(VENDOR);
+    const [files, names] = await Promise.all([bf.fetchConverter(VENDOR), catalogue()]);
     editor = bf.createBlocksEditor({
       element: box,
       media: new URL("media/", VENDOR).href,
       convert: bf.runnerConverter(preview, files),
+      catalogue: names,
+      helpBase: referenceUrl,
       onChange(text) {
         if (!active || converting || text === getText()) return;
         written = text;

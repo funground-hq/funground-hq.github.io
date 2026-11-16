@@ -12,6 +12,7 @@
 // --part 1/2      run the first of two equal ranges of check numbers (S-278: the whole file takes about 13 minutes on
 //                 the maintainer's machine; each half fits in 10). Run --part 1/2, then --part 2/2
 // --shots <dir>  save pictures of the suggestions popup (checks 13 to 15), the hint, night and the toolbar (check 33), the guides (check 34), the first visit (check 35) and the blocks view (check 84) in that folder
+// --serve         assemble and serve Play as the checks see it, print its address, and wait (to try it by hand)
 // --debug         print what every page and frame writes to the console, and every failed request
 //
 // Needs `npm install` in tools/codemirror (playwright-core), Chrome, and a built funground-web runner/runtime.
@@ -220,6 +221,16 @@ const STRANGER = `http://127.0.0.1:${strangerPort}`;
 strangerServer.on("request", (request, response) => {
   response.writeHead(200, { "Content-Type": "text/html" }).end(strangerPage(`${PREVIEW}/preview.html?editor=${EDITOR}&runner=${EDITOR}/play/runner/`));
 });
+
+// --serve: the same two origins for a person to try Play on (no checks, no browser); Ctrl+C stops it.
+if (process.argv.includes("--serve")) {
+  console.log(`\nPlay, local: ${EDITOR}/play/?preview=${PREVIEW}&blocks=1\n(the editor page without the site's header and menus; Ctrl+C stops the servers)`);
+  process.on("SIGINT", () => {
+    rmSync(scratch, { recursive: true, force: true });
+    process.exit(0);
+  });
+  await new Promise(() => {});
+}
 
 // Chrome's fake camera stands in for any real one (check 55); the visitor's camera is never opened.
 const browser = await chromium.launch({ executablePath: CHROME, headless: true,
@@ -2698,6 +2709,72 @@ print("written")
     assert(!(await idle.locator(".play-output").innerText()).includes("Stopped to show"), "the line appeared with nothing running");
     await idle.close();
     return "tick box, memory, address, no fetch while off, stop line";
+  });
+
+  await check(86, "The blocks read funground's catalogue: the name list, its search, a name with its own block, the list of what an object has, Help, a colour grid (BF-5)", async () => {
+    const page = await openEditor("&blocks=1");
+    await clearDrafts(page);
+    const sketch = "import funground as f\nfrom funground import camera, ml\n\ncam = camera.open()\n\n\ndef draw():\n"
+      + "    f.rotate(0.5)\n    f.fill(\"gold\")\n    body = ml.pose(cam)\n    f.circle(body.nose.x, body.nose.y, 40)\n\n\nf.run()\n";
+    await typeCode(page, sketch);
+    await page.getByRole("button", { name: "Blocks", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector(".fg-play__blocks").blocksEditor?.workspace
+      ?.getBlocksByType("bf_ml_pose").length === 1, null, { timeout: 90000 })
+      .catch(async (e) => { throw new Error(`${e.message}; the status says "${await status(page)}"`); });
+    const types = await page.evaluate(() => [...new Set(document.querySelector(".fg-play__blocks").blocksEditor.workspace.getAllBlocks(false).map((b) => b.type))]);
+    for (const type of ["bf_camera_open", "bf_ml_pose", "bf_attribute", "bf_method", "bf_fill"]) assert(types.includes(type), `no ${type} in ${types}`);
+
+    // Opens the name field of a block (found in the page by `pick`), types `query`, and gives back the rows' names
+    const openList = async (pick, query) => {
+      // a click on the name, as a learner makes it (calling showEditor() skips Blockly's gesture, and the list closes)
+      const where = await page.evaluate((source) => {
+        const ws = document.querySelector(".fg-play__blocks").blocksEditor.workspace;
+        const block = ws.getAllBlocks(false).find(new Function("b", `return ${source}`));
+        ws.centerOnBlock(block.id);
+        const box = block.getField("NAME").getSvgRoot().getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      }, pick);
+      await page.mouse.click(where.x, where.y);
+      // (Blockly 13's DropDownDiv.clearContent() makes a new drop-down: a list put in the old one is never seen)
+      await page.locator(".bf-cat-row").first().waitFor({ timeout: 5000 });
+      if (query) {
+        await page.keyboard.press("Control+A");
+        await page.keyboard.type(query);
+      }
+      return page.evaluate(() => [...document.querySelectorAll(".bf-cat-row")].map((row) => ({
+        name: row.querySelector(".bf-cat-name").textContent, kit: !!row.querySelector(".bf-cat-kit"),
+      })));
+    };
+
+    // f.rotate is a general call block: its list is f's names; "circ" finds circle, which has its own block
+    const known = await page.evaluate(() => !!document.querySelector(".fg-play__blocks").blocksEditor.workspace.getBlocksByType("bf_method")[0].bfCatalogue);
+    assert(known, "the call block has no catalogue: completions.json did not reach the blocks");
+    const found = await openList("b.type === 'bf_method' && b.getFieldValue('NAME') === 'rotate'", "circ");
+    const circle = found.find((row) => row.name === "circle");
+    assert(circle && circle.kit, `searching "circ" gave ${JSON.stringify(found)}`);
+    await page.keyboard.press("ArrowDown");
+    const help = await page.locator(".bf-cat-footer a").getAttribute("href");
+    assert(/\/reference\/API\/#fn-/.test(help) && !help.includes(".md"), `Help links to ${help}`);
+    await page.keyboard.press("Escape");
+    await page.locator(".bf-cat-row").first().waitFor({ state: "detached", timeout: 5000 });
+    assert((await editorText(page)).includes("f.rotate(0.5)"), "Escape did not leave the name as it was");
+
+    // body = ml.pose(cam): the attribute block on body lists what a Body has, and not f's names
+    const parts = (await openList("b.type === 'bf_attribute' && b.getFieldValue('NAME') === 'nose'")).map((row) => row.name);
+    // (the rows say the names with spaces, as the blocks do: "left wrist")
+    assert(parts.includes("left wrist") && !parts.includes("circle"), `the list on body is ${parts.slice(0, 8)}`);
+    await page.keyboard.press("Escape");
+
+    // a colour slot gets the grid of funground's colour names (a dropdown), not a text box
+    const grid = await page.evaluate(() => {
+      const fill = document.querySelector(".fg-play__blocks").blocksEditor.workspace.getBlocksByType("bf_fill")[0];
+      const child = fill.getInputTargetBlock("COLOR");
+      return child.inputList.flatMap((input) => input.fieldRow).some((field) => typeof field.getOptions === "function");
+    });
+    assert(grid, "the colour slot has no colour grid");
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_blocks_catalogue.png") });
+    await page.close();
+    return `"circ" found ${found.length} rows; body lists ${parts.length} parts; Help ${help}`;
   });
 } finally {
   await browser.close();

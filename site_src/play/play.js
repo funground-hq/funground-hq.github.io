@@ -316,6 +316,7 @@ const editor = createEditor({ parent: editorBox, dark: isDark(), onChange: edite
 const blocks = createBlocksView({
   box: blocksBox, getText: () => editor.getText(), setText: (text) => editor.setText(text),
   send: (message) => tell(message), say: setStatus, onClose: showPythonView,
+  catalogue: () => catalogue,
 });
 new ResizeObserver(() => blocks.resize()).observe(blocksBox);
 
@@ -367,13 +368,18 @@ blocksOption.addEventListener("change", () => {
 });
 // The suggestions list (funground's own, copied to this folder by assemble.py). It arrives after the editor is
 // there; if it cannot be fetched, the editor simply has no funground suggestions.
-fetch("completions.json")
+// The blocks read the same list (blockly-fun's catalogue: the call blocks' name list, slot labels, Help): blocks.js
+// waits for it, and without it the blocks work as they do without a catalogue.
+const catalogue = fetch("completions.json")
   .then((response) => {
     if (!response.ok) throw new Error(`completions.json: ${response.status}`);
     return response.json();
   })
-  .then((data) => editor.setCompletions(data))
-  .catch((error) => console.info("Play: no suggestions.", error.message));
+  .catch((error) => {
+    console.info("Play: no suggestions.", error.message);
+    return null;
+  });
+catalogue.then((data) => { if (data) editor.setCompletions(data); });
 
 new MutationObserver(() => editor.setDark(isDark()))
   .observe(document.body, { attributes: true, attributeFilter: ["data-md-color-scheme"] });
