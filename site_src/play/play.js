@@ -289,16 +289,37 @@ play.replaceChildren(
 );
 
 // The status: one line with a coloured dot (loading gold, ready teal, running turquoise, an error tomato).
+let statusKind = "loading";
 function setStatus(text, kind) {
   status.textContent = text;
   status.title = text;              // the toolbar cuts a long line short; the title has all of it
   stillNote.textContent = text;     // the same words over the example's picture
   if (kind) {
+    statusKind = kind;
     status.className = `fg-status fg-status--${kind} play-status`;
     stillNote.className = `fg-status fg-status--${kind} fg-play__still-note`;
   }
 }
 stillNote.textContent = status.textContent;
+
+// A model's download and start (S-307) are shown in the status line while a run goes. `beforeModel` is the line the status had
+// before the first model message, so "ready" can put it back.
+let runGoing = false;
+let beforeModel = null;
+const megabytes = (size) => Math.max(1, Math.round(size / 1e6));
+function showModel({ word, state, done, total, reason }) {
+  if (!runGoing) return;
+  beforeModel ??= { text: status.textContent, kind: statusKind };
+  if (state === "downloading") setStatus(`Downloading the ${word} model: ${megabytes(done)} of ${megabytes(total)} MB...`, "loading");
+  else if (state === "starting") setStatus(`Starting the ${word} model...`, "loading");
+  else if (state === "failed") setStatus(typeof reason === "string" && reason ? reason : `The ${word} model could not start.`, "error");
+  else if (state === "ready") clearModel(true);
+}
+/** Forget the model status. With `restore`, the line from before it comes back (a model became ready, the run goes on). */
+function clearModel(restore = false) {
+  if (restore && beforeModel) setStatus(beforeModel.text, beforeModel.kind);
+  beforeModel = null;
+}
 const isDark = () => document.body.getAttribute("data-md-color-scheme") === "slate";
 
 const editor = createEditor({ parent: editorBox, dark: isDark(), onChange: edited });
@@ -1329,6 +1350,7 @@ const handlers = {
   restarting() {
     setStatus("Starting Python again: the last sketch did not stop in time. This takes a few seconds...", "loading");
   },
+  model: showModel,
   error(message) {
     endStill();
     errorLine = showError(message.text);
@@ -1355,12 +1377,16 @@ const handlers = {
     sketchSize = { width: message.width, height: message.height };
     fitPicture();
     tellGuides();
-    setStatus("Running. Click the picture to give it the mouse and keys.", "running");
+    const running = "Running. Click the picture to give it the mouse and keys.";
+    if (beforeModel) beforeModel = { text: running, kind: "running" };   // a model is still getting ready: its line stays, this one comes after
+    else setStatus(running, "running");
     stopButton.disabled = false;
     if (focusOnStart) preview.focus();   // so the space bar reaches the sketch instead of pressing Run again
     focusOnStart = false;
   },
   finished(message) {
+    runGoing = false;
+    clearModel();
     if (message.reason !== "ended") drawn = false;          // stopped or failed: its picture is gone ("ended" is a script that has drawn)
     if (message.reason === "error") {
       setStatus(errorLine === null ? "Your sketch stopped with an error: the message is above the picture."
@@ -1392,6 +1418,8 @@ async function runSketch() {
   startedThisRun = false;
   ranFilename = current ? current.source.split("/").pop() : "sketch.py";
   startedAt = performance.now();
+  runGoing = true;
+  clearModel();
   setStatus("Starting...", "running");
   tell({ type: "run", source: editor.getText(), filename: ranFilename, files: withKept });
 }
@@ -1400,6 +1428,8 @@ function stopSketch() {
   clearTimeout(autoTimer);
   if (!previewReady) return;
   drawn = false;
+  runGoing = false;
+  clearModel();
   tell({ type: "stop" });
   stopButton.disabled = true;
 }

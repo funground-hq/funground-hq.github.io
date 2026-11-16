@@ -17,6 +17,7 @@
 // Needs `npm install` in tools/codemirror (playwright-core), Chrome, and a built funground-web runner/runtime.
 // Everything it makes goes in a temporary folder.
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
@@ -2595,6 +2596,83 @@ print("written")
     assert(output.includes("Your name? ") && !output.includes("OSError") && !output.includes("never"), `the output is "${output}"`);
     await page.close();
     return error;
+  });
+
+  // S-307: a model's download and start are in the status line. No real model is downloaded: the table of models.json is replaced by
+  // one where "hand" is a 3 MB file of zeros on this server (held back until the check lets it go), and "pose" is a file that is not there.
+  // The zeros are not an ONNX file, so the start ends in "failed" and a "ready" is sent by hand from the preview's frame.
+  await check(87, "a model's download and start show in the status line: downloading, starting, failed, ready, and Stop clears them", async () => {
+    const RUNTIME = "/play/runner/runtime/";
+    const FAKE = "/play/fake-models/hand.bin";
+    const bytes = Buffer.alloc(3_000_000);
+    const table = JSON.parse(readFileSync(path.join(RUNNER, "runtime", "models.json"), "utf8"));
+    table.models.fake_hand = { url: `${EDITOR}${FAKE}`, file: "hand.bin", size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"), licence: "test" };
+    table.models.fake_pose = { url: `${EDITOR}/play/fake-models/missing.bin`, file: "missing.bin", size: 10, sha256: "00".repeat(32), licence: "test" };
+    table.tasks.hand = ["fake_hand"];
+    table.tasks.pose = ["fake_pose"];
+    overrides[`${RUNTIME}models.json`] = Buffer.from(JSON.stringify(table));
+    overrides[FAKE] = bytes;
+    let release;
+    gates[FAKE] = new Promise((resolve) => { release = resolve; });
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    try {
+      const page = await openEditor("", "", ctx);
+      await clearDrafts(page);
+      // Every line the status has had, with its colour, because "starting" may last only a moment.
+      await page.evaluate(() => {
+        const element = document.querySelector(".play-status");
+        window.__lines = [];
+        new MutationObserver(() => window.__lines.push({ text: element.textContent, error: element.classList.contains("fg-status--error") }))
+          .observe(element, { childList: true, characterData: true, subtree: true });
+      });
+      const lines = () => page.evaluate(() => window.__lines.map((line) => line.text));
+      const sketch = (call) => `import funground as f\nfrom funground import camera, ml\n\ncam = camera.open()\n\n\ndef setup():\n    f.size(160, 120)\n    cam.start(160, 120)\n\n\ndef draw():\n    f.background("black")\n    f.image(cam, 0, 0)\n    ml.${call}(cam)\n\n\nf.run()\n`;
+      // Waits for a status line that makes `test` (an expression of `text` and `isError`) true; says what it saw if none does.
+      async function waitForStatus(test, timeout = 30000) {
+        try {
+          await page.waitForFunction(
+            (source) => { const element = document.querySelector(".play-status"); return new Function("text", "isError", `return ${source}`)(element.textContent, element.classList.contains("fg-status--error")); },
+            test, { timeout });
+        } catch {
+          throw new Error(`no status matched ${test}; the lines were: ${(await lines()).join(" | ")}; the status is "${await status(page)}"`);
+        }
+      }
+
+      await typeCode(page, sketch("hand"));
+      await runButton(page).click();
+      await waitForStatus('text.startsWith("Downloading the hand model: ") && text.endsWith(" of 3 MB...")');
+      const title = await page.locator(".play-status").getAttribute("title");
+      assert(title === await status(page), `the title is "${title}"`);
+      release();
+      await waitForStatus('isError && text.includes("hand")');
+      const seen = await lines();
+      assert(seen.includes("Downloading the hand model: 3 of 3 MB...") || seen.some((line) => line.startsWith("Downloading the hand model")), `lines: ${seen}`);
+      assert(seen.includes("Starting the hand model..."), `no start line: ${seen.join(" | ")}`);
+      const failed = await status(page);
+      assert(failed.startsWith("ml.hand()"), `the failed line is "${failed}"`);
+      // A model that is ready puts back the line the status had before: the one for a running sketch.
+      await frameOf(page, PREVIEW).evaluate(() => window.parent.postMessage({ type: "model", task: "hand", word: "hand", state: "ready" }, "*"));
+      await waitForStatus('text.startsWith("Running.") && !isError');
+      // Stop clears it; a late message from the old run says nothing.
+      await page.getByRole("button", { name: "Stop", exact: true }).click();
+      await waitForStatus('text === "Stopped."');
+      await frameOf(page, PREVIEW).evaluate(() => window.parent.postMessage({ type: "model", task: "hand", word: "hand", state: "starting" }, "*"));
+      await sleep(300);
+      assert((await status(page)) === "Stopped.", `after Stop the status is "${await status(page)}"`);
+
+      // A file that is not there (the 404 has no CORS header, so the browser says "Failed to fetch", as in the real report): an error that says why.
+      await typeCode(page, sketch("pose"));
+      await runButton(page).click();
+      await waitForStatus('isError && text.startsWith("ml.pose()") && text.includes("could not download")');
+      await page.close();
+      return `lines: ${seen.length}, failed: ${failed.slice(0, 60)}`;
+    } finally {
+      release();
+      delete gates[FAKE];
+      delete overrides[`${RUNTIME}models.json`];
+      delete overrides[FAKE];
+      await ctx.close();
+    }
   });
 } finally {
   await browser.close();
