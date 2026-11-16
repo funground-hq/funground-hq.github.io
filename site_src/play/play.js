@@ -318,7 +318,7 @@ const isDark = () => document.body.getAttribute("data-md-color-scheme") === "sla
 
 const editor = createEditor({ parent: editorBox, dark: isDark(), onChange: edited });
 const blocks = createBlocksView({
-  box: blocksBox, getText: () => editor.getText(), setText: (text) => editor.setText(text),
+  box: blocksBox, getText: () => editor.getText(), setText: (text) => { editor.setText(text); edited(); },   // a block edit is the learner's: a draft, Reset, Auto-run
   send: (message) => tell(message), say: setStatus, onClose: showPythonView,
   catalogue: () => catalogue, pythonLine: () => linesOption.checked,
 });
