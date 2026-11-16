@@ -47,6 +47,13 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 /* While Python loads (or starts again), the status dot is a spinning ring, so the wait is visibly a wait. */
 .fg-play .fg-status--loading::before { background: transparent; border: 2px solid var(--gold); border-top-color: var(--ink); animation: fg-spin 0.9s linear infinite; }
 @keyframes fg-spin { to { transform: rotate(360deg); } }
+/* A model getting ready (S-307): its line in the output, with the same turning ring while it waits, then a teal dot (ready) or a tomato one (failed; the text stays ink: tomato text is too faint on cream). */
+.fg-play__modelline { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.fg-play__modelline::before { content: ""; flex: none; width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; }
+.fg-play__modelline[data-state="busy"]::before { border: 2px solid var(--gold); border-top-color: var(--ink); animation: fg-spin 0.9s linear infinite; }
+.fg-play__modelline[data-state="done"]::before { background: var(--teal, #1a9e8f); }
+.fg-play__modelline[data-state="failed"]::before { background: var(--tomato); }
+@media (prefers-reduced-motion: reduce) { .fg-play__modelline[data-state="busy"]::before { animation: none; } }
 @media (prefers-reduced-motion: reduce) { .fg-play .fg-status--loading::before { animation: none; } }
 
 /* The toolbar's own controls. */
