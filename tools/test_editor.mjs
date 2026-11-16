@@ -11,7 +11,8 @@
 // --only 3,4      run only those checks (numbers as in the list below)
 // --part 1/2      run the first of two equal ranges of check numbers (S-278: the whole file takes about 13 minutes on
 //                 the maintainer's machine; each half fits in 10). Run --part 1/2, then --part 2/2
-// --shots <dir>  save pictures of the suggestions popup (checks 13 to 15), the hint, night and the toolbar (check 33), the guides (check 34) and the first visit (check 35) in that folder
+// --shots <dir>  save pictures of the suggestions popup (checks 13 to 15), the hint, night and the toolbar (check 33), the guides (check 34), the first visit (check 35) and the blocks view (check 84) in that folder
+// --serve         assemble and serve Play as the checks see it, print its address, and wait (to try it by hand)
 // --debug         print what every page and frame writes to the console, and every failed request
 //
 // Needs `npm install` in tools/codemirror (playwright-core), Chrome, and a built funground-web runner/runtime.
@@ -53,7 +54,7 @@ const only = argumentAfter("--only")?.split(",").map(Number) ?? (argumentAfter("
 
 // ---- the servers: plain files with a length, in 64 KB writes, open to every origin (as GitHub Pages is)
 
-const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".py": "text/plain" };
+const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".py": "text/plain", ".svg": "image/svg+xml" };
 // The types GitHub Pages compresses on the way (measured 15 Oct: wheels, fonts, SVG and text are gzipped; PNG and WOFF2 are not).
 const COMPRESSED = /^(text\/|application\/(json|javascript|octet-stream)|image\/svg)/;
 
@@ -220,6 +221,16 @@ const STRANGER = `http://127.0.0.1:${strangerPort}`;
 strangerServer.on("request", (request, response) => {
   response.writeHead(200, { "Content-Type": "text/html" }).end(strangerPage(`${PREVIEW}/preview.html?editor=${EDITOR}&runner=${EDITOR}/play/runner/`));
 });
+
+// --serve: the same two origins for a person to try Play on (no checks, no browser); Ctrl+C stops it.
+if (process.argv.includes("--serve")) {
+  console.log(`\nPlay, local: ${EDITOR}/play/?preview=${PREVIEW}&blocks=1\n(the editor page without the site's header and menus; Ctrl+C stops the servers)`);
+  process.on("SIGINT", () => {
+    rmSync(scratch, { recursive: true, force: true });
+    process.exit(0);
+  });
+  await new Promise(() => {});
+}
 
 // Chrome's fake camera stands in for any real one (check 55); the visitor's camera is never opened.
 const browser = await chromium.launch({ executablePath: CHROME, headless: true,
@@ -472,7 +483,7 @@ try {
   await check(12, "a sketch that cannot stop in time: the status says Python starts again, then the next run works", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    await page.locator(".fg-play__auto input").uncheck();
+    await page.getByLabel("Auto-run", { exact: true }).uncheck();
     // Every frame takes three seconds, so 'stop' cannot be answered within the runner's one second.
     await typeCode(page, "import time\nimport funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    time.sleep(3)\n\n\nf.run()\n");
     await runButton(page).click();
@@ -703,7 +714,7 @@ try {
   await check(27, "f.circl(...) marks the line, underlines circl and links the errors page; editing the line clears both", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    await page.locator(".fg-play__auto input").uncheck();
+    await page.getByLabel("Auto-run", { exact: true }).uncheck();
     await typeCode(page, SKETCH_WITH("f.circl(10, 10, 10)"));
     await runButton(page).click();
     await page.locator(".cm-error-name").waitFor({ timeout: 20000 });
@@ -730,7 +741,7 @@ try {
   await check(28, "a NameError underlines the bare name, a TypeError links its section and underlines nothing", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    await page.locator(".fg-play__auto input").uncheck();
+    await page.getByLabel("Auto-run", { exact: true }).uncheck();
     await typeCode(page, SKETCH_WITH("circl(10, 10, 10)"));
     await runButton(page).click();
     await page.locator(".cm-error-name").waitFor({ timeout: 20000 });
@@ -2595,6 +2606,223 @@ print("written")
     assert(output.includes("Your name? ") && !output.includes("OSError") && !output.includes("never"), `the output is "${output}"`);
     await page.close();
     return error;
+  });
+
+  await check(84, "Blocks shows the sketch as blocks, a block edited changes the Python, unfinished text is refused, Run works (S-288)", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    const sketch = "import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    f.background('gold')\n    f.circle(100, 50, 40)\n\n\nf.run()\n";
+    await typeCode(page, sketch);
+    await page.getByLabel("Blocks", { exact: true }).check();      // Blocks is optional (BF-D-031): the switch shows once it is ticked
+    const started = Date.now();
+    await page.getByRole("button", { name: "Blocks", exact: true }).click();
+    const box = page.locator(".fg-play__blocks");
+    // the switch is done when Blocks is pressed (Blockly draws its page before the Python has been read)
+    await page.waitForFunction(() => [...document.querySelectorAll(".fg-play__view")].some((b) => b.textContent === "Blocks"
+      && b.getAttribute("aria-pressed") === "true"), null, { timeout: 90000 }).catch(async (e) => { throw new Error(`${e.message}; the status says "${await status(page)}"`); });
+    const ms = Date.now() - started;
+    assert(!(await page.locator(".fg-play__code").isVisible()), "the code is still shown beside the blocks");
+    const types = await page.evaluate(() => [...new Set(document.querySelector(".fg-play__blocks").blocksEditor.workspace.getAllBlocks(false).map((b) => b.type))]);
+    assert(types.includes("bf_sketch_frame") && types.includes("bf_circle"), `the blocks are ${types}`);
+    assert((await editorText(page)).includes('f.background("gold")'), "the Python was not tidied into double quotes");
+    assert((await status(page)).includes("tidied 1 line"), `the status says "${await status(page)}"`);
+
+    // a block edited: the Python follows at once
+    await page.evaluate(() => {
+      const ws = document.querySelector(".fg-play__blocks").blocksEditor.workspace;
+      ws.getBlocksByType("bf_circle")[0].getInputTargetBlock("D").setFieldValue("77", "NUM");
+    });
+    await page.waitForFunction(() => [...document.querySelectorAll(".cm-line")].some((l) => l.textContent.includes("f.circle(100, 50, 77)")), null, { timeout: 5000 });
+
+    // Run from the blocks view runs the Python the blocks make
+    await runButton(page).click();
+    const { picture: drawn } = await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque && p.colours > 1);
+    assert(drawn.colours > 1, "nothing was drawn");
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_blocks.png") });
+
+    // back to Python, then text that is not finished Python: refused with its line, the view stays Python
+    await page.getByRole("button", { name: "Python" }).click();
+    assert(await page.locator(".fg-play__code").isVisible(), "the code did not come back");
+    await typeCode(page, "x = 1\nif x > 0\n    print(x)\n");
+    await page.getByRole("button", { name: "Blocks", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector(".play-status").innerText.startsWith("Line 2 is not finished Python yet"), null, { timeout: 30000 });
+    assert(await page.locator(".fg-play__code").isVisible() && !(await box.isVisible()), "the view did not stay Python");
+    await page.close();
+    return `blocks shown ${ms} ms after the click (the first time: the bundle loads)`;
+  });
+
+  await check(85, "Blocks is optional: a tick box, remembered, ?blocks=1 and ?blocks=0, nothing fetched while off, a running sketch is told it was stopped (BF-D-031, BF-D-026)", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    const reload = async (query = "") => {
+      await page.goto(`${EDITOR}/play/?preview=${PREVIEW}${query}`);
+      await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+    };
+    const bundleRequests = () => page.evaluate(() => performance.getEntriesByType("resource").filter((e) => e.name.includes("vendor/blockly-fun/")).length);
+    const tick = page.getByLabel("Blocks", { exact: true });
+    const switchShown = () => page.locator(".fg-play__views").isVisible();
+    const blocksShown = (target) => target.waitForFunction(() => [...document.querySelectorAll(".fg-play__view")].some((b) => b.textContent === "Blocks"
+      && b.getAttribute("aria-pressed") === "true"), null, { timeout: 90000 });
+    await reload();
+    assert(!(await tick.isChecked()) && !(await switchShown()), "Blocks is on at first");
+    assert(await bundleRequests() === 0, "the blocks bundle was fetched while Blocks is off");
+
+    // ticked: the switch shows; unticked while the blocks are open: back to Python, switch hidden
+    await tick.check();
+    assert(await switchShown(), "the switch did not show");
+    await page.getByRole("button", { name: "Blocks", exact: true }).click();
+    await blocksShown(page);
+    await tick.uncheck();
+    assert(!(await switchShown()), "the switch is still shown");
+    assert(await page.locator(".fg-play__code").isVisible() && !(await page.locator(".fg-play__blocks").isVisible()), "Play did not go back to Python");
+
+    // remembered; the address can tick or untick it
+    await tick.check();
+    await reload();
+    assert(await tick.isChecked() && await switchShown(), "the tick was not remembered");
+    await reload("&blocks=0");
+    assert(!(await tick.isChecked()) && !(await switchShown()), "?blocks=0 did not untick it");
+    await reload();
+    assert(!(await tick.isChecked()), "?blocks=0 was not remembered");
+    await reload("&blocks=1");
+    assert(await tick.isChecked() && await switchShown(), "?blocks=1 did not tick it");
+    await reload();
+    assert(await tick.isChecked(), "?blocks=1 was not remembered");
+    await tick.uncheck();
+    await reload();
+    assert(await bundleRequests() === 0, "the blocks bundle was fetched while Blocks is off");
+
+    // Blocks pressed while a sketch runs: it stops, and the output says why
+    await reload("&example=animation-01_bounce&blocks=1");
+    const frame = frameOf(page, PREVIEW);
+    await runButton(page).click();
+    const first = (await waitForPicture(frame, (p) => p.opaque)).picture;
+    await waitForPicture(frame, (p) => p.sum !== first.sum, 5000);       // it moves
+    await page.getByRole("button", { name: "Blocks", exact: true }).click();
+    await page.locator(".play-output", { hasText: "Stopped to show the blocks." }).waitFor({ timeout: 10000 });
+    await page.close();
+
+    // and with nothing running there is no such line
+    const idle = await openEditor("&blocks=1");
+    await idle.getByRole("button", { name: "Blocks", exact: true }).click();
+    await blocksShown(idle);
+    assert(!(await idle.locator(".play-output").innerText()).includes("Stopped to show"), "the line appeared with nothing running");
+    await idle.close();
+    return "tick box, memory, address, no fetch while off, stop line";
+  });
+
+  await check(86, "The blocks read funground's catalogue: the name list, its search, a name with its own block, the list of what an object has, Help, a colour grid (BF-5)", async () => {
+    const page = await openEditor("&blocks=1");
+    await clearDrafts(page);
+    const sketch = "import funground as f\nfrom funground import camera, ml\n\ncam = camera.open()\n\n\ndef draw():\n"
+      + "    f.rotate(-30)\n    f.fill(\"gold\")\n    body = ml.pose(cam)\n    f.circle(body.nose.x, body.nose.y, 40)\n\n\nf.run()\n";
+    await typeCode(page, sketch);
+    await page.getByRole("button", { name: "Blocks", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector(".fg-play__blocks").blocksEditor?.workspace
+      ?.getBlocksByType("bf_ml_pose").length === 1, null, { timeout: 90000 })
+      .catch(async (e) => { throw new Error(`${e.message}; the status says "${await status(page)}"`); });
+    const types = await page.evaluate(() => [...new Set(document.querySelector(".fg-play__blocks").blocksEditor.workspace.getAllBlocks(false).map((b) => b.type))]);
+    for (const type of ["bf_camera_open", "bf_ml_pose", "bf_attribute", "bf_method", "bf_fill"]) assert(types.includes(type), `no ${type} in ${types}`);
+
+    // Opens the name field of a block (found in the page by `pick`), types `query`, and gives back the rows' names
+    const openList = async (pick, query) => {
+      // a click on the name, as a learner makes it (calling showEditor() skips Blockly's gesture, and the list closes)
+      const where = await page.evaluate((source) => {
+        const ws = document.querySelector(".fg-play__blocks").blocksEditor.workspace;
+        const block = ws.getAllBlocks(false).find(new Function("b", `return ${source}`));
+        ws.centerOnBlock(block.id);
+        const box = block.getField("NAME").getSvgRoot().getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      }, pick);
+      await page.mouse.click(where.x, where.y);
+      // (Blockly 13's DropDownDiv.clearContent() makes a new drop-down: a list put in the old one is never seen)
+      await page.locator(".bf-cat-row").first().waitFor({ timeout: 5000 });
+      if (query) {
+        await page.keyboard.press("Control+A");
+        await page.keyboard.type(query);
+      }
+      return page.evaluate(() => [...document.querySelectorAll(".bf-cat-row")].map((row) => ({
+        name: row.querySelector(".bf-cat-name").textContent, kit: !!row.querySelector(".bf-cat-kit"),
+      })));
+    };
+
+    // f.rotate is a general call block: its list is f's names; "circ" finds circle, which has its own block
+    const known = await page.evaluate(() => !!document.querySelector(".fg-play__blocks").blocksEditor.workspace.getBlocksByType("bf_method")[0].bfCatalogue);
+    assert(known, "the call block has no catalogue: completions.json did not reach the blocks");
+    const found = await openList("b.type === 'bf_method' && b.getFieldValue('NAME') === 'rotate'", "circ");
+    await sleep(1000);   // a learner pauses while typing: the Python has "circ" by now, and Escape must still bring "rotate" back to both
+    const circle = found.find((row) => row.name === "circle");
+    assert(circle && circle.kit, `searching "circ" gave ${JSON.stringify(found)}`);
+    await page.keyboard.press("ArrowDown");
+    const help = await page.locator(".bf-cat-footer a").getAttribute("href");
+    assert(/\/reference\/API\/#fn-/.test(help) && !help.includes(".md"), `Help links to ${help}`);
+    await page.keyboard.press("Escape");
+    await page.locator(".bf-cat-row").first().waitFor({ state: "detached", timeout: 5000 });
+    await page.waitForFunction(() => [...document.querySelectorAll(".cm-line")].some((l) => l.textContent.includes("f.rotate(-30)")), null, { timeout: 5000 })
+      .catch(async () => { throw new Error(`Escape did not leave the name as it was: ${await editorText(page)}`); });
+
+    // body = ml.pose(cam): the attribute block on body lists what a Body has, and not f's names
+    const parts = (await openList("b.type === 'bf_attribute' && b.getFieldValue('NAME') === 'nose'")).map((row) => row.name);
+    // (the rows say the names with spaces, as the blocks do: "left wrist")
+    assert(parts.includes("left wrist") && !parts.includes("circle"), `the list on body is ${parts.slice(0, 8)}`);
+    await page.keyboard.press("Escape");
+
+    // a colour slot gets the grid of funground's colour names (a dropdown), not a text box
+    const grid = await page.evaluate(() => {
+      const fill = document.querySelector(".fg-play__blocks").blocksEditor.workspace.getBlocksByType("bf_fill")[0];
+      const child = fill.getInputTargetBlock("COLOR");
+      return child.inputList.flatMap((input) => input.fieldRow).some((field) => typeof field.getOptions === "function");
+    });
+    assert(grid, "the colour slot has no colour grid");
+
+    // Clicks a field as a learner does: the block found by `pick`, its field `name`
+    const clickField = async (pick, name) => {
+      await page.evaluate(([source, field]) => {
+        const ws = document.querySelector(".fg-play__blocks").blocksEditor.workspace;
+        const block = ws.getAllBlocks(false).find(new Function("b", `return ${source}`));
+        ws.centerOnBlock(block.id);
+        window.clickTarget = block.getField(field);
+      }, [pick, name]);
+      await sleep(500);                       // centerOnBlock scrolls smoothly: the place is read once it has stopped
+      const where = await page.evaluate(() => {
+        const box = window.clickTarget.getSvgRoot().getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      });
+      await page.mouse.click(where.x, where.y);
+    };
+    // the grid's last square, "…", opens the other page, and it stays open
+    await clickField("b.type === 'bf_text' && b.getParent()?.type === 'bf_fill'", "TEXT");
+    await page.locator(".blocklyDropDownDiv [title='More colours'], .blocklyDropDownDiv [aria-label='More colours']").first().click();
+    await sleep(800);                                          // longer than Blockly's fade (0.25 s)
+    const picker = await page.locator(".blocklyDropDownDiv [title='Named colours'], .blocklyDropDownDiv [aria-label='Named colours']").count();
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_blocks_more_colours.png") });
+    assert(picker >= 1, `More colours did not stay open: ${await page.evaluate(() => {
+      const div = document.querySelector(".blocklyDropDownDiv");
+      return JSON.stringify({ opacity: div.style.opacity, titles: [...div.querySelectorAll("[title]")].slice(-3).map((e) => e.title), count: div.querySelectorAll(".blocklyColourSwatch").length });
+    })}`);
+    await page.keyboard.press("Escape");
+    await page.locator(".blocklyDropDownDiv .blocklyColourSwatch").first().waitFor({ state: "detached", timeout: 5000 });
+
+    // the number in f.rotate(...) (degrees, an angle) opens a dial
+    await clickField("b.type === 'bf_number' && b.getParent()?.getFieldValue?.('NAME') === 'rotate'", "NUM");
+    // (Blockly leaves a removed field's click listener on the block: the dial needs the old one taken off, editors/index.js)
+    await page.locator(".blocklyAngleCircle").waitFor({ timeout: 5000 });
+    await page.keyboard.press("Escape");
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_blocks_lines_on.png") });
+
+    // "Python on blocks" takes the lines away and brings them back; the Python is the same
+    const lines = () => page.locator(".fg-play__blocks .bf-python-line").count();
+    const before = await editorText(page);
+    assert(await lines() > 0, "no Python lines at first");
+    await page.getByLabel("Python on blocks").uncheck();
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__blocks .bf-python-line").length === 0, null, { timeout: 5000 });
+    assert(await editorText(page) === before, "turning the lines off changed the Python");
+    await page.getByLabel("Python on blocks").check();
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__blocks .bf-python-line").length > 0, null, { timeout: 5000 });
+    await page.getByLabel("Python on blocks").uncheck();      // left off: the screenshot below shows the blocks without
+    if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_blocks_catalogue.png") });
+    await page.close();
+    return `"circ" found ${found.length} rows; body lists ${parts.length} parts; Help ${help}`;
   });
 } finally {
   await browser.close();
