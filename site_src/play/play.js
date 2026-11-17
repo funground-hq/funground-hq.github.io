@@ -12,6 +12,8 @@
 // "My files" (S-221, D-108): files the learner keeps (what a sketch saved, or a file from their computer) are in this browser
 // only (IndexedDB, myfiles.js), and every run gets them by name, so f.load_clip("take.gif") and open("notes.txt") find them.
 // ?example=<id> opens one example (the gallery pages link here that way). #code=<text> opens a shared sketch.
+// A sketch of the learner's can have more files than one (S-242): helpers it imports. Each file is a tab. The main file's code is
+// the sketch's `code`, the others are its `files`. Run passes them all; Download and Share take them along (zip.js writes the .zip).
 //
 // The page is the editor and nothing else: a toolbar, and the code beside the picture with the messages above it.
 // The editor fills the window; the picture fits the room, or is zoomed in or out. The page's own text
@@ -20,6 +22,7 @@
 import { createEditor } from "./vendor/codemirror.js";
 import { createBlocksView } from "./blocks.js";
 import * as myFiles from "./myfiles.js";
+import { makeZip, readZip, ZipError } from "./zip.js";
 
 const play = document.getElementById("funground-play");
 
@@ -104,12 +107,21 @@ async function decodeCode(encoded) {
 async function playLink(withCode) {
   const link = new URL(location.pathname, location.origin);
   if (current) link.searchParams.set("example", current.id);      // so its data files load for whoever opens the link
-  if (withCode) link.hash = `code=${await encodeCode(editor.getText())}`;
+  if (withCode) {
+    const parts = new URLSearchParams({ code: await encodeCode(mainText()) });
+    for (const file of filesOf()) parts.append("file", `${file.name}:${await encodeCode(file.code)}`);      // each file compressed as the code is
+    link.hash = parts.toString();
+  }
   return link;
 }
 
 function sharedCode() {
   return new URLSearchParams(location.hash.slice(1)).get("code");
+}
+
+// The other files of a shared sketch, as they are in the link: "helpers.py:<compressed text>". Read when the sketch opens.
+function sharedFileParts() {
+  return new URLSearchParams(location.hash.slice(1)).getAll("file");
 }
 
 // ---- the examples
@@ -210,13 +222,14 @@ const blocksBox = element("div", { class: "fg-play__blocks", hidden: "" });
 // My sketches (S-213): the actions on the sketch that is open. New and Open are always there; the rest depend on the sketch.
 const mineButton = (text, title) => element("button", { class: "fg-play__minebtn", type: "button", title }, text);
 const newButton = mineButton("New sketch", "Start a new sketch from the starter");
-const openFileButton = mineButton("Open .py", "Open a .py file from this computer as a new sketch");
+const newFileButton = mineButton("New file", "Add a file to this sketch, for code you want to import");
+const openFileButton = mineButton("Open file", "Open a .py file, or a .zip that Download made, from this computer as a new sketch");
 const keepButton = mineButton("Keep as my sketch", "Copy this code into My sketches, so you can keep changing it");
 const renameButton = mineButton("Rename", "Give this sketch another name");
 const duplicateButton = mineButton("Duplicate", "Make a copy of this sketch");
-const downloadButton = mineButton("Download .py", "Save this sketch as a .py file on this computer");
+const downloadButton = mineButton("Download .py", "Save this sketch as a .py file on this computer");      // "Download .zip" for a sketch with files (showMine)
 const deleteButton = mineButton("Delete", "Delete this sketch (you can undo for a few seconds)");
-const openFileInput = element("input", { type: "file", accept: ".py,text/x-python,text/plain", hidden: "", "aria-label": "Open a .py file" });
+const openFileInput = element("input", { type: "file", accept: ".py,.zip,text/x-python,text/plain,application/zip", hidden: "", "aria-label": "Open a .py or .zip file" });
 const mineNote = element("div", { class: "fg-play__minenote", role: "status" });
 const storageNote = element("div", { class: "fg-play__minenote fg-play__minenote--warn", role: "status", hidden: "" },
   "This browser is not keeping sketches: download yours with Download .py");
@@ -234,7 +247,7 @@ const filesMenuItem = mineButton("My files", "Open the list of files this browse
 const fileMenuButton = element("button", { class: "fg-play__minebtn fg-play__filebtn", type: "button", "aria-haspopup": "true",
   "aria-expanded": "false", title: "New, open, keep, download and your files" }, "File ▾");
 const fileMenuItems = element("div", { class: "fg-play__menu", role: "group", "aria-label": "File", hidden: "" },
-  newButton, openFileButton, keepButton, renameButton, duplicateButton, downloadButton, deleteButton,
+  newButton, newFileButton, openFileButton, keepButton, renameButton, duplicateButton, downloadButton, deleteButton,
   element("hr", { class: "fg-play__menusep" }), filesMenuItem);
 const fileMenu = element("span", { class: "fg-play__filemenu" }, fileMenuButton, fileMenuItems, openFileInput);
 // The course lesson's panel (S-216): an example with a `lesson` (assemble.py reads it from funground's
@@ -288,8 +301,18 @@ const output = element("div", { class: "fg-console__body play-output", "aria-liv
 const fab = element("button", { class: "fg-play__fab", type: "button", "aria-label": "Run", title: "Run", hidden: "", disabled: "" }, "▶");
 
 const tab = element("div", { class: "fg-play__tab" }, fileName, nameInput, lineCount, fileMenu, linesLabel, viewSwitch);
+// The files of the sketch (S-242): a strip of tabs, shown from the second file on. The main file's tab is named as the sketch.
+const fileTabs = element("div", { class: "fg-play__ftabs", role: "tablist", "aria-label": "Files of this sketch", hidden: "" });
+// New file and a file's Rename ask for its name here, under the tabs. The line beside the box says what the file will be called,
+// or why the name cannot be used.
+const fileFormTitle = element("span", { class: "fg-play__fileformtitle" });
+const fileNameField = element("input", { class: "fg-play__filenameinput", type: "text", maxlength: "40", autocomplete: "off", spellcheck: "false", "aria-label": "File name" });
+const fileNameHint = element("span", { class: "fg-play__filehint", role: "status" });
+const fileNameOk = element("button", { class: "fg-play__minebtn", type: "submit" }, "OK");
+const fileNameCancel = element("button", { class: "fg-play__minebtn", type: "button" }, "Cancel");
+const fileForm = element("form", { class: "fg-play__fileform", hidden: "" }, fileFormTitle, fileNameField, fileNameOk, fileNameCancel, fileNameHint);
 const work = element("div", { class: "fg-play__work" },
-  element("div", { class: "fg-play__editor" }, tab, lessonPanel, mineNote, storageNote, filesPanel, editorBox, blocksBox),
+  element("div", { class: "fg-play__editor" }, tab, fileTabs, fileForm, lessonPanel, mineNote, storageNote, filesPanel, editorBox, blocksBox),
   divider,
   element("div", { class: "fg-play__stage" },
     // The messages are above the picture and take no room while there are none: the rest belongs to the sketch.
@@ -377,7 +400,29 @@ function clearModel(restore = false) {
 }
 const isDark = () => document.body.getAttribute("data-md-color-scheme") === "slate";
 
-const editor = createEditor({ parent: editorBox, dark: isDark(), onChange: edited });
+// CodeMirror keeps a file's cursor and undo history in its editor, so each file of the open sketch has an editor of its own, made when
+// its tab is first opened. Only the one on show is in the page. The others wait in `fileEditors` by file name; the editors of a
+// sketch that was closed wait in `spareEditors` and are used again (an editor cannot be taken apart, so they are not thrown away).
+const MAIN = "main.py";                // the main file's name here, and what a run calls it when the sketch has more files
+const allEditors = [];
+const spareEditors = [];
+const fileEditors = new Map();         // file name -> { editor, pane, scroll }
+let openFile = MAIN;                   // the file on show
+let suggestions = null;                // completions.json, once it has arrived
+
+function newEditor() {
+  const pane = element("div", { class: "fg-play__pane" });
+  const made = { editor: createEditor({ parent: pane, dark: isDark(), onChange: edited }), pane, scroll: 0 };
+  if (suggestions) made.editor.setCompletions(suggestions);
+  allEditors.push(made);
+  return made;
+}
+
+const mainEditor = newEditor();
+editorBox.append(mainEditor.pane);
+fileEditors.set(MAIN, mainEditor);
+let editor = mainEditor.editor;        // always the editor on show
+
 const blocks = createBlocksView({
   box: blocksBox, getText: () => editor.getText(), setText: (text) => { editor.setText(text); edited(); },   // a block edit is the learner's: a draft, Reset, Auto-run
   send: (message) => tell(message), say: setStatus, onClose: showPythonView,
@@ -462,9 +507,13 @@ const catalogue = fetch("completions.json")
     console.info("Play: no suggestions.", error.message);
     return null;
   });
-catalogue.then((data) => { if (data) editor.setCompletions(data); });
+catalogue.then((data) => {
+  if (!data) return;
+  suggestions = data;
+  for (const { editor: each } of allEditors) each.setCompletions(data);
+});
 
-new MutationObserver(() => editor.setDark(isDark()))
+new MutationObserver(() => { for (const { editor: each } of allEditors) each.setDark(isDark()); })
   .observe(document.body, { attributes: true, attributeFilter: ["data-md-color-scheme"] });
 
 function showLineCount() {
@@ -655,7 +704,7 @@ let ranOnce = false;          // the open example has been run (S-216: the lesso
 // The example's gallery picture shows only while it is true to the code: an example, not run yet, and the code as the
 // example has it (a draft or an edit may no longer match the picture). A blank, starter or shared sketch has none.
 function updateStill() {
-  const show = stillAllowed && key !== SHARED && !!current?.picture && editor.getText() === original;
+  const show = stillAllowed && key !== SHARED && !!current?.picture && mainText() === original;
   if (show && stillImage.getAttribute("src") !== current.picture) stillImage.src = current.picture;
   still.hidden = !show;
   if (show) fitPicture();
@@ -693,7 +742,7 @@ nextButton.addEventListener("click", () => step(1));
 const draftName = () => `funground.draft.${key}`;
 
 function showReset() {
-  resetButton.hidden = isMine() || editor.getText() === original;      // the learner's own sketch has no original
+  resetButton.hidden = isMine() || (mainText() === original && sameFiles(sharedFiles, originalFiles));      // the learner's own sketch has no original
 }
 
 function writeAddress() {
@@ -730,6 +779,7 @@ async function starterText() {
 // Opens a sketch: an example id, BLANK, STARTER, or SHARED (the code in the link). A saved draft is used if there is one.
 async function open(wanted) {
   flushMine();
+  closeFiles();
   if (wanted.startsWith(MINE) && !mine.some((sketch) => MINE + sketch.id === wanted)) wanted = STARTER;      // deleted since
   stillAllowed = false;
   ranOnce = false;
@@ -741,6 +791,9 @@ async function open(wanted) {
   current = examples.find((example) => example.id === exampleId) ?? null;
   key = wanted === SHARED ? SHARED : current ? current.id : wanted === STARTER || wanted.startsWith(MINE) ? wanted : BLANK;
   files = {};
+  sharedFiles = [];
+  originalFiles = [];
+  let skippedFiles = 0;
   original = key === STARTER ? await starterText() : BLANK_TEXT;
   if (isMine()) original = ownSketch().code;
   if (current) {
@@ -748,7 +801,10 @@ async function open(wanted) {
     original = fetched.text;
     files = fetched.data;
   }
-  if (key === SHARED) original = await decodeCode(sharedBase);
+  if (key === SHARED) {
+    original = await decodeCode(sharedBase);
+    ({ files: originalFiles, skipped: skippedFiles } = await readSharedFiles(sharedFileParts()));
+  }
   const missing = embed && key === BLANK;      // an embed of an example that is not there: an empty editor and a sentence
   if (missing) original = "";
   if (key === SHARED) choose.append(sharedOption);
@@ -758,7 +814,9 @@ async function open(wanted) {
 
   const draft = isMine() ? null : recall(draftName());
   const useDraft = draft && typeof draft.text === "string" && (key !== SHARED || draft.base === sharedBase);
-  replaceText(useDraft ? draft.text : original);
+  mainCode = useDraft ? draft.text : original;
+  if (key === SHARED) sharedFiles = (useDraft && Array.isArray(draft.files) ? draft.files.filter(validFile) : null) ?? copyFiles(originalFiles);
+  replaceText(mainCode);
   showReset();
   showLineCount();
   stillAllowed = true;
@@ -773,7 +831,7 @@ async function open(wanted) {
   showOpenInPlay();
   if (missing) setStatus(NOT_IN_PLAY, "error");
   else if (useDraft) setStatus("Your unsaved changes are back. Reset goes back to the original.");
-  else if (key === SHARED) setStatus("Shared sketch: press Run.");
+  else if (key === SHARED) setStatus(`Shared sketch: press Run.${skippedFiles ? ` ${skippedFiles === 1 ? "A file" : `${skippedFiles} files`} in the link could not be opened.` : ""}`);
   else if (previewReady) setStatus("Ready. Press Run.", "ready");
 }
 
@@ -785,7 +843,7 @@ let linkTicket = 0;               // the newest request wins: the encoding is as
 async function showOpenInPlay() {
   if (!openInPlay) return;
   const ticket = ++linkTicket;
-  const text = editor.getText();
+  const text = mainText();
   const link = await playLink(key === SHARED || text !== original);
   if (ticket === linkTicket) openInPlay.href = link.href;
 }
@@ -893,7 +951,7 @@ keepForm.addEventListener("submit", async (event) => {
   const picture = await keepPicture(keepNote.value.trim());
   keepSave.disabled = false;
   const note = keepNote.value.trim().split("\n").map((line) => `# ${line}`.trimEnd()).join("\n");
-  const code = `# Lesson ${info.number}: ${info.title} - ${info.section}\n${note}\n\n${editor.getText()}`;
+  const code = `# Lesson ${info.number}: ${info.title} - ${info.section}\n${note}\n\n${mainText()}`;
   const sketch = addSketch(`Lesson ${info.number}: ${info.title}`, code);
   await open(MINE + sketch.id);
   const stored = await keepStudioFiles(picture.files);
@@ -916,9 +974,17 @@ const UNDO_MS = 8000;
 const MAX_FILE = 200 * 1024;
 
 const validSketch = (s) => s && typeof s.id === "string" && typeof s.name === "string" && typeof s.code === "string";
+// A stored file is kept only with a module's name (as fileNameFrom gives), so nothing read back can name a path in the run folder.
+const validFile = (f) => f && typeof f.name === "string" && /^[a-z][a-z0-9_]*\.py$/.test(f.name) && f.name !== "main.py" && typeof f.code === "string";
+// A sketch has `files` only when it has other files than the main one (S-242). A list written before that has none, and reads as it did.
 let mine = (() => {
   const list = recall(MINE_NAME);
-  return Array.isArray(list) ? list.filter(validSketch) : [];
+  const sketches = Array.isArray(list) ? list.filter(validSketch) : [];
+  for (const sketch of sketches) {
+    if (Array.isArray(sketch.files)) sketch.files = sketch.files.filter(validFile);
+    if (!Array.isArray(sketch.files) || !sketch.files.length) delete sketch.files;
+  }
+  return sketches;
 })();
 let mineDirty = false;
 let mineTimer = null;
@@ -978,9 +1044,10 @@ function say(text, ...extra) {
   sayTimer = setTimeout(() => mineNote.replaceChildren(), extra.length ? UNDO_MS : 12000);
 }
 
-function addSketch(name, code) {
+function addSketch(name, code, otherFiles = []) {
   const now = Date.now();
   const sketch = { id: now.toString(36) + Math.random().toString(36).slice(2, 6), name: freeName(name), code, created: now, updated: now };
+  if (otherFiles.length) sketch.files = copyFiles(otherFiles);
   mine.unshift(sketch);
   changedMine(false);
   showMineInPicker();
@@ -995,7 +1062,11 @@ function showMine() {
   fileName.disabled = !own;
   fileName.title = own ? "Click to rename" : "";
   fileName.textContent = own ? own.name : current ? current.source.split("/").pop() : "sketch.py";
+  const several = filesOf().length > 0;
+  downloadButton.textContent = several ? "Download .zip" : "Download .py";
+  downloadButton.title = several ? "Save this sketch as a .zip: a folder with main.py and its other files" : "Save this sketch as a .py file on this computer";
   showMineInPicker();
+  showTabs();
 }
 
 // What the open sketch is called when it is kept or downloaded.
@@ -1010,7 +1081,7 @@ newButton.addEventListener("click", async () => {
 });
 
 keepButton.addEventListener("click", async () => {
-  const sketch = addSketch(openTitle(), editor.getText());
+  const sketch = addSketch(openTitle(), mainText(), filesOf());
   await open(MINE + sketch.id);
   say(`Kept as "${sketch.name}" in My sketches. The original is still in the list.`);
 });
@@ -1018,14 +1089,24 @@ keepButton.addEventListener("click", async () => {
 duplicateButton.addEventListener("click", async () => {
   const own = ownSketch();
   if (!own) return;
-  const sketch = addSketch(`${own.name} copy`, editor.getText());
+  const sketch = addSketch(`${own.name} copy`, mainText(), filesOf());
   await open(MINE + sketch.id);
   say(`Made "${sketch.name}".`);
 });
 
-downloadButton.addEventListener("click", () => {
+downloadButton.addEventListener("click", async () => {
+  const others = filesOf();
+  if (others.length) {
+    // Several files: a folder named as the sketch, with main.py and the rest, so it runs on a computer as it is (python main.py).
+    const folder = slug(openTitle());
+    const bytes = (text) => new TextEncoder().encode(text);
+    const zip = await makeZip([{ name: `${folder}/${MAIN}`, bytes: bytes(mainText()) }, ...others.map((file) => ({ name: `${folder}/${file.name}`, bytes: bytes(file.code) }))]);
+    downloadNow(`${folder}.zip`, new Blob([zip], { type: "application/zip" }));
+    say(`Saved ${folder}.zip. It has the folder ${folder} with main.py and ${others.length === 1 ? "one more file" : `${others.length} more files`}.`);
+    return;
+  }
   const name = ownSketch() ? `${slug(ownSketch().name)}.py` : current ? current.source.split("/").pop() : `${slug(openTitle())}.py`;
-  downloadNow(name, new Blob([editor.getText()], { type: "text/x-python" }));
+  downloadNow(name, new Blob([mainText()], { type: "text/x-python" }));
   say(`Saved ${name}.`);
 });
 
@@ -1083,28 +1164,364 @@ deleteButton.addEventListener("click", async () => {
   say(`Deleted "${own.name}". `, undo);
 });
 
-// Open a .py file from this computer: it becomes a new sketch named after the file.
+// Open a file from this computer: a .py becomes a new sketch named after the file. A .zip that Download made (or any zip with a
+// main.py in a folder) becomes a sketch with those files.
 openFileButton.addEventListener("click", () => openFileInput.click());
-openFileInput.addEventListener("change", async () => {
-  const file = openFileInput.files[0];
-  openFileInput.value = "";                 // so the same file can be chosen again
-  if (!file) return;
+
+// Text from a file's bytes, as a sketch keeps it (lines end with \n), or null if the bytes are not text.
+function textOf(bytes) {
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return text.includes("\0") ? null : text.replace(/\r\n?/g, "\n");
+  } catch {
+    return null;
+  }
+}
+
+async function openPython(file) {
   if (file.size > MAX_FILE) {
     say(`"${file.name}" is bigger than 200 KB, so it was not opened. Sketches are small text files.`);
     return;
   }
-  let text;
-  try {
-    text = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
-    if (text.includes("\0")) throw new Error("not text");
-  } catch {
+  const text = textOf(await file.arrayBuffer());
+  if (text === null) {
     say(`"${file.name}" is not a text file, so it was not opened. Choose a .py file.`);
     return;
   }
-  const sketch = addSketch(file.name.replace(/\.py$/i, "").trim() || "Opened sketch", text.replace(/\r\n?/g, "\n"));
+  const sketch = addSketch(file.name.replace(/\.py$/i, "").trim() || "Opened sketch", text);
   await open(MINE + sketch.id);
   say(`Opened "${file.name}" as "${sketch.name}".`);
+}
+
+async function openZip(file) {
+  const refused = (why) => say(`"${file.name}" was not opened. ${why}`);
+  if (file.size > MAX_FILES * MAX_FILE) {
+    refused("It is bigger than 2 MB. Sketches are small text files.");
+    return;
+  }
+  let entries;
+  try {
+    entries = await readZip(new Uint8Array(await file.arrayBuffer()), { maxSize: MAX_FILE });
+  } catch (error) {
+    if (!(error instanceof ZipError)) throw error;
+    refused(error.message);
+    return;
+  }
+  // The sketch is the main.py nearest the top, and the .py files in the same folder.
+  const main = entries.filter((entry) => /^([^/]+\/)?main\.py$/.test(entry.name)).sort((a, b) => a.name.length - b.name.length)[0];
+  if (!main) {
+    refused("A sketch's zip has a main.py in it, and this one has not.");
+    return;
+  }
+  const folder = main.name.slice(0, -MAIN.length);
+  const mainRead = textOf(main.bytes);
+  if (mainRead === null) {
+    refused("Its main.py is not a text file.");
+    return;
+  }
+  const others = [];
+  const left = [];                      // files that are not opened: a name that is not a module's, a file that is not text, or too many
+  for (const entry of entries) {
+    const name = entry.name.slice(folder.length);
+    if (entry === main || !entry.name.startsWith(folder) || name.includes("/") || !name.endsWith(".py")) continue;
+    const text = textOf(entry.bytes);
+    const checked = await fileNameFrom(name, new Set(others.map((each) => each.name)));
+    if (text === null || checked.name !== name || others.length + 1 >= MAX_FILES) left.push(name);
+    else others.push({ name, code: text });
+  }
+  const sketch = addSketch(file.name.replace(/\.zip$/i, "").trim() || "Opened sketch", mainRead, others);
+  await open(MINE + sketch.id);
+  const count = others.length ? ` with ${others.length === 1 ? "one more file" : `${others.length} more files`}` : "";
+  const skipped = left.length
+    ? ` These were left out: ${left.join(", ")}. A file needs a name Python can import (lower case, no spaces) and text inside, and a sketch holds at most ${MAX_FILES} files.`
+    : "";
+  say(`Opened "${file.name}" as "${sketch.name}"${count}.${skipped}`);
+}
+
+openFileInput.addEventListener("change", async () => {
+  const file = openFileInput.files[0];
+  openFileInput.value = "";                 // so the same file can be chosen again
+  if (!file) return;
+  if (/\.zip$/i.test(file.name)) await openZip(file);
+  else await openPython(file);
 });
+
+// ---- the files of a sketch (S-242)
+//
+// A sketch of the learner's has its main file (`code`) and may have others (`files`: [{ name, code }], absent when there are none).
+// The model is always up to date: edited() writes what the learner types into it. The editor on show holds the open file's text;
+// `mainCode` is the main file's while another file is open. A shared link may carry files too (`sharedFiles`); they are not stored.
+
+const MAX_FILES = 10;                 // in one sketch, the main file counted
+let mainCode = "";
+let sharedFiles = [];
+let originalFiles = [];               // the files the shared link had, for Reset
+
+const filesOf = () => ownSketch()?.files ?? sharedFiles;
+const fileNamed = (name) => filesOf().find((file) => file.name === name);
+const mainText = () => (openFile === MAIN ? editor.getText() : mainCode);
+const copyFiles = (list) => list.map(({ name, code }) => ({ name, code }));
+const sameFiles = (a, b) => a.length === b.length && a.every((file, i) => file.name === b[i].name && file.code === b[i].code);
+const moduleOf = (name) => name.replace(/\.py$/, "");
+
+// ---- a file's name is a Python module's name, so `import helpers` finds it
+
+const MODULE_NAME = /^[a-z][a-z0-9_]*$/;
+let pythonNames = null;               // Python's own module names (assemble.py writes the list from sys.stdlib_module_names)
+async function pythonModules() {
+  if (pythonNames) return pythonNames;
+  try {
+    const response = await fetch("stdlib_modules.json");
+    if (!response.ok) throw new Error(`stdlib_modules.json: ${response.status}`);
+    pythonNames = new Set(await response.json());
+    return pythonNames;
+  } catch {
+    return new Set();                 // not kept, so the next name asks again; the other rules still hold
+  }
+}
+
+/**
+ * What the learner typed as a file's name, made a module's name: "Helpers 2" is helpers_2.py. Resolves { name } or { problem },
+ * the problem being a sentence for the learner. `taken` is the names the sketch's other files have.
+ */
+async function fileNameFrom(typed, taken) {
+  const base = moduleOf(typed.trim().toLowerCase()).replace(/[\s-]+/g, "_");
+  if (!base) return { problem: "Type a name for the file." };
+  if (!/^[a-z]/.test(base)) return { problem: `"${typed.trim()}" cannot be a file name. A name starts with a letter, because Python imports a file by its name.` };
+  if (!MODULE_NAME.test(base)) return { problem: `"${typed.trim()}" cannot be a file name. Use letters, digits and _ only, because Python imports a file by its name.` };
+  if (base === "main") return { problem: `"main" is the name of the sketch's own file, so this file needs another name.` };
+  if (base === "funground") return { problem: `"funground" is the name of the funground library. A file with that name would hide it, so choose another.` };
+  if ((await pythonModules()).has(base)) return { problem: `"${base}" is a module that comes with Python. A file with that name would hide it, so choose another.` };
+  if (taken.has(`${base}.py`)) return { problem: `This sketch already has a file called ${base}.py.` };
+  return { name: `${base}.py` };
+}
+
+// The other files of a shared link: "helpers.py:<compressed text>". One that cannot be read is left out and counted.
+async function readSharedFiles(parts) {
+  const found = [];
+  let skipped = 0;
+  for (const part of parts) {
+    const colon = part.indexOf(":");
+    const wanted = part.slice(0, colon);
+    try {
+      const checked = colon > 0 ? await fileNameFrom(wanted, new Set(found.map((file) => file.name))) : {};
+      const code = checked.name === wanted && found.length + 1 < MAX_FILES ? await decodeCode(part.slice(colon + 1)) : null;
+      if (code === null || code.length > MAX_FILE) throw new Error("not a file");
+      found.push({ name: wanted, code });
+    } catch {
+      skipped += 1;
+    }
+  }
+  return { files: found, skipped };
+}
+
+// ---- the editors of the files, and the tabs
+
+function editorOf(name) {
+  let found = fileEditors.get(name);
+  if (!found) {
+    found = spareEditors.pop() ?? newEditor();
+    found.editor.setText(fileNamed(name).code);
+    fileEditors.set(name, found);
+  }
+  return found;
+}
+
+// Puts a file's editor in the page, in place of the one on show. It does not tell the rest of the page: see showFile.
+function swapEditor(name) {
+  const leaving = fileEditors.get(openFile);
+  leaving.scroll = leaving.pane.querySelector(".cm-scroller").scrollTop;      // an editor out of the page forgets how far it was scrolled
+  if (openFile === MAIN) mainCode = leaving.editor.getText();
+  leaving.pane.remove();
+  const next = editorOf(name);
+  editorBox.append(next.pane);
+  next.pane.querySelector(".cm-scroller").scrollTop = next.scroll;
+  editor = next.editor;
+  openFile = name;
+}
+
+function showFile(name) {
+  if (name === openFile) return;
+  swapEditor(name);
+  blocks.changed();                   // the blocks, if shown, are the open file's
+  showLineCount();
+  showTabs();
+}
+
+// A closed file's editor is kept for the next file that is opened.
+function releaseEditor(name) {
+  const found = fileEditors.get(name);
+  if (!found || name === MAIN) return;
+  found.pane.remove();
+  spareEditors.push(found);
+  fileEditors.delete(name);
+}
+
+// Another sketch is opening: back to the main file's editor, and the other files' editors are put by.
+function closeFiles() {
+  if (openFile !== MAIN) swapEditor(MAIN);
+  for (const name of [...fileEditors.keys()]) releaseEditor(name);
+}
+
+const mainLabel = () => ownSketch()?.name ?? openTitle();
+
+// The strip: the main file's tab (named as the sketch), then one tab for each file. A file of the learner's own sketch can be
+// renamed and deleted; those of a shared link cannot until it is kept.
+function showTabs() {
+  const list = filesOf();
+  fileTabs.hidden = !list.length;
+  const own = !!ownSketch();
+  fileTabs.replaceChildren(...[MAIN, ...list.map((file) => file.name)].map((name) => {
+    const shown = name === openFile;
+    const select = element("button", { class: "fg-play__ftabname", type: "button", role: "tab", "aria-selected": String(shown), tabindex: shown ? "0" : "-1",
+      title: name === MAIN ? "The main file: Run starts here" : "" }, name === MAIN ? mainLabel() : name);
+    select.addEventListener("click", () => showFile(name));
+    const box = element("span", { class: `fg-play__ftab${shown ? " is-open" : ""}` }, select);
+    if (own && name !== MAIN) {
+      const rename = element("button", { class: "fg-play__ftabact", type: "button", "aria-label": `Rename ${name}`, title: "Rename" }, "\u270E");
+      const remove = element("button", { class: "fg-play__ftabact", type: "button", "aria-label": `Delete ${name}`, title: "Delete (you can undo for a few seconds)" }, "\u00D7");
+      rename.addEventListener("click", () => askRename(name));
+      remove.addEventListener("click", () => deleteFile(name));
+      box.append(rename, remove);
+    }
+    return box;
+  }));
+}
+
+// Left and Right move between the tabs, Home and End go to the first and last.
+fileTabs.addEventListener("keydown", (event) => {
+  const names = [...fileTabs.querySelectorAll(".fg-play__ftabname")];
+  const at = names.indexOf(document.activeElement);
+  const to = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: names.length - 1 }[event.key];
+  if (at === -1 || to === undefined) return;
+  event.preventDefault();
+  names[(to + names.length) % names.length].click();
+  fileTabs.querySelector('[aria-selected="true"]').focus();       // the click made the strip again
+});
+
+// ---- asking for a name: New file and Rename
+
+let nameAsked = null;                 // { except, accept(name) } while the form is open
+let hintTicket = 0;
+
+const takenNames = () => new Set(filesOf().map((file) => file.name).filter((name) => name !== nameAsked?.except));
+
+async function showNameHint() {
+  const ticket = ++hintTicket;
+  const answer = await fileNameFrom(fileNameField.value, takenNames());
+  if (ticket === hintTicket) fileNameHint.textContent = answer.problem ?? `It will be called ${answer.name}.`;
+}
+
+function askFileName(title, value, ask) {
+  nameAsked = ask;
+  fileFormTitle.textContent = title;
+  fileNameField.value = value;
+  fileForm.hidden = false;
+  showNameHint();
+  fileNameField.focus();
+  fileNameField.select();
+}
+function closeFileForm() {
+  fileForm.hidden = true;
+  nameAsked = null;
+  hintTicket += 1;
+}
+fileNameField.addEventListener("input", showNameHint);
+fileNameCancel.addEventListener("click", closeFileForm);
+fileForm.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  event.stopPropagation();                  // Esc here closes the form, it does not stop the sketch
+  closeFileForm();
+});
+fileForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const answer = await fileNameFrom(fileNameField.value, takenNames());
+  if (answer.problem) {
+    fileNameHint.textContent = answer.problem;
+    fileNameField.focus();
+    return;
+  }
+  const asked = nameAsked;
+  closeFileForm();
+  await asked.accept(answer.name);
+});
+
+newFileButton.addEventListener("click", () => {
+  if (filesOf().length + 1 >= MAX_FILES) {
+    say(`A sketch holds at most ${MAX_FILES} files.`);
+    return;
+  }
+  askFileName(`New file${ownSketch() ? "" : " (this sketch is kept in My sketches first)"}`, "", {
+    accept: async (name) => {
+      let note = "";
+      if (!ownSketch()) {                   // an example or a shared sketch: a copy of the learner's own comes first
+        const sketch = addSketch(openTitle(), mainText(), filesOf());
+        await open(MINE + sketch.id);
+        note = `Kept as "${sketch.name}" in My sketches first. `;
+      }
+      const own = ownSketch();
+      (own.files ??= []).push({ name, code: "" });
+      own.updated = Date.now();
+      changedMine(false);
+      showFile(name);
+      showMine();
+      editor.focus();
+      say(`${note}Made ${name}. Use it with: import ${moduleOf(name)}`);
+    },
+  });
+});
+
+function askRename(name) {
+  askFileName(`Rename ${name}`, moduleOf(name), {
+    except: name,
+    accept: (newName) => {
+      const own = ownSketch();
+      const file = own?.files?.find((each) => each.name === name);
+      if (!file || newName === name) return;
+      file.name = newName;
+      own.updated = Date.now();
+      changedMine(false);
+      if (fileEditors.has(name)) fileEditors.set(newName, fileEditors.get(name));
+      fileEditors.delete(name);
+      if (openFile === name) openFile = newName;
+      showTabs();
+      say(`Renamed ${name} to ${newName}. If your code says import ${moduleOf(name)}, change it to import ${moduleOf(newName)}.`);
+    },
+  });
+}
+
+// Delete: at once, with a few seconds to undo, as for sketches. The file's place and undo history are not kept.
+function deleteFile(name) {
+  const own = ownSketch();
+  const index = own?.files?.findIndex((file) => file.name === name);
+  if (index === undefined || index < 0) return;
+  const [gone] = own.files.splice(index, 1);
+  if (!own.files.length) delete own.files;
+  if (openFile === name) {
+    swapEditor(MAIN);
+    blocks.changed();
+    showLineCount();
+  }
+  releaseEditor(name);
+  own.updated = Date.now();
+  changedMine(false);
+  showMine();
+  const undo = element("button", { class: "fg-play__minebtn", type: "button" }, "Undo");
+  undo.addEventListener("click", async () => {
+    if (ownSketch() !== own) await open(MINE + own.id);
+    if (own.files?.some((file) => file.name === gone.name)) {
+      say(`There is a file called ${gone.name} again, so the old one was not brought back.`);
+      return;
+    }
+    own.files ??= [];
+    own.files.splice(Math.min(index, own.files.length), 0, gone);
+    changedMine(false);
+    showFile(gone.name);
+    showMine();
+    say(`${gone.name} is back.`);
+  }, { once: true });
+  say(`Deleted ${gone.name}. `, undo);
+}
 
 // ---- My files (S-221, D-108): files kept in this browser (myfiles.js), listed under the buttons and sent with every run
 //
@@ -1275,14 +1692,18 @@ function edited() {
   blocks.changed();                              // another example, Reset or a draft: the blocks read it again
   const text = editor.getText();
   const own = ownSketch();
+  const file = openFile === MAIN ? null : fileNamed(openFile);      // null: the main file is open
+  if (!file) mainCode = text;
   if (own) {
-    if (own.code !== text) {                     // not when the sketch has only just been opened
-      own.code = text;
+    if ((file ?? own).code !== text) {           // not when the sketch has only just been opened
+      (file ?? own).code = text;
       own.updated = Date.now();
       changedMine(true);
     }
   } else {
-    remember(draftName(), text === original ? null : { text, base: key === SHARED ? sharedBase : undefined });
+    if (file) file.code = text;
+    const same = mainCode === original && sameFiles(sharedFiles, originalFiles);
+    remember(draftName(), same ? null : { text: mainCode, base: key === SHARED ? sharedBase : undefined, files: sharedFiles.length ? sharedFiles : undefined });
   }
   showReset();
   showLineCount();
@@ -1294,7 +1715,11 @@ function edited() {
 
 resetButton.addEventListener("click", () => {
   remember(draftName(), null);
+  closeFiles();                                  // the other files go back to the link's, so their editors are made again
+  sharedFiles = copyFiles(originalFiles);
+  mainCode = original;
   replaceText(original);
+  showTabs();
   showReset();
   showLineCount();
   updateStill();
@@ -1305,6 +1730,7 @@ resetButton.addEventListener("click", () => {
 
 let previewReady = false;
 let ranFilename = "sketch.py";
+let ranFiles = [];                // the names of the sketch's other files in the last run: a traceback may name them
 let errors = 0;
 let startedAt = 0;
 const address = previewAddress();
@@ -1329,7 +1755,7 @@ function clearOutput() {
   forgetSavedFiles();
   errors = 0;
   errorCount.hidden = true;
-  editor.clearError();
+  for (const { editor: each } of fileEditors.values()) each.clearError();
 }
 clearButton.addEventListener("click", clearOutput);
 
@@ -1388,11 +1814,20 @@ savePicture.addEventListener("click", () => {
   tell({ type: "snapshot" });
 });
 
-// A traceback names the sketch file and a line: the last such line that is in the learner's own file, or null.
-function errorLineOf(text) {
-  const own = [...text.matchAll(/File "([^"]+)", line (\d+)/g)].filter((match) => match[1] === ranFilename);
-  return own.length ? Number(own[own.length - 1][2]) : null;
+// Which of the sketch's files a traceback's path is: the main file is named as it was run; a file it imports is in the run's folder,
+// so its path ends with its name. A file of a library with the same name is not the learner's.
+function ownFileOf(path) {
+  if (path === ranFilename) return MAIN;
+  const name = path.split(/[\\/]/).pop();
+  return ranFiles.includes(name) && !/[\\/](site-packages|lib)[\\/]/.test(path) ? name : null;
 }
+
+// A traceback names a file and a line for each step: the last step that is in the learner's own files, { file, line }, or null.
+function errorPlaceOf(text) {
+  const own = [...text.matchAll(/File "([^"]+)", line (\d+)/g)].map((match) => ({ file: ownFileOf(match[1]), line: Number(match[2]) })).filter((step) => step.file === MAIN || (step.file && fileNamed(step.file)));      // not a file deleted since the run
+  return own.at(-1) ?? null;
+}
+const placeText = ({ file, line }) => (file === MAIN ? `line ${line}` : `line ${line} of ${file}`);
 
 // What the last line of a traceback says: the kind of error, the message, and (for a NameError or an AttributeError)
 // the name it names. funground's own messages, as it writes them today:
@@ -1433,13 +1868,16 @@ function guideLinkFor({ type, message }) {
 // The message in one plain line (the traceback's last line), with a link to the line in the code and, when the guide
 // has a section for it, "What this means". The line and the name it names are marked in the code.
 function showError(text) {
-  const line = errorLineOf(text);
+  const place = errorPlaceOf(text);
   const about = describeError(text);
-  if (line !== null) editor.markError(line, about.name ?? undefined);
+  if (place) editorOf(place.file).editor.markError(place.line, about.name ?? undefined);      // in its own file's editor, shown or not
   const summary = element("div", { class: "fg-play__error" }, about.plain);
-  if (line !== null) {
-    const go = element("button", { class: "line-link", type: "button" }, `Go to line ${line}`);
-    go.addEventListener("click", () => editor.goToLine(line));
+  if (place) {
+    const go = element("button", { class: "line-link", type: "button" }, `Go to line ${place.line}${place.file === MAIN ? "" : ` in ${place.file}`}`);
+    go.addEventListener("click", () => {
+      showFile(place.file);                        // the file's tab, if it is not the open one
+      editor.goToLine(place.line);
+    });
     summary.append(" ", go);
   }
   output.append(summary);
@@ -1452,12 +1890,12 @@ function showError(text) {
   errors += 1;
   errorCount.textContent = String(errors);
   errorCount.hidden = false;
-  return line;
+  return place;
 }
 
 let drawn = false;            // a sketch is running or has drawn, and has not been stopped or failed (Keep this can keep its picture)
 let focusOnStart = false;     // the run came from the Run button: give the sketch the keys once it starts
-let errorLine = null;
+let errorPlace = null;
 let startedThisRun = false;
 
 const handlers = {
@@ -1501,7 +1939,7 @@ const handlers = {
   model: showModel,
   error(message) {
     endStill();
-    errorLine = showError(message.text);
+    errorPlace = showError(message.text);
     // An error before "started" (setup() did not finish) leaves the picture's size unknown: the caption must not still
     // give the last sketch's size.
     if (!startedThisRun) {
@@ -1539,8 +1977,8 @@ const handlers = {
     clearModel();
     if (message.reason !== "ended") drawn = false;          // stopped or failed: its picture is gone ("ended" is a script that has drawn)
     if (message.reason === "error") {
-      setStatus(errorLine === null ? "Your sketch stopped with an error: the message is above the picture."
-        : `Your sketch stopped with an error on line ${errorLine}: the message is above the picture.`, "error");
+      setStatus(errorPlace === null ? "Your sketch stopped with an error: the message is above the picture."
+        : `Your sketch stopped with an error on ${placeText(errorPlace)}: the message is above the picture.`, "error");
     } else if (message.reason === "ended") {
       setStatus(`Finished in ${((performance.now() - startedAt) / 1000).toFixed(1)} s.`, "ready");
     } else {
@@ -1560,21 +1998,26 @@ async function runSketch() {
   clearTimeout(autoTimer);
   if (!previewReady) return;
   // My files are read first (they can be megabytes). The example's own files win on a name clash.
-  const withKept = { ...await keptBytes(), ...files };
+  // The sketch's own files come last: they win on a name clash, and only this sketch's files go (a file of another sketch cannot hide a module).
+  const others = filesOf();
+  const written = Object.fromEntries(others.map((file) => [file.name, new TextEncoder().encode(file.code)]));
+  const withKept = { ...await keptBytes(), ...files, ...written };
   ranOnce = true;
   drawn = false;
   if (lesson()) showLessonStage();
   clearOutput();
-  errorLine = null;
+  errorPlace = null;
   startedThisRun = false;
   hintDone = false;
-  ranFilename = current ? current.source.split("/").pop() : "sketch.py";
+  // With files the main file is main.py, as in the folder Download makes, so a traceback names the file the learner has.
+  ranFilename = others.length ? MAIN : current ? current.source.split("/").pop() : "sketch.py";
+  ranFiles = others.map((file) => file.name);
   startedAt = performance.now();
   runGoing = true;
   clearModel();
   modelLines.clear();                // a new run gets new model lines; the last run's stay in the output as they ended
   setStatus("Starting...", "running");
-  tell({ type: "run", source: editor.getText(), filename: ranFilename, files: withKept });
+  tell({ type: "run", source: mainText(), filename: ranFilename, files: withKept });
 }
 
 function stopSketch() {

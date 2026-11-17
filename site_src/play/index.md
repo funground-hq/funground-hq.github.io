@@ -22,6 +22,7 @@ blank sketch. With **Auto-run** on, the sketch runs again a moment after you sto
 <li><strong>Reset</strong> goes back to the original. Unsaved changes stay in this browser only.</li>
 <li><strong>Course lessons:</strong> an example from the course shows what to predict and compare. After Compare, <strong>Extend</strong> opens the same experiment written with funground's studio tools. <strong>Keep this</strong> copies your sketch, with your note, into My sketches. If the sketch is running, it also keeps its picture, a copy of the code and a record in My files (they are called studio/001.png, studio/001.py and studio/001.json).</li>
 <li><strong>My files:</strong> keep what a sketch saves, or add your own, and every sketch can open them by name. They stay in this browser only.</li>
+<li><strong>More than one file:</strong> open <strong>File</strong> and choose <strong>New file</strong> to add a file such as helpers.py to your sketch. Then write <code>import helpers</code> in your main file. Run always starts the main file. Download saves a sketch with several files as a .zip, and Share puts every file in the link.</li>
 <li class="fg-keys-only">Drag the bar between the code and the picture to give either one more room.</li>
 <li>Your sketches run in a separate, sandboxed website (funground-run.github.io), so a sketch can never reach
 this site. To keep sketches on GitHub, use the <a href="https://github.com/funground-hq/sketchbook">sketchbook</a> and the
