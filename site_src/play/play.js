@@ -188,8 +188,24 @@ const leaveFocusButton = element("button", { class: "fg-btn fg-play__leavefocus"
 const word = element("span", { class: "fg-play__word", "aria-hidden": "true" }, "Play");
 const helpButton = element("button", { class: "fg-iconbtn", "aria-label": "Help", "aria-expanded": "false",
   "aria-controls": "fg-play-help", title: "How the Play page works" }, "?");
+// The message area (BF-14, BF-D-048): the status, Play's notes and the sketch's errors in one place (see "the message area" below).
+// The text is the one role="status" region, so a screen reader hears each new line and not the buttons beside it.
 const status = element("span", { class: "fg-status fg-status--loading play-status", role: "status" },
   "Loading Python. The first time takes a little while...");
+const messageActions = element("span", { class: "fg-msg__acts" });
+const outputChip = element("button", { class: "fg-msg__chip", type: "button", hidden: "", title: "The sketch's output" });
+const historyButton = element("button", { class: "fg-msg__more", type: "button", "aria-expanded": "false",
+  "aria-controls": "fg-msg-list", "aria-label": "This visit's messages" }, "0 ▾");
+const historyList = element("div", { id: "fg-msg-list", class: "fg-msg__list", hidden: "" });
+const messageArea = element("div", { class: "fg-msg" }, status, messageActions, outputChip, historyButton, historyList);
+// An error is said aloud once, assertively, by this line (the area itself is polite). It is off screen.
+const errorAlert = element("div", { class: "fg-play__alert", role: "alert" });
+// The popup for a long message: an error's traceback, or the sketch's output in focus mode.
+const dialogTitle = element("strong", { id: "fg-dialog-title" });
+const dialogText = element("pre", { class: "fg-play__dialogtext", tabindex: "0" });
+const dialogClose = element("button", { class: "fg-play__minebtn", type: "button" }, "Close");
+const dialog = element("dialog", { class: "fg-play__dialog", "aria-labelledby": "fg-dialog-title" },
+  element("header", {}, dialogTitle, dialogClose), dialogText);
 const linkField = element("input", { class: "fg-play__link play-link", type: "text", readonly: "", "aria-label": "Link to share", hidden: "" });
 
 // Embed mode only (S-240): a link to the full Play page, in a new tab. Its address is kept up to date by showOpenInPlay.
@@ -230,18 +246,14 @@ const duplicateButton = mineButton("Duplicate", "Make a copy of this sketch");
 const downloadButton = mineButton("Download .py", "Save this sketch as a .py file on this computer");      // "Download .zip" for a sketch with files (showMine)
 const deleteButton = mineButton("Delete", "Delete this sketch (you can undo for a few seconds)");
 const openFileInput = element("input", { type: "file", accept: ".py,.zip,text/x-python,text/plain,application/zip", hidden: "", "aria-label": "Open a .py or .zip file" });
-const mineNote = element("div", { class: "fg-play__minenote", role: "status" });
-const storageNote = element("div", { class: "fg-play__minenote fg-play__minenote--warn", role: "status", hidden: "" },
-  "This browser is not keeping sketches: download yours with Download .py");
 // My files (S-221): a list that opens under the buttons. Each file has Download and Delete; Add file brings one from the computer.
 const filesSummary = element("summary", {}, "My files");
 const filesList = element("ul", { class: "fg-play__filelist" });
 const addFileButton = mineButton("Add file", "Keep a picture, GIF, sound or text file from this computer, for your sketches to open by name");
 const addFileInput = element("input", { type: "file", multiple: "", hidden: "", "aria-label": "Add a file", accept: ADD_ACCEPT });
-const filesNote = element("div", { class: "fg-play__minenote", role: "status" });
 const filesPanel = element("details", { class: "fg-play__files", hidden: "" }, filesSummary,
   element("p", { class: "fg-play__filesabout" }, "Sketches can open these by name, for example f.load_clip(\"take.gif\")."),
-  filesList, element("div", { class: "fg-play__filesbar" }, addFileButton, addFileInput), filesNote);
+  filesList, element("div", { class: "fg-play__filesbar" }, addFileButton, addFileInput));
 // The File menu (BF-D-045): the actions on the sketch and My files, in a menu beside the file's name, so they take no row of their own.
 const filesMenuItem = mineButton("My files", "Open the list of files this browser keeps for your sketches");
 const fileMenuButton = element("button", { class: "fg-play__minebtn fg-play__filebtn", type: "button", "aria-haspopup": "true",
@@ -319,7 +331,7 @@ const fileNameOk = element("button", { class: "fg-play__minebtn", type: "submit"
 const fileNameCancel = element("button", { class: "fg-play__minebtn", type: "button" }, "Cancel");
 const fileForm = element("form", { class: "fg-play__fileform", hidden: "" }, fileFormTitle, fileNameField, fileNameOk, fileNameCancel, fileNameHint);
 const work = element("div", { class: "fg-play__work" },
-  element("div", { class: "fg-play__editor" }, tab, fileTabs, fileForm, lessonPanel, mineNote, storageNote, filesPanel, editorBox, blocksBox),
+  element("div", { class: "fg-play__editor" }, tab, fileTabs, fileForm, lessonPanel, filesPanel, editorBox, blocksBox),
   divider,
   element("div", { class: "fg-play__stage" },
     // The messages are above the picture and take no room while there are none: the rest belongs to the sketch.
@@ -339,66 +351,183 @@ const bar = element("div", { class: "fg-play__bar play-toolbar" }, word,
     element("label", { class: "fg-play__auto" }, autoRun, " Auto-run"),
     element("label", { class: "fg-play__auto fg-play__blocksoption", title: "Show a Blocks view of the sketch: blocks that make the same Python" }, blocksOption, " Blocks"),
     guidesButton,
-    element("span", { class: "spacer" }), status, shareButton, ...(embed ? [] : [focusButton]), resetButton, helpButton, leaveFocusButton);
+    element("span", { class: "spacer" }), messageArea, shareButton, ...(embed ? [] : [focusButton]), resetButton, helpButton, leaveFocusButton);
 play.replaceChildren(
   bar,
   linkField,
   help,
   work,
   fab,
+  errorAlert,
+  dialog,
 );
 
-// The status: one line with a coloured dot (loading gold, ready teal, running turquoise, an error tomato).
-let statusKind = "loading";
-function setStatus(text, kind) {
-  status.textContent = text;
-  status.title = text;              // the toolbar cuts a long line short; the title has all of it
-  stillNote.textContent = text;     // the same words over the example's picture
+// ---- the message area (BF-14, BF-D-048)
+//
+// One place for what Play says: the run's status, Play's notes ("Kept as...", "Deleted... Undo") and the sketch's errors. It shows
+// one line at a time. What it shows, first that applies:
+//   1. an error ("error"): stays until the next Run or Clear, and nothing replaces it on screen;
+//   2. the latest note ("note"): goes by itself after NOTE_MS (UNDO_MS if it has an Undo), then the status comes back;
+//   3. the latest status ("status"): stays until another status replaces it.
+// Everything that is said also goes into `messages`, the list behind the "n" button, so nothing is lost when it is not on screen.
+// The sketch's own print output is not here: it stays in Output (the maintainer's choice for BF-14).
+const KEPT_MESSAGES = 50;      // the list is read, not searched: a long visit, or a sketch that fails on every run, must not grow it for ever
+const NOTE_MS = 12000;
+const messages = [];           // this visit's messages, oldest first: { text, kind, actions, lasts, key, at }
+let latestStatus = { text: status.textContent, kind: "loading" };
+let currentNote = null;
+let heldError = null;
+let statusKind = "loading";    // the kind a status without one keeps (loading gold, ready teal, running turquoise, error tomato)
+let shownMessage = null;       // what the area was last drawn for, so its buttons are not rebuilt (and focus lost) without need
+let shownActionCount = -1;
+let printedLines = 0;          // lines the sketch printed since focus mode began or the chip was last opened
+
+/**
+ * Say something in the area. `lasts` is "status", "note" or "error" (above). `actions` are the buttons beside the line:
+ * { label, run } for a button (`once`: it works one time), { label, href } for a link. `key` names a line that changes in
+ * place (a download's progress), so it is one entry in the list and not one for every step.
+ */
+function showMessage({ text, kind, actions = [], lasts = "status", key = null }) {
+  let message = messages.at(-1);
+  // A status that only repeats the one before it is not listed twice.
+  const sameLine = message && message.lasts === lasts && (key ? message.key === key : lasts === "status" && message.text === text && message.kind === kind);
+  if (sameLine) {
+    Object.assign(message, { text, kind });
+  } else {
+    message = { text, kind, actions: [...actions], lasts, key, at: new Date() };
+    messages.push(message);
+    if (messages.length > KEPT_MESSAGES) messages.shift();
+  }
+  if (lasts === "status") {
+    latestStatus = message;
+  } else if (lasts === "error") {
+    heldError = message;
+    errorAlert.textContent = text;
+  } else {
+    currentNote = message;
+    // Each note has its own timer: a later note takes its place on screen, but an Undo in the list works until its own time is up.
+    setTimeout(() => {
+      message.actions = [];
+      if (currentNote === message) currentNote = null;
+      renderMessages();
+    }, actions.length ? UNDO_MS : NOTE_MS);
+  }
+  renderMessages();
+}
+
+function actionControl(action, message) {
+  if (action.href) return element("a", { class: "fg-msg__act", href: action.href, target: "_blank", rel: "noopener", "data-action": action.label }, action.label);
+  const button = element("button", { class: "fg-msg__act", type: "button", "data-action": action.label }, action.label);
+  button.addEventListener("click", () => {
+    if (action.once) {
+      message.actions = message.actions.filter((each) => each !== action);
+      renderMessages();
+    }
+    action.run(button);
+  });
+  return button;
+}
+
+function renderMessages() {
+  const message = heldError ?? currentNote ?? latestStatus;
+  if (status.textContent !== message.text) status.textContent = message.text;
+  status.title = message.text;       // the area cuts a long line short; the title has all of it
+  status.className = `fg-status fg-status--${message.kind} play-status`;
+  messageArea.classList.toggle("fg-msg--error", message.kind === "error");
+  messageArea.classList.toggle("fg-msg--warn", message.kind === "warn");
+  if (message !== shownMessage || message.actions.length !== shownActionCount) {
+    messageActions.replaceChildren(...message.actions.map((action) => actionControl(action, message)));
+    shownMessage = message;
+    shownActionCount = message.actions.length;
+  }
+  historyButton.textContent = `${messages.length} ▾`;
+  if (!historyList.hidden) fillHistory();
+}
+
+const clock = (date) => `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+
+// This visit's messages, newest first, each in full with its time. A message keeps its buttons while they still work.
+function fillHistory() {
+  historyList.replaceChildren(element("h3", {}, "This visit's messages"), ...[...messages].reverse().map((message) =>
+    element("div", { class: "fg-msg__item" },
+      element("span", { class: `fg-msg__dot fg-msg__dot--${message.kind}`, "aria-hidden": "true" }),
+      element("span", { class: "fg-msg__text" }, message.text),
+      element("time", { datetime: message.at.toISOString() }, clock(message.at)),
+      ...(message.actions.length ? [element("span", { class: "fg-msg__acts" }, ...message.actions.map((action) => actionControl(action, message)))] : []))));
+}
+
+function showHistory(open, backToButton = false) {
+  historyList.hidden = !open;
+  historyButton.setAttribute("aria-expanded", String(open));
+  if (open) fillHistory();
+  else historyList.replaceChildren();      // a closed list holds nothing, so its buttons are not a second copy of the line's
+  if (!open && backToButton) historyButton.focus();
+}
+historyButton.addEventListener("click", () => showHistory(historyList.hidden));
+document.addEventListener("pointerdown", (event) => {
+  if (!historyList.hidden && !messageArea.contains(event.target)) showHistory(false);
+});
+
+// The popup: a native modal dialog, so Esc closes it and the page behind it is out of reach. Focus goes back to the button that opened it.
+let dialogOpener = null;
+function showDialog(title, text, opener, scrollToEnd = false) {
+  dialogOpener = opener;
+  dialogTitle.textContent = title;
+  dialogText.textContent = text;
+  dialog.showModal();
+  dialogText.scrollTop = scrollToEnd ? dialogText.scrollHeight : 0;
+  dialogClose.focus();
+}
+dialogClose.addEventListener("click", () => dialog.close());
+dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });     // a click on the dark margin
+dialog.addEventListener("close", () => {
+  // The line may have been drawn again since (its buttons are rebuilt), so look for the same button by its name. The Output chip goes
+  // away once it is opened, so focus then goes to the list's button.
+  const back = dialogOpener?.isConnected && !dialogOpener.hidden ? dialogOpener : messageArea.querySelector(`[data-action="${dialogOpener?.dataset.action}"]`) ?? historyButton;
+  back.focus();
+});
+
+// In focus mode Output is hidden, so a chip in the area says the sketch printed and opens its lines in the popup.
+function showOutputChip() {
+  outputChip.hidden = !(focusMode && printedLines > 0);
+  outputChip.textContent = `Output ${printedLines}`;
+  outputChip.title = `The sketch's output: ${printedLines} new ${printedLines === 1 ? "line" : "lines"}`;
+}
+outputChip.addEventListener("click", () => {
+  const lines = [...output.children].filter((line) => line.matches(".stdout, .stderr")).map((line) => line.textContent);
+  printedLines = 0;
+  showOutputChip();
+  showDialog("The sketch's output", lines.join("\n"), outputChip, true);
+});
+
+function setStatus(text, kind, key) {
   if (kind) {
     statusKind = kind;
-    status.className = `fg-status fg-status--${kind} play-status`;
     stillNote.className = `fg-status fg-status--${kind} fg-play__still-note`;
   }
+  stillNote.textContent = text;     // the same words over the example's picture
+  showMessage({ text, kind: statusKind, key });
 }
 stillNote.textContent = status.textContent;
+showMessage({ text: status.textContent, kind: "loading" });
 
-// A model's download and start (S-307) are shown in the status line while a run goes. `beforeModel` is the line the status had
-// before the first model message, so "ready" can put it back.
+// A model's download and start (S-307) are shown in the area while a run goes, with the same turning ring as a Python load.
+// `beforeModel` is the line the status had before the first model message, so "ready" can put it back.
 let runGoing = false;
 let beforeModel = null;
 const megabytes = (size) => Math.max(1, Math.round(size / 1e6));
 function showModel({ task, word, state, done, total, reason }) {
   if (!runGoing) return;
-  beforeModel ??= { text: status.textContent, kind: statusKind };
+  beforeModel ??= { text: latestStatus.text, kind: statusKind };
   if (state === "downloading") {
-    const text = `Downloading the ${word} model: ${megabytes(done)} of ${megabytes(total)} MB`;
-    setStatus(`${text}...`, "loading");
-    setModelLine(task, `${text}. Only this once: after that the browser keeps a copy.`, "busy");
+    setStatus(`Downloading the ${word} model: ${megabytes(done)} of ${megabytes(total)} MB. Only this once: after that the browser keeps a copy.`, "loading", `model:${task}`);
   } else if (state === "starting") {
-    setStatus(`Starting the ${word} model...`, "loading");
-    setModelLine(task, `Starting the ${word} model`, "busy");
+    setStatus(`Starting the ${word} model...`, "loading", `model:${task}`);
   } else if (state === "failed") {
-    setStatus(typeof reason === "string" && reason ? reason : `The ${word} model could not start.`, "error");
-    setModelLine(task, `The ${word} model did not load: the reason is below.`, "failed");
+    setStatus(typeof reason === "string" && reason ? reason : `The ${word} model could not start.`, "error", `model:${task}`);
   } else if (state === "ready") {
     clearModel(true);
-    setModelLine(task, `The ${word} model is ready.`, "done");
   }
-}
-
-// The same wait as one line in the output, changed in place (the maintainer, 16 Nov: the eye is on the output, so the line
-// there moves, with a turning mark while it waits). One line for each model in a run.
-const modelLines = new Map();      // task -> its line in the output
-function setModelLine(task, text, state) {
-  let line = modelLines.get(task);
-  if (!line?.isConnected) {
-    line = element("div", { class: "stdout fg-play__modelline" });
-    output.append(line);
-    modelLines.set(task, line);
-  }
-  line.textContent = text;
-  line.dataset.state = state;      // busy (the mark turns), done, failed
-  output.scrollTop = output.scrollHeight;
 }
 /** Forget the model status. With `restore`, the line from before it comes back (a model became ready, the run goes on). */
 function clearModel(restore = false) {
@@ -1015,7 +1144,8 @@ function writeMine() {
   } catch {
     if (!storageNoted) {
       storageNoted = true;
-      storageNote.hidden = false;
+      // Said like a status (it stays until the next one replaces it) and it stays in the list, in gold, for the rest of the visit.
+      showMessage({ text: "This browser is not keeping sketches: download yours with Download .py", kind: "warn" });
     }
   }
 }
@@ -1050,12 +1180,9 @@ function freeName(wanted, exceptId) {
 // The file name for Download: the sketch's name in lower case, words joined by hyphens ("Bouncing ball" is bouncing-ball.py).
 const slug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "sketch";
 
-// A line under the buttons that says what just happened. It goes by itself.
-let sayTimer = null;
-function say(text, ...extra) {
-  clearTimeout(sayTimer);
-  mineNote.replaceChildren(text, ...extra);
-  sayTimer = setTimeout(() => mineNote.replaceChildren(), extra.length ? UNDO_MS : 12000);
+// A note in the message area that says what just happened. It goes by itself. `actions` are as showMessage takes them (Undo).
+function say(text, ...actions) {
+  showMessage({ text: text.trim(), kind: "ready", actions, lasts: "note" });
 }
 
 function addSketch(name, code, otherFiles = []) {
@@ -1166,13 +1293,12 @@ deleteButton.addEventListener("click", async () => {
   const index = mine.indexOf(own);
   mine.splice(index, 1);
   changedMine(false);
-  const undo = element("button", { class: "fg-play__minebtn", type: "button" }, "Undo");
-  undo.addEventListener("click", async () => {
+  const undo = { label: "Undo", once: true, run: async () => {
     mine.splice(Math.min(index, mine.length), 0, own);
     changedMine(false);
     await open(MINE + own.id);
     say(`"${own.name}" is back.`);
-  }, { once: true });
+  } };
   const next = mine[Math.min(index, mine.length - 1)];
   await open(next ? MINE + next.id : STARTER);
   say(`Deleted "${own.name}". `, undo);
@@ -1520,8 +1646,7 @@ function deleteFile(name) {
   own.updated = Date.now();
   changedMine(false);
   showMine();
-  const undo = element("button", { class: "fg-play__minebtn", type: "button" }, "Undo");
-  undo.addEventListener("click", async () => {
+  const undo = { label: "Undo", once: true, run: async () => {
     if (ownSketch() !== own) await open(MINE + own.id);
     if (own.files?.some((file) => file.name === gone.name)) {
       say(`There is a file called ${gone.name} again, so the old one was not brought back.`);
@@ -1533,7 +1658,7 @@ function deleteFile(name) {
     showFile(gone.name);
     showMine();
     say(`${gone.name} is back.`);
-  }, { once: true });
+  } };
   say(`Deleted ${gone.name}. `, undo);
 }
 
@@ -1544,16 +1669,11 @@ function deleteFile(name) {
 
 let kept = [];                    // [{ name, size, type, added }], by name
 let filesWork = true;             // false when the browser cannot keep files
-let filesTimer = null;
 
 const nameOrder = (a, b) => (a.name < b.name ? -1 : 1);
 
-function sayFile(text, ...extra) {
-  showFilesPanel();                // the note is in the panel: a message about a file must not be written where nobody can see it
-  clearTimeout(filesTimer);
-  filesNote.replaceChildren(text, ...extra);
-  filesTimer = setTimeout(() => filesNote.replaceChildren(), extra.length ? UNDO_MS : 12000);
-}
+// A note about a file goes to the message area, which is always in view, so it no longer opens the panel to be seen.
+const sayFile = say;
 
 // My files has no row of its own (BF-D-045): the File menu opens its panel, and closing the panel puts it away again.
 function showFilesPanel() {
@@ -1655,8 +1775,7 @@ async function deleteKept(name) {
   }
   kept = kept.filter((file) => file.name !== name);
   showFiles();
-  const undo = element("button", { class: "fg-play__minebtn", type: "button" }, "Undo");
-  undo.addEventListener("click", async () => {
+  const undo = { label: "Undo", once: true, run: async () => {
     try {
       await myFiles.restore(record);
     } catch (error) {
@@ -1665,7 +1784,7 @@ async function deleteKept(name) {
     }
     await loadFiles();
     sayFile(`"${name}" is back.`);
-  }, { once: true });
+  } };
   sayFile(`Deleted "${name}". `, undo);
 }
 
@@ -1769,6 +1888,13 @@ function clearOutput() {
   forgetSavedFiles();
   errors = 0;
   errorCount.hidden = true;
+  // The error in the message area goes with the output: its buttons would point at a run that is gone.
+  if (heldError) heldError.actions = [];
+  heldError = null;
+  errorAlert.textContent = "";
+  printedLines = 0;
+  showOutputChip();
+  renderMessages();
   for (const { editor: each } of fileEditors.values()) each.clearError();
 }
 clearButton.addEventListener("click", clearOutput);
@@ -1879,27 +2005,24 @@ function guideLinkFor({ type, message }) {
   return row ? ERRORS_PAGE + row.anchor : null;
 }
 
-// The message in one plain line (the traceback's last line), with a link to the line in the code and, when the guide
-// has a section for it, "What this means". The line and the name it names are marked in the code.
+// The message in one plain line (the traceback's last line) goes to the message area, with a button to the line in the code, when
+// the guide has a section for it "What this means", and "Details", which opens the whole traceback. The traceback stays in
+// Output too, as the sketch's stderr. The line and the name it names are marked in the code.
 function showError(text) {
   const place = errorPlaceOf(text);
   const about = describeError(text);
   if (place) editorOf(place.file).editor.markError(place.line, about.name ?? undefined);      // in its own file's editor, shown or not
-  const summary = element("div", { class: "fg-play__error" }, about.plain);
+  const actions = [];
   if (place) {
-    const go = element("button", { class: "line-link", type: "button" }, `Go to line ${place.line}${place.file === MAIN ? "" : ` in ${place.file}`}`);
-    go.addEventListener("click", () => {
+    actions.push({ label: `Go to line ${place.line}${place.file === MAIN ? "" : ` in ${place.file}`}`, run: () => {
       showFile(place.file);                        // the file's tab, if it is not the open one
       editor.goToLine(place.line);
-    });
-    summary.append(" ", go);
+    } });
   }
-  output.append(summary);
   const guide = guideLinkFor(about);
-  if (guide) {
-    output.append(element("div", { class: "fg-play__what" },
-      element("a", { class: "fg-play__what-link", href: guide, target: "_blank", rel: "noopener" }, "What this means")));
-  }
+  if (guide) actions.push({ label: "What this means", href: guide });
+  actions.push({ label: "Details", run: (button) => showDialog("The error in full", text, button) });
+  showMessage({ text: about.plain, kind: "error", actions, lasts: "error" });
   addOutput(text, "stderr");
   errors += 1;
   errorCount.textContent = String(errors);
@@ -1981,10 +2104,14 @@ const handlers = {
     tellGuides();
     // Python is ready, so the loading spinner stops whatever the line says; a more useful message (a restored draft,
     // a shared sketch) stays, and only "Loading ..." is replaced.
-    setStatus(status.textContent.startsWith("Loading") ? "Ready. Press Run." : status.textContent,
-      status.classList.contains("fg-status--error") ? "error" : "ready");
+    setStatus(latestStatus.text.startsWith("Loading") ? "Ready. Press Run." : latestStatus.text,
+      latestStatus.kind === "error" ? "error" : "ready");
   },
-  output: (message) => addOutput(message.text, message.stream),
+  output(message) {
+    addOutput(message.text, message.stream);
+    printedLines += 1;
+    showOutputChip();
+  },
   camera: showCameraFocus,
   // The last sketch did not stop within a second, so the preview is loading a new Python: say why the run waits.
   // The sketch saved a file (f.save): a line with a Download link. A reply to "Save picture" downloads at once instead.
@@ -2051,8 +2178,7 @@ const handlers = {
     clearModel();
     if (message.reason !== "ended") drawn = false;          // stopped or failed: its picture is gone ("ended" is a script that has drawn)
     if (message.reason === "error") {
-      setStatus(errorPlace === null ? "Your sketch stopped with an error: the message is above the picture."
-        : `Your sketch stopped with an error on ${placeText(errorPlace)}: the message is above the picture.`, "error");
+      setStatus(errorPlace === null ? "Your sketch stopped with an error." : `Your sketch stopped with an error on ${placeText(errorPlace)}.`, "error");
     } else if (message.reason === "ended") {
       setStatus(`Finished in ${((performance.now() - startedAt) / 1000).toFixed(1)} s.`, "ready");
     } else {
@@ -2090,7 +2216,6 @@ async function runSketch() {
   startedAt = performance.now();
   runGoing = true;
   clearModel();
-  modelLines.clear();                // a new run gets new model lines; the last run's stay in the output as they ended
   setStatus("Starting...", "running");
   tell({ type: "run", source: mainText(), filename: ranFilename, files: withKept });
 }
@@ -2126,9 +2251,12 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();                // not the browser's "save page" dialog
     if (!embed) shareButton.click();       // an embed has no Share
   } else if (event.key === "Escape") {
-    // One key, one step, the nearest thing first: a menu, then the help, then a running sketch, then focus mode.
-    // So Esc still stops a sketch as it always did, and leaves focus only when there is nothing to stop.
-    if (!fileMenuItems.hidden) showFileMenu(false, true);
+    // One key, one step, the nearest thing first: the list of messages, a menu, then the help, then a running sketch, then
+    // focus mode. So Esc still stops a sketch as it always did, and leaves focus only when there is nothing to stop.
+    // An open popup closes itself on Esc, so this does nothing then.
+    if (dialog.open) return;
+    if (!historyList.hidden) showHistory(false, true);
+    else if (!fileMenuItems.hidden) showFileMenu(false, true);
     else if (!help.hidden) showHelp(false);
     else if (!stopButton.disabled) stopSketch();
     else if (focusMode) showFocus(false);
@@ -2184,7 +2312,10 @@ window.addEventListener("blur", () => setTimeout(() => {
 function showFocus(on) {
   if (embed || on === focusMode) return;
   focusMode = on;
+  printedLines = 0;                 // the chip counts what the sketch prints from now on
+  showOutputChip();
   showFileMenu(false);
+  showHistory(false);
   showHelp(false);
   document.documentElement.classList.toggle("fg-focus", on);
   focusButton.hidden = on;

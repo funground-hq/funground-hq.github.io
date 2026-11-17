@@ -48,13 +48,6 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 /* While Python loads (or starts again), the status dot is a spinning ring, so the wait is visibly a wait. */
 .fg-play .fg-status--loading::before { background: transparent; border: 2px solid var(--gold); border-top-color: var(--ink); animation: fg-spin 0.9s linear infinite; }
 @keyframes fg-spin { to { transform: rotate(360deg); } }
-/* A model getting ready (S-307): its line in the output, with the same turning ring while it waits, then a teal dot (ready) or a tomato one (failed; the text stays ink: tomato text is too faint on cream). */
-.fg-play__modelline { display: flex; align-items: center; gap: 8px; font-weight: 600; }
-.fg-play__modelline::before { content: ""; flex: none; width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; }
-.fg-play__modelline[data-state="busy"]::before { border: 2px solid var(--gold); border-top-color: var(--ink); animation: fg-spin 0.9s linear infinite; }
-.fg-play__modelline[data-state="done"]::before { background: var(--teal, #1a9e8f); }
-.fg-play__modelline[data-state="failed"]::before { background: var(--tomato); }
-@media (prefers-reduced-motion: reduce) { .fg-play__modelline[data-state="busy"]::before { animation: none; } }
 @media (prefers-reduced-motion: reduce) { .fg-play .fg-status--loading::before { animation: none; } }
 
 /* The toolbar's own controls. */
@@ -70,15 +63,13 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-play__guides[aria-pressed="true"] { background: var(--gold); color: #191970; }
 .fg-play__link { margin: 0; padding: 6px var(--space-4); border: 0; border-bottom: var(--outline-width) solid var(--ink); font: 400 13px/1.4 var(--font-mono); color: var(--ink); background: var(--paper-code); }
 
-/* The messages, above the picture: a plain line and a "Go to line" link above the full traceback. While there are
+/* The messages, above the picture: the sketch's own output and the full traceback. While there are
    none, the area is not there at all, and the picture has the room. */
 .fg-console { flex: none; border-top: 0; border-bottom: var(--outline-width) solid var(--ink); }
 .fg-console:has(.fg-console__body:empty) { display: none; }
 .fg-console__head .spacer { flex: 1; }
 .fg-play__clear { font: 700 12px/1 var(--font-body); color: var(--ink-muted); background: none; border: 0; cursor: pointer; }
-.fg-play__error { font: 700 14px/1.5 var(--font-body); color: var(--ink); margin-bottom: var(--space-2); }
 .fg-console__body .stderr { color: var(--ink-muted); font-size: 12px; }
-.fg-console__body .line-link { cursor: pointer; }
 
 /* The caption: the size and scale, the zoom buttons, the example's title. */
 .fg-play__caption { align-items: center; }
@@ -110,15 +101,49 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-play__step { width: 30px; height: 32px; font: 700 20px/1 var(--font-body); padding: 0 0 3px; flex: none; }
 .fg-play__step:disabled { opacity: 0.4; cursor: default; }
 
-/* "What this means" under the one-line error message (S-203). */
-.fg-play__what { margin: calc(-1 * var(--space-1, 4px)) 0 var(--space-2); font: 400 13px/1.4 var(--font-body); }
-.fg-play__what a { color: var(--link); }
-
-/* The status is one line: it takes the room that is left, at the right, and a long message is cut short (its title holds
-   all of it), so the toolbar keeps one row. The spacer is not needed: the status pushes the buttons to the right. */
+/* The message area (BF-14): the one place for the status, Play's notes and the sketch's errors. It is one line that takes the room
+   that is left, at the right of the controls (a long line is cut short; its title holds all of it), then its buttons, an
+   Output chip in focus mode and the button for the visit's list. The spacer is not needed: the area pushes the buttons right. */
 .fg-play__bar .spacer { display: none; }
-.fg-play__bar .fg-status { display: block; flex: 1 1 6rem; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: right; }
-.fg-play__bar .fg-status::before { display: inline-block; vertical-align: middle; margin-right: 8px; }
+.fg-msg { position: relative; flex: 1 1 6rem; min-width: 0; display: flex; align-items: center; gap: 6px; box-sizing: border-box;
+  padding: 2px 4px 2px 6px; border: 1.5px solid transparent; border-radius: var(--radius-sm); }
+.fg-msg--error { border-color: var(--tomato); background: color-mix(in srgb, var(--tomato) 14%, var(--paper-raised)); }
+.fg-msg--warn { border-color: var(--gold); }
+.fg-msg .fg-status { flex: 1 1 auto; min-width: 0; display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: right; padding: 0 2px; }
+.fg-msg--error .fg-status { font-weight: 700; color: var(--ink); }
+.fg-msg .fg-status::before { display: inline-block; vertical-align: middle; margin-right: 8px; }
+.fg-msg .fg-status--warn::before { background: var(--gold); }
+.fg-msg__acts { display: inline-flex; flex: none; align-items: center; gap: 6px; }
+.fg-msg__act { font: 700 13px/1.2 var(--font-body); color: var(--ink); background: none; border: 0; padding: 2px 4px; text-decoration: underline;
+  text-underline-offset: 2px; cursor: pointer; white-space: nowrap; }
+.fg-msg__chip, .fg-msg__more { flex: none; font: 700 12px/1.2 var(--font-body); color: var(--ink); background: var(--paper-raised); border: 1.5px solid var(--ink);
+  border-radius: 10px; padding: 1px 8px; cursor: pointer; white-space: nowrap; }
+.fg-msg__more { border-color: var(--dot); border-radius: var(--radius-sm); }
+.fg-msg__act:focus-visible, .fg-msg__chip:focus-visible, .fg-msg__more:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+/* The visit's list: a popover under the area, newest message first, each in full. */
+.fg-msg__list { position: absolute; top: calc(100% + 6px); right: 0; z-index: 7; width: min(520px, calc(100vw - 24px)); max-height: min(330px, 60vh);
+  overflow: auto; box-sizing: border-box; padding: 6px; background: var(--paper-raised); color: var(--ink); border: var(--outline-width) solid var(--ink);
+  border-radius: var(--radius-md); box-shadow: 3px 3px 0 var(--ink); text-align: left; white-space: normal; }
+.fg-msg__list h3 { margin: 4px 8px 6px; font: 700 12px/1.3 var(--font-body); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-muted); }
+.fg-msg__item { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 4px 8px; align-items: baseline; padding: 6px 8px; font: 400 13px/1.4 var(--font-body); }
+.fg-msg__item + .fg-msg__item { border-top: 1px solid var(--dot); }
+.fg-msg__item .fg-msg__text { overflow-wrap: anywhere; }
+.fg-msg__item time { font: 400 11.5px/1.4 var(--font-mono); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.fg-msg__item .fg-msg__acts { grid-column: 2 / 4; flex-wrap: wrap; }
+.fg-msg__dot { width: 9px; height: 9px; border-radius: 50%; background: var(--teal); border: 1.5px solid var(--ink); box-sizing: border-box; }
+.fg-msg__dot--running { background: var(--turquoise); }
+.fg-msg__dot--loading, .fg-msg__dot--warn { background: var(--gold); }
+.fg-msg__dot--error { background: var(--tomato); }
+/* The popup for a long message: the full traceback, or the sketch's output in focus mode. */
+.fg-play__dialog { width: min(640px, calc(100vw - 24px)); box-sizing: border-box; padding: 12px 14px; color: var(--ink); background: var(--paper-raised);
+  border: var(--outline-width) solid var(--ink); border-radius: var(--radius-md); }
+.fg-play__dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+.fg-play__dialog header { display: flex; align-items: center; gap: var(--space-2); margin-bottom: 8px; }
+.fg-play__dialog header strong { flex: 1; font: 700 15px/1.3 var(--font-body); }
+.fg-play__dialogtext { margin: 0; max-height: min(320px, 60vh); overflow: auto; padding: 10px; font: 400 12.5px/1.5 var(--font-mono); color: var(--ink);
+  background: var(--paper-code); border: 1px solid var(--dot); border-radius: var(--radius-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Said aloud, not seen: the assertive line for an error. */
+.fg-play__alert { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* Phones and small tablets (900px or less, S-189): one column and the page scrolls: the toolbar, the messages and the
    picture, then the editor. play.js stops setting the box's height (fillWindow). No divider; no sticky picture (it would
@@ -142,7 +167,11 @@ body:has(.fg-play) .md-main { overflow: hidden; }
   .fg-play__picker { flex: 1 1 100%; }
   .fg-play__choose { flex: 1 1 auto; min-width: 0; max-width: none; }
   .fg-btn--run kbd { display: none; }                                  /* no keyboard on a phone */
-  .fg-play__bar .fg-status { order: 10; flex: 1 1 100%; text-align: left; }
+  .fg-msg { order: 10; flex: 1 1 100%; flex-wrap: wrap; }              /* its own full-width row; buttons that do not fit go to a second line */
+  .fg-msg .fg-status { flex: 1 1 8rem; text-align: left; }
+  .fg-msg__more { order: 1; }
+  .fg-msg__acts { order: 2; }
+  .fg-msg__list { left: 0; right: 0; width: auto; }
   .fg-keys-only { display: none; }                                      /* keys and the divider: not on a phone */
   .fg-play__help { position: static; max-width: none; margin: var(--space-2); }       /* in the flow, so it never covers Run */
 
@@ -179,13 +208,13 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-play__fileform { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 6px var(--space-4); border-bottom: 1.5px solid var(--dot); font: 700 13px/1.3 var(--font-body); color: var(--ink); }
 .fg-play__filehint { flex: 1 1 14rem; font-weight: 400; }
 
-/* Focus mode (BF-D-046): one strip (Run, Stop, Auto-run and the Python | Blocks switch on the left, Leave focus alone on the
-   right) and then the code and the picture. The site's own header goes too, so the box has the whole window. */
+/* Focus mode (BF-D-046): one strip (Run, Stop, Auto-run and the Python | Blocks switch on the left, then the message area, and
+   Leave focus at the right) and then the code and the picture. The site's own header goes too, so the box has the whole window. */
 html.fg-focus .md-header, html.fg-focus .md-tabs { display: none; }
 html.fg-focus .fg-play__word, html.fg-focus .fg-play__picker, html.fg-focus .fg-play__how, html.fg-focus .fg-play__blocksoption,
-html.fg-focus .fg-play__guides, html.fg-focus .fg-play__bar .fg-status, html.fg-focus .fg-play__share, html.fg-focus .fg-play__reset,
+html.fg-focus .fg-play__guides, html.fg-focus .fg-play__share, html.fg-focus .fg-play__reset,
 html.fg-focus .fg-play__bar > .fg-iconbtn, html.fg-focus .fg-play__link, html.fg-focus .fg-play__help, html.fg-focus .fg-play__notice,
-html.fg-focus .fg-play__tab, html.fg-focus .fg-play__ftabs, html.fg-focus .fg-play__fileform, html.fg-focus .fg-lesson, html.fg-focus .fg-play__minenote, html.fg-focus .fg-play__files,
+html.fg-focus .fg-play__tab, html.fg-focus .fg-play__ftabs, html.fg-focus .fg-play__fileform, html.fg-focus .fg-lesson, html.fg-focus .fg-play__files,
 html.fg-focus .fg-console { display: none !important; }
 html.fg-focus .fg-play__views { margin-left: var(--space-2); }
 html.fg-focus .fg-play__leavefocus { margin-left: auto; }
@@ -224,10 +253,6 @@ html.fg-focus .fg-play__leavefocus { margin-left: auto; }
 .fg-play__minebtn { font: 700 12px/1 var(--font-body); color: var(--ink); background: var(--paper-raised); border: 1.5px solid var(--ink); border-radius: var(--radius-sm); padding: 5px 9px; cursor: pointer; white-space: nowrap; }
 .fg-play__minebtn:hover { background: var(--gold); color: #191970; }
 .fg-play__minebtn:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-.fg-play__minenote { padding: 6px var(--space-4); font: 400 13px/1.4 var(--font-body); color: var(--ink); border-bottom: 1.5px solid var(--dot); }
-.fg-play__minenote:empty { display: none; }
-.fg-play__minenote--warn { background: var(--gold); color: #191970; font-weight: 700; }
-.fg-play__minenote .fg-play__minebtn { margin-left: 6px; }
 
 /* The course lesson's panel (S-216), above the code: where the lesson is, what to predict before the first Run and what to
    compare after it. The line that matters now (data-stage) has a gold bar and full-size text; the other is quieter.
@@ -270,7 +295,6 @@ html.fg-focus .fg-play__leavefocus { margin-left: auto; }
 .fg-play__filename { font-family: var(--font-mono); font-weight: 700; word-break: break-all; }
 .fg-play__filesize { margin-right: auto; }
 .fg-play__filesbar { margin-top: 6px; }
-.fg-play__files .fg-play__minenote { padding: 6px 0 0; border-bottom: 0; }
 /* A saved line and its Keep button (S-221). */
 .fg-play__savedrow { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 
@@ -286,7 +310,7 @@ html.fg-embed .fg-play { position: fixed; inset: 0; height: auto; min-height: 0;
 /* Hidden: the picker, My sketches, My files, the lesson, Share, Reset, Guides, help, the divider, the floating Run. */
 html.fg-embed .fg-play__word, html.fg-embed .fg-play__filemenu, html.fg-embed .fg-play__focus, html.fg-embed .fg-play__leavefocus,
 html.fg-embed .fg-play__picker, html.fg-embed .fg-play__how, html.fg-embed .fg-play__guides, html.fg-embed .fg-play__link,
-html.fg-embed .fg-play__help, html.fg-embed .fg-play__notice, html.fg-embed .fg-play__minenote,
+html.fg-embed .fg-play__help, html.fg-embed .fg-play__notice, html.fg-embed .fg-msg__more, html.fg-embed .fg-msg__chip,
 html.fg-embed .fg-play__files, html.fg-embed .fg-play__ftabs, html.fg-embed .fg-play__fileform, html.fg-embed .fg-lesson, html.fg-embed .fg-play__divider, html.fg-embed .fg-play__fab,
 html.fg-embed .fg-play__share, html.fg-embed .fg-play__reset,
 html.fg-embed .fg-play__bar > .fg-iconbtn { display: none !important; }
@@ -298,13 +322,13 @@ html.fg-embed .fg-play__editor { height: auto; min-height: 0; border-top: 0; ove
 html.fg-embed .fg-play__stage { order: 0; min-height: 0; overflow: hidden; border-left: var(--outline-width) solid var(--ink); }
 html.fg-embed .fg-play__picture { flex: 1; min-height: 0; padding: var(--space-2); }
 html.fg-embed .fg-play__caption { padding: 0 var(--space-2) var(--space-2); flex-wrap: wrap; }
-html.fg-embed .fg-play__bar .fg-status { order: 0; flex: 1 1 6rem; text-align: right; }
+html.fg-embed .fg-msg { order: 0; flex: 1 1 6rem; }
 
 /* Narrower than 720px: stacked, the code first, each half the height. */
 @media (max-width: 719px) {
   html.fg-embed .fg-play__work { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
   html.fg-embed .fg-play__stage { border-left: 0; border-top: var(--outline-width) solid var(--ink); }
-  html.fg-embed .fg-play__bar .fg-status { order: 10; flex: 1 1 100%; text-align: left; }
+  html.fg-embed .fg-msg { order: 10; flex: 1 1 100%; }
 }
 
 /* The camera check (S-311, site_src/play/camera-check/): a plain page of text and pictures. The pictures sit side by side
