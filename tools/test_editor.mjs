@@ -116,9 +116,9 @@ const listen = (server) => new Promise((resolve) => server.listen(0, "127.0.0.1"
 // The heading is there because MkDocs gives "# Play" the id "play": the editor's container must not share it (SITE-C-01).
 const EDITOR_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Play</title>
 <link rel="stylesheet" href="../stylesheets/funground.css"><link rel="stylesheet" href="../stylesheets/play.css"></head>
-<body data-md-color-scheme="default"><h1 id="play">Play</h1>
+<body data-md-color-scheme="default"><article class="md-content__inner"><h1 id="play">Play</h1>
 <div class="fg-play-help"><p>Help text.</p><ul><li>Share copies a link.</li><li class="fg-keys-only">Keys: Ctrl+Enter runs.</li><li class="fg-keys-only">Drag the bar.</li></ul></div>
-<div id="funground-play" class="play"></div>
+<div id="funground-play" class="play"></div></article>
 <script>if (new URLSearchParams(location.search).get("embed") === "1") document.documentElement.classList.add("fg-embed");</script>
 <script type="module" src="play.js"></script></body></html>`;
 
@@ -1612,7 +1612,24 @@ f.run()
     assert(b, "the button is not on the page");
     await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
   };
-  const mineButton = (page, name) => page.locator(".fg-play__mine").getByRole("button", { name, exact: true });
+  // The actions on a sketch are in the File menu (BF-D-045). chooseFile opens it and clicks an item, as a learner does.
+  const mineButton = (page, name) => page.locator(".fg-play__menu").getByRole("button", { name, exact: true });
+  const fileMenuOpen = (page) => page.locator(".fg-play__menu").isVisible();
+  async function openFileMenu(page) {
+    if (!(await fileMenuOpen(page))) await clickAt(page, page.locator(".fg-play__filebtn"));
+    await page.locator(".fg-play__menu").waitFor({ timeout: 5000 });
+  }
+  async function chooseFile(page, name) {
+    await openFileMenu(page);
+    await clickAt(page, mineButton(page, name));
+  }
+  // Whether an item shows for the open sketch (the menu is opened to look, then closed).
+  async function fileItemShown(page, name) {
+    await openFileMenu(page);
+    const shown = await mineButton(page, name).isVisible();
+    await page.keyboard.press("Escape");
+    return shown;
+  }
   const mineNames = (page) => page.locator(".fg-play__choose optgroup[label='My sketches'] option").allInnerTexts();
   const tabName = (page) => page.locator(".fg-play__name").innerText();
   const tabIs = (page, name) => page.waitForFunction((n) => document.querySelector(".fg-play__name")?.textContent === n, name);
@@ -1632,8 +1649,8 @@ f.run()
   await check(45, "My sketches: New sketch makes Sketch 1 from the starter; typing is kept over a reload; the newest is first; Rename by the name or the button", async () => {
     const page = await freshEditor();
     assert((await mineNames(page)).length === 0, "My sketches shows before there is one");
-    assert(!(await mineButton(page, "Rename").isVisible()), "Rename shows for the starter sketch");
-    await clickAt(page, mineButton(page, "New sketch"));
+    assert(!(await fileItemShown(page, "Rename")), "Rename shows for the starter sketch");
+    await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 1");
     assert((await editorText(page)).length > 100, "Sketch 1 is not the starter");
     assert((await page.locator(".fg-play__choose").inputValue()).startsWith("my:"), "the picker does not show the new sketch");
@@ -1643,7 +1660,7 @@ f.run()
     assert((await tabName(page)) === "Sketch 1", `after a reload the tab says "${await tabName(page)}"`);
     assert((await editorText(page)).startsWith("# my own sketch"), "the code did not come back");
     assert((await mineNames(page)).join() === "Sketch 1", `the group lists ${await mineNames(page)}`);
-    await clickAt(page, mineButton(page, "New sketch"));
+    await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 2");
     assert((await mineNames(page)).join() === "Sketch 2,Sketch 1", `newest first: ${await mineNames(page)}`);
     // Rename by clicking the name.
@@ -1655,11 +1672,11 @@ f.run()
     assert((await tabName(page)) === "Bouncing ball", `renamed to "${await tabName(page)}"`);
     assert((await mineNames(page)).join() === "Bouncing ball,Sketch 1", `the group lists ${await mineNames(page)}`);
     // Rename with the button; Esc leaves the name alone; a name that is taken gets a number.
-    await clickAt(page, mineButton(page, "Rename"));
+    await chooseFile(page, "Rename");
     await page.keyboard.type("Nope");
     await page.keyboard.press("Escape");
     assert((await tabName(page)) === "Bouncing ball", "Esc changed the name");
-    await clickAt(page, mineButton(page, "Rename"));
+    await chooseFile(page, "Rename");
     await page.keyboard.press("Control+A");
     await page.keyboard.type("Sketch 1");
     await page.keyboard.press("Enter");
@@ -1675,10 +1692,10 @@ f.run()
 
   await check(46, "My sketches: Duplicate copies the code; Delete names the sketch and Undo brings it back; a deleted one stays gone after a reload", async () => {
     const page = await freshEditor();
-    await clickAt(page, mineButton(page, "New sketch"));
+    await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 1");
     await typeCode(page, "# original\n");
-    await clickAt(page, mineButton(page, "Duplicate"));
+    await chooseFile(page, "Duplicate");
     await tabIs(page, "Sketch 1 copy");
     assert((await editorText(page)) === "# original\n", "the copy has other code");
     assert((await mineNames(page)).join() === "Sketch 1 copy,Sketch 1", `the group lists ${await mineNames(page)}`);
@@ -1686,16 +1703,16 @@ f.run()
     await page.locator(".fg-play__choose").selectOption({ label: "Sketch 1" });
     await tabIs(page, "Sketch 1");
     assert((await editorText(page)) === "# original\n", "changing the copy changed the first sketch");
-    await clickAt(page, mineButton(page, "Delete"));
+    await chooseFile(page, "Delete");
     await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes('Deleted "Sketch 1"'));
     assert((await mineNames(page)).join() === "Sketch 1 copy", `after Delete the group lists ${await mineNames(page)}`);
     await clickAt(page, page.locator(".fg-play__minenote").getByRole("button", { name: "Undo" }));
     await tabIs(page, "Sketch 1");
     assert((await mineNames(page)).join() === "Sketch 1 copy,Sketch 1", `after Undo the group lists ${await mineNames(page)}`);
     assert((await editorText(page)) === "# original\n", "Undo gave back other code");
-    await clickAt(page, mineButton(page, "Delete"));
+    await chooseFile(page, "Delete");
     await tabIs(page, "Sketch 1 copy");
-    await clickAt(page, mineButton(page, "Delete"));
+    await chooseFile(page, "Delete");
     await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "starter");
     assert((await mineNames(page)).length === 0, "the group is still there");
     await reloadEditor(page);
@@ -1706,20 +1723,20 @@ f.run()
 
   await check(47, "My sketches: Download .py is named after the sketch and holds its code; Open .py makes a new sketch; a big file and a binary file are refused", async () => {
     const page = await freshEditor();
-    await clickAt(page, mineButton(page, "New sketch"));
+    await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 1");
     await typeCode(page, "# for the file\nx = 1\n");
     await clickAt(page, page.locator(".fg-play__name"));
     await page.keyboard.press("Control+A");
     await page.keyboard.type("Bouncing ball!");
     await page.keyboard.press("Enter");
-    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), clickAt(page, mineButton(page, "Download .py"))]);
+    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), chooseFile(page, "Download .py")]);
     assert(download.suggestedFilename() === "bouncing-ball.py", `named ${download.suggestedFilename()}`);
     const saved = readFileSync(await download.path(), "utf8");
     assert(saved === "# for the file\nx = 1\n", `the file holds ${JSON.stringify(saved)}`);
     const file = path.join(scratch, "falling_stars.py");
     writeFileSync(file, "# stars\r\nimport funground as f\r\n");
-    const input = page.locator(".fg-play__mine input[type=file]");
+    const input = page.locator(".fg-play__filemenu input[type=file]");
     assert((await input.getAttribute("accept")).includes(".py"), "the file input does not ask for .py");
     await input.setInputFiles(file);
     await tabIs(page, "falling_stars");
@@ -1737,7 +1754,7 @@ f.run()
     await tabIs(page, "falling_stars 2");
     await page.locator(".fg-play__choose").selectOption(FIRST_SKETCH);
     await page.waitForFunction((id) => document.querySelector(".fg-play__choose").value === id, FIRST_SKETCH);
-    const [exampleDownload] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), clickAt(page, mineButton(page, "Download .py"))]);
+    const [exampleDownload] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), chooseFile(page, "Download .py")]);
     assert(exampleDownload.suggestedFilename().endsWith(".py"), `the example downloaded as ${exampleDownload.suggestedFilename()}`);
     await page.close();
     return "bouncing-ball.py; falling_stars opened; two refusals";
@@ -1748,12 +1765,12 @@ f.run()
     const title = await page.locator(".fg-play__choose option:checked").innerText();
     const original = await editorText(page);
     await typeCode(page, original.replace("tomato", "orchid"));
-    await clickAt(page, mineButton(page, "Keep as my sketch"));
+    await chooseFile(page, "Keep as my sketch");
     await tabIs(page, title);
     assert((await mineNames(page)).join() === title, `the group lists ${await mineNames(page)}`);
     assert((await editorText(page)).includes("orchid"), "the kept sketch lacks the edit");
     assert(!(await page.getByRole("button", { name: "Reset" }).isVisible()), "Reset shows for my own sketch");
-    assert(!(await mineButton(page, "Keep as my sketch").isVisible()), "Keep shows for my own sketch");
+    assert(!(await fileItemShown(page, "Keep as my sketch")), "Keep shows for my own sketch");
     await page.getByRole("button", { name: "Share" }).click();
     await page.waitForFunction(() => document.querySelector(".play-link")?.value.includes("#code="));
     await page.locator(".fg-play__choose").selectOption(FIRST_SKETCH);
@@ -1768,7 +1785,7 @@ f.run()
     assert((await editorText(page)).includes("orchid"), "the kept sketch lost its edit after Reset");
     await page.locator(".fg-play__choose").selectOption("starter");
     await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "starter");
-    await clickAt(page, mineButton(page, "Keep as my sketch"));
+    await chooseFile(page, "Keep as my sketch");
     await tabIs(page, "Starter sketch");
     await page.close();
   });
@@ -1781,14 +1798,14 @@ f.run()
     await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
     const warning = page.locator(".fg-play__minenote--warn");
     assert(!(await warning.isVisible()), "the warning shows before anything was kept");
-    await clickAt(page, mineButton(page, "New sketch"));
+    await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 1");
     assert(await warning.isVisible(), "no warning after a sketch could not be stored");
     assert((await warning.innerText()) === "This browser is not keeping sketches: download yours with Download .py", `it says "${await warning.innerText()}"`);
     await typeCode(page, "# still typing\n");
     await sleep(600);
     assert((await editorText(page)) === "# still typing\n", "editing stopped");
-    await clickAt(page, mineButton(page, "New sketch"));
+    await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 2");
     assert((await page.locator(".fg-play__minenote--warn").count()) === 1, "the warning is more than one line");
     assert((await mineNames(page)).join() === "Sketch 2,Sketch 1", `in memory the group lists ${await mineNames(page)}`);
@@ -1797,26 +1814,26 @@ f.run()
 
   await check(50, "My sketches: the toolbar is still one row at 1366, the actions fit at 1366 and 390 wide, and nothing scrolls sideways", async () => {
     const page = await freshEditor();
-    await clickAt(page, mineButton(page, "New sketch"));
+    await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 1");
     const measure = () => page.evaluate(() => {
       const box = (selector) => document.querySelector(selector).getBoundingClientRect();
-      const buttons = [...document.querySelectorAll(".fg-play__mine button:not([hidden])")].map((e) => e.getBoundingClientRect());
+      const buttons = [...document.querySelectorAll(".fg-play__tab > :not([hidden])")].map((e) => e.getBoundingClientRect());
       return { bar: Math.round(box(".fg-play__bar").height), right: Math.max(...buttons.map((r) => r.right)), left: Math.min(...buttons.map((r) => r.left)),
-               rows: new Set(buttons.map((r) => Math.round(r.top))).size, scrollWidth: document.documentElement.scrollWidth, code: Math.round(box(".fg-play__code").height) };
+               rows: new Set(buttons.map((r) => Math.round((r.top + r.bottom) / 40))).size, scrollWidth: document.documentElement.scrollWidth, code: Math.round(box(".fg-play__code").height) };
     });
     await page.setViewportSize({ width: 1366, height: 768 });
     await sleep(300);
     const wide = await measure();
     if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "mine_1366.png") });
     assert(wide.bar <= 56, `the toolbar is ${wide.bar}px tall`);
-    assert(wide.rows === 1 && wide.right <= 1366 && wide.left >= 0, `at 1366 the actions are in ${wide.rows} rows and reach ${Math.round(wide.right)}px`);
+    assert(wide.rows === 1 && wide.right <= 1366 && wide.left >= 0, `at 1366 the tab strip is in ${wide.rows} rows and reaches ${Math.round(wide.right)}px`);
     assert(wide.code > 450, `the code is ${wide.code}px tall`);
     await page.setViewportSize({ width: 390, height: 844 });
     await sleep(300);
     const narrow = await measure();
     if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "mine_390.png"), fullPage: true });
-    assert(narrow.scrollWidth <= 390 && narrow.right <= 390 && narrow.left >= 0, `at 390 the page is ${narrow.scrollWidth}px wide, the actions reach ${Math.round(narrow.right)}px`);
+    assert(narrow.scrollWidth <= 390 && narrow.right <= 390 && narrow.left >= 0, `at 390 the page is ${narrow.scrollWidth}px wide, the tab strip reaches ${Math.round(narrow.right)}px`);
     assert(narrow.code >= 300, `at 390 the code is ${narrow.code}px tall`);
     await page.close();
     return `1366: ${wide.rows} row, code ${wide.code}px; 390: ${narrow.rows} rows, code ${narrow.code}px`;
@@ -2242,7 +2259,7 @@ f.run()
     }));
     await page.reload();
     await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
-    await filesSummary(page).click();
+    await chooseFile(page, "My files");
     return page;
   }
   // Runs a sketch that saves note.txt and presses Keep on its line.
@@ -2312,12 +2329,12 @@ f.run()
     await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 1);
     await filesNoteHas(page, '"dot.png" is back');
     await page.reload();
-    await filesSummary(page).click();
+    await chooseFile(page, "My files");
     await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 1);
     await page.locator(".fg-play__file").getByRole("button", { name: "Delete" }).click();
     await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 0);
     await page.reload();
-    await filesSummary(page).click();
+    await chooseFile(page, "My files");
     assert((await page.locator(".fg-play__filesnone").count()) === 1, "a deleted file came back after a reload");
     await page.close();
   });
@@ -2467,7 +2484,7 @@ print("written")
     });
     assert(await page.evaluate(() => document.documentElement.classList.contains("fg-embed")), "no fg-embed class");
     const hidden = { "the site header": ".md-header", "the tabs": ".md-tabs", "the footer": ".md-footer", "the page title": "h1", "the picker": ".fg-play__picker",
-      "the sketch list": ".fg-play__choose", "My sketches": ".fg-play__mine", "My files": ".fg-play__files", "the lesson": ".fg-lesson", "the help": "#fg-play-help",
+      "the sketch list": ".fg-play__choose", "the File menu": ".fg-play__filemenu", "My files": ".fg-play__files", "the word Play": ".fg-play__word", "Focus": ".fg-play__focus", "the lesson": ".fg-lesson", "the help": "#fg-play-help",
       "the help button": "[aria-label='Help']", "Guides": ".fg-play__guides", "Share": ".fg-play__share", "Reset": ".fg-play__reset", "the divider": ".fg-play__divider",
       "the floating Run": ".fg-play__fab", "the link field": ".fg-play__link", "the first-visit note": ".fg-play__notice" };
     for (const [name, selector] of Object.entries(hidden)) assert(!(await page.locator(selector).first().isVisible()), `${name} is shown`);
@@ -2586,7 +2603,7 @@ print("written")
     for (const query of ["", `&example=${FIRST_SKETCH}`, `&example=${FIRST_SKETCH}&embed=0`, `&example=${FIRST_SKETCH}&embed=true`]) {
       const page = await openEditor(query);
       assert(!(await page.evaluate(() => document.documentElement.classList.contains("fg-embed"))), `embed mode is on (${query})`);
-      for (const selector of [".fg-play__choose", ".fg-play__mine", ".fg-play__files", ".fg-play__share", ".fg-play__guides", "[aria-label='Help']", ".fg-play__divider"]) {
+      for (const selector of [".fg-play__choose", ".fg-play__filemenu", ".fg-play__word", ".fg-play__focus", ".fg-play__share", ".fg-play__guides", "[aria-label='Help']", ".fg-play__divider"]) {
         assert(await page.locator(selector).first().isVisible(), `${selector} is hidden (${query})`);
       }
       assert((await page.locator(".fg-play__openplay").count()) === 0, "Open in Play was built");
@@ -2824,6 +2841,157 @@ print("written")
     if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_blocks_catalogue.png") });
     await page.close();
     return `"circ" found ${found.length} rows; body lists ${parts.length} parts; Help ${help}`;
+  });
+  // ---- Play's layout (BF-10): the header word, the File menu, focus mode
+  await check(88, "Play's header: no heading row, the word Play starts the toolbar, a hidden h1 stays for screen readers (BF-D-041)", async () => {
+    const page = await openEditor();
+    const heading = await page.evaluate(() => {
+      const h1 = document.querySelector("h1");
+      const box = h1.getBoundingClientRect();
+      return { count: document.querySelectorAll("h1").length, width: box.width, height: box.height, text: h1.textContent,
+               top: document.querySelector(".fg-play__bar").getBoundingClientRect().top - document.querySelector(".fg-play").getBoundingClientRect().top, playId: document.getElementById("play") === h1,
+               containerId: document.querySelector(".fg-play").id };
+    });
+    assert(heading.count === 1 && heading.text === "Play", "the page lost its h1");
+    assert(heading.width <= 1 && heading.height <= 1, `the h1 is shown (${heading.width} x ${heading.height})`);
+    assert(heading.top < 1, `the toolbar starts ${heading.top}px down in its box: a heading row is taking room`);
+    assert(await page.evaluate(() => document.querySelector(".fg-play").getBoundingClientRect().top - document.querySelector("article").getBoundingClientRect().top) < 1, "something is above the editor");
+    assert(heading.playId && heading.containerId === "funground-play", "the id play is not on the heading alone (SITE-C-01)");
+    const first = page.locator(".fg-play__bar > :first-child");
+    assert(await first.isVisible() && (await first.innerText()) === "Play", "the word Play is not at the start of the toolbar");
+    await page.close();
+  });
+
+  await check(89, "The File menu: one button beside the file's name; it opens, does what the old buttons did, and closes on a choice, Esc and a click outside (BF-D-045)", async () => {
+    const page = await freshEditor();
+    assert((await page.locator(".fg-play__mine").count()) === 0, "the old row of buttons is still there");
+    const button = page.locator(".fg-play__tab .fg-play__filebtn");
+    assert(await button.isVisible(), "no File button in the tab row");
+    assert((await button.getAttribute("aria-haspopup")) === "true" && (await button.getAttribute("aria-expanded")) === "false", "the button's aria is wrong");
+    assert(!(await fileMenuOpen(page)), "the menu is open at first");
+    const menu = page.locator(".fg-play__menu");
+
+    // opens; the starter sketch is not the learner's own, so it has Keep but not Rename, Duplicate or Delete
+    await button.click();
+    assert((await button.getAttribute("aria-expanded")) === "true" && await menu.isVisible(), "the menu did not open");
+    const shown = await menu.getByRole("button").evaluateAll((all) => all.filter((e) => e.offsetParent).map((e) => e.textContent));
+    assert(shown.join("|") === "New sketch|Open .py|Keep as my sketch|Download .py|My files", `the menu shows ${shown.join("|")}`);
+
+    // Esc closes it and gives the focus back to the button
+    await page.keyboard.press("Escape");
+    assert(!(await fileMenuOpen(page)) && (await button.getAttribute("aria-expanded")) === "false", "Esc did not close the menu");
+    assert(await page.evaluate(() => document.activeElement.classList.contains("fg-play__filebtn")), "the focus did not go back to the File button");
+
+    // a click outside closes it
+    await button.click();
+    await page.locator(".cm-content").click();
+    assert(!(await fileMenuOpen(page)), "a click outside did not close the menu");
+
+    // the keyboard: Enter opens it, the arrow keys move, a choice closes it
+    await button.focus();
+    await page.keyboard.press("Enter");
+    assert(await menu.isVisible(), "Enter did not open the menu");
+    assert((await page.evaluate(() => document.activeElement.textContent)) === "New sketch", "the first item has no focus");
+    await page.keyboard.press("ArrowDown");
+    assert((await page.evaluate(() => document.activeElement.textContent)) === "Open .py", "ArrowDown did not move");
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("Enter");
+    await tabIs(page, "Sketch 1");
+    assert(!(await fileMenuOpen(page)), "a choice did not close the menu");
+
+    // each item does what its button did (checks 45 and 47 look at these more closely)
+    assert(await fileItemShown(page, "Rename") && await fileItemShown(page, "Duplicate") && await fileItemShown(page, "Delete"), "a sketch of mine has no Rename, Duplicate or Delete");
+    assert(!(await fileItemShown(page, "Keep as my sketch")), "Keep shows for my own sketch");
+    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), chooseFile(page, "Download .py")]);
+    assert(download.suggestedFilename().endsWith(".py"), `the download is called ${download.suggestedFilename()}`);
+    await page.locator(".fg-play__filemenu input[type=file]").setInputFiles({ name: "wave.py", mimeType: "text/x-python", buffer: Buffer.from("print('hi')\n") });
+    await tabIs(page, "wave");
+    await chooseFile(page, "Duplicate");
+    await tabIs(page, "wave copy");
+    assert(await page.locator(".fg-play__files").isHidden(), "My files is open before it was asked for");
+    await chooseFile(page, "My files");
+    assert(await page.locator(".fg-play__files").isVisible() && await page.locator(".fg-play__files").evaluate((e) => e.open), "My files did not open its panel");
+    assert(!(await fileMenuOpen(page)), "choosing My files left the menu open");
+    await page.close();
+  });
+
+  await check(90, "Focus mode: one strip with Run, Stop, Auto-run and the switch, Leave focus alone at the right; the rest is hidden and comes back (BF-D-046)", async () => {
+    const page = await freshEditor("&blocks=1");
+    await page.evaluate(() => {          // what MkDocs puts round the page
+      for (const name of ["md-header", "md-tabs"]) document.body.prepend(Object.assign(document.createElement("div"), { className: name, textContent: name }));
+    });
+    const everyday = { "the example list": ".fg-play__picker", "the status": ".play-status", "Share": ".fg-play__share", "the help button": "[aria-label='Help']",
+      "the Blocks tick": ".fg-play__blocksoption", "Guides": ".fg-play__guides", "the tab row": ".fg-play__tab", "the File menu": ".fg-play__filemenu",
+      "the site header": ".md-header", "the word Play": ".fg-play__word", "Focus": ".fg-play__focus" };
+    for (const [name, selector] of Object.entries(everyday)) assert(await page.locator(selector).first().isVisible(), `${name} is hidden before focus mode`);
+    assert(!(await page.locator(".fg-play__leavefocus").isVisible()), "Leave focus shows before focus mode");
+
+    await page.getByRole("button", { name: "Focus", exact: true }).click();
+    assert(await page.evaluate(() => document.documentElement.classList.contains("fg-focus")), "no focus mode");
+    for (const [name, selector] of Object.entries(everyday)) assert(!(await page.locator(selector).first().isVisible()), `${name} shows in focus mode`);
+    assert(!(await page.locator(".md-tabs").isVisible()), "the site's tabs show in focus mode");
+    // the strip: the controls are on one row, the switch among them, Leave focus alone at the far right
+    const strip = await page.evaluate(() => {
+      const box = (e) => { const r = e.getBoundingClientRect(); return { top: Math.round((r.top + r.bottom) / 40), right: r.right }; };    // the middle, in 20px steps
+      const visible = [...document.querySelectorAll(".fg-play__bar > *")].filter((e) => e.offsetParent).map((e) => ({ text: e.textContent.trim(), ...box(e) }));
+      return { visible, work: document.querySelector(".fg-play__work").getBoundingClientRect().top,
+               bar: document.querySelector(".fg-play__bar").getBoundingClientRect().bottom, width: innerWidth };
+    });
+    const names = strip.visible.map((e) => e.text).join("|");
+    assert(/^▶ RunCtrl ↵\|Stop\|Auto-run\|PythonBlocks\|Leave focus$/.test(names), `the strip holds ${names}`);
+    assert(new Set(strip.visible.map((e) => e.top)).size === 1, "the strip is more than one row");
+    assert(strip.visible.at(-1).right > strip.width - 40 && strip.visible.at(-2).right < strip.width / 2, "Leave focus is not alone at the far right");
+    assert(Math.abs(strip.work - strip.bar) < 2, "something sits between the strip and the code");
+
+    // Run works; the hint is on the picture until it is clicked
+    assert(!(await page.locator(".fg-play__focushint").isVisible()), "the hint shows before a run");
+    await page.locator(".cm-content").click();
+    await page.keyboard.press("Control+Enter");
+    await page.locator(".fg-play__focushint").waitFor({ timeout: 30000 });
+    assert((await page.locator(".fg-play__focushint").innerText()) === "Click the picture to give it the mouse and keys", "the hint says something else");
+    await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque && p.colours > 1);
+    await clickAt(page, page.locator(".play-preview"));
+    await page.locator(".fg-play__focushint").waitFor({ state: "hidden", timeout: 5000 });
+
+    // the switch to Blocks, from the strip
+    await page.getByRole("button", { name: "Blocks", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector(".fg-play__blocks").offsetParent !== null
+      && [...document.querySelectorAll(".fg-play__view")].some((b) => b.textContent === "Blocks" && b.getAttribute("aria-pressed") === "true"), null, { timeout: 90000 });
+    await page.getByRole("button", { name: "Python", exact: true }).click();
+
+    // Esc stops a running sketch first, and leaves focus mode only when nothing is running (run it again: the switch may have stopped it)
+    await page.locator(".cm-content").click();
+    await page.keyboard.press("Control+Enter");
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 30000 });
+    await page.getByRole("button", { name: "Run", exact: true }).focus();
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Stopped.", null, { timeout: 10000 })
+      .catch(async (e) => { throw new Error(`${e.message}; the status says "${await status(page)}"; ${await page.evaluate(() => `stop disabled ${document.querySelectorAll(".fg-play__bar .fg-btn")[1]?.disabled}, help hidden ${document.getElementById("fg-play-help").hidden}, menu hidden ${document.querySelector(".fg-play__menu").hidden}, active ${document.activeElement.outerHTML.slice(0, 60)}`)}`); });
+    assert(await page.evaluate(() => document.documentElement.classList.contains("fg-focus")), "the first Esc left focus mode with a sketch running");
+    await page.keyboard.press("Escape");
+    assert(!(await page.evaluate(() => document.documentElement.classList.contains("fg-focus"))), "Esc did not leave focus mode");
+
+    // everything is back, the switch is in the tab row again, and the status kept up while it was hidden
+    for (const [name, selector] of Object.entries(everyday)) assert(await page.locator(selector).first().isVisible(), `${name} did not come back`);
+    assert(!(await page.locator(".fg-play__leavefocus").isVisible()), "Leave focus still shows");
+    assert((await page.locator(".fg-play__tab .fg-play__views").count()) === 1, "the switch did not go back to the tab row");
+    assert((await status(page)) === "Stopped.", `the status says "${await status(page)}"`);
+
+    // the button leaves too, and a fresh page is never in focus mode
+    await page.getByRole("button", { name: "Focus", exact: true }).click();
+    await page.getByRole("button", { name: "Leave focus", exact: true }).click();
+    assert(await page.locator(".fg-play__picker").isVisible(), "Leave focus did not bring the page back");
+    await page.getByRole("button", { name: "Focus", exact: true }).click();
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+    assert(!(await page.evaluate(() => document.documentElement.classList.contains("fg-focus"))), "focus mode was remembered");
+
+    // the switch shows in the strip only while the Blocks tick is on
+    await page.goto(`${EDITOR}/play/?preview=${PREVIEW}&blocks=0`);
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+    await page.getByRole("button", { name: "Focus", exact: true }).click();
+    assert(!(await page.locator(".fg-play__views").isVisible()), "the switch shows with the Blocks tick off");
+    await page.close();
   });
 
   // S-307: a model's download and start are in the status line. No real model is downloaded: the table of models.json is replaced by
