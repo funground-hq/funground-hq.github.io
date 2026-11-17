@@ -293,6 +293,13 @@ const zoomFit = element("button", { class: "fg-play__zoombtn fg-play__zoomfit", 
 const zoomIn = element("button", { class: "fg-play__zoombtn", type: "button", "aria-label": "Zoom in", title: "Larger" }, "+");
 const savePicture = element("button", { class: "fg-play__zoombtn fg-play__savepicture", type: "button", disabled: "",
   title: "Save the picture as it is now as a PNG file" }, "Save picture");
+// The camera's focus (D-155): shown beside the picture only while the camera is open and offers focus (see "the camera's focus").
+const focusAuto = element("button", { class: "fg-play__zoombtn", type: "button", "aria-pressed": "false", title: "Let the camera keep the picture sharp by itself" }, "Auto");
+const focusRange = element("input", { class: "fg-play__camfocusrange", type: "range", min: "0", max: "1", step: "any",
+  "aria-label": "Focus distance, from near to far", title: "Focus by hand: slide left for near things, right for far things" });
+const focusControl = element("span", { class: "fg-play__camfocus", role: "group", "aria-label": "Camera focus", hidden: "" },
+  "Focus ", element("span", { class: "fg-play__zoom" }, focusAuto), element("span", { class: "fg-play__camfocusend" }, "near"), focusRange,
+  element("span", { class: "fg-play__camfocusend" }, "far"));
 const errorCount = element("span", { class: "count", hidden: "" });
 const clearButton = element("button", { class: "fg-play__clear", type: "button" }, "Clear");
 const output = element("div", { class: "fg-console__body play-output", "aria-live": "polite" });
@@ -323,7 +330,7 @@ const work = element("div", { class: "fg-play__work" },
     element("div", { class: "fg-play__caption" }, sizeText,
       element("span", { class: "fg-play__tools" },
         element("span", { class: "fg-play__zoom", role: "group", "aria-label": "Zoom" }, zoomOut, zoomFit, zoomIn),
-        element("span", { class: "fg-play__zoom" }, savePicture)),
+        element("span", { class: "fg-play__zoom" }, savePicture), focusControl),
       aboutText)));
 
 play.classList.add("fg-play");
@@ -1900,6 +1907,64 @@ function showError(text) {
   return place;
 }
 
+// ---- the camera's focus (D-155)
+//
+// The camera is in the preview, so its focus control is only a view of what the preview says: a `camera` message says whether
+// the camera is open and what focus it offers (null: none, and the control stays hidden), and a change is sent back as
+// `camera-focus`. Most cameras offer no focus; Chrome on Android and some webcams do.
+
+const FOCUS_EVERY_MS = 100;                      // at most ten moves of the slider a second go to the camera
+let focusSentAt = 0;
+let focusTimer = null;
+
+function hideFocus() {
+  clearTimeout(focusTimer);
+  focusControl.hidden = true;
+}
+
+// A finite number from the preview, or null: the message comes from another page, so its fields are not trusted.
+const finite = (value) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+
+function showCameraFocus(message) {
+  const focus = message.open === true && message.focus && typeof message.focus === "object" ? message.focus : null;
+  const range = focus?.distance;
+  const [min, max] = range ? [finite(range.min), finite(range.max)] : [null, null];
+  const slider = min !== null && max !== null && min < max;
+  const auto = Array.isArray(focus?.modes) && focus.modes.includes("continuous");
+  if (!auto && !slider) return hideFocus();
+  const wasHidden = focusControl.hidden;
+  focusControl.hidden = false;
+  focusAuto.hidden = !auto;
+  focusAuto.setAttribute("aria-pressed", String(focus.mode === "continuous"));
+  focusRange.hidden = !slider;
+  for (const end of focusControl.querySelectorAll(".fg-play__camfocusend")) end.hidden = !slider;
+  if (!slider) return;
+  focusRange.min = String(min);
+  focusRange.max = String(max);
+  focusRange.step = String(finite(range.step) || (max - min) / 100);
+  // The slider takes the camera's value only when the control appears: a reply while the learner drags must not move it back.
+  if (wasHidden) focusRange.value = String(finite(focus.value) ?? (min + max) / 2);
+}
+
+focusAuto.addEventListener("click", () => {
+  clearTimeout(focusTimer);
+  focusAuto.setAttribute("aria-pressed", "true");
+  tell({ type: "camera-focus", mode: "auto" });
+});
+
+function sendFocusDistance() {
+  focusSentAt = performance.now();
+  tell({ type: "camera-focus", mode: "manual", distance: Number(focusRange.value) });
+}
+
+focusRange.addEventListener("input", () => {
+  focusAuto.setAttribute("aria-pressed", "false");
+  clearTimeout(focusTimer);
+  const wait = focusSentAt + FOCUS_EVERY_MS - performance.now();
+  if (wait <= 0) sendFocusDistance();
+  else focusTimer = setTimeout(sendFocusDistance, wait);        // the last position always gets sent
+});
+
 let drawn = false;            // a sketch is running or has drawn, and has not been stopped or failed (Keep this can keep its picture)
 let focusOnStart = false;     // the run came from the Run button: give the sketch the keys once it starts
 let errorPlace = null;
@@ -1911,6 +1976,7 @@ const handlers = {
   },
   ready() {
     previewReady = true;
+    hideFocus();                                 // a preview that has just loaded has no camera open
     runButton.disabled = false;
     tellGuides();
     // Python is ready, so the loading spinner stops whatever the line says; a more useful message (a restored draft,
@@ -1919,6 +1985,7 @@ const handlers = {
       status.classList.contains("fg-status--error") ? "error" : "ready");
   },
   output: (message) => addOutput(message.text, message.stream),
+  camera: showCameraFocus,
   // The last sketch did not stop within a second, so the preview is loading a new Python: say why the run waits.
   // The sketch saved a file (f.save): a line with a Download link. A reply to "Save picture" downloads at once instead.
   file(message) {
@@ -2011,6 +2078,7 @@ async function runSketch() {
   const withKept = { ...await keptBytes(), ...files, ...written };
   ranOnce = true;
   drawn = false;
+  hideFocus();
   if (lesson()) showLessonStage();
   clearOutput();
   errorPlace = null;
@@ -2033,6 +2101,7 @@ function stopSketch() {
   drawn = false;
   runGoing = false;
   clearModel();
+  hideFocus();
   tell({ type: "stop" });
   stopButton.disabled = true;
 }

@@ -123,6 +123,13 @@ function deviceText() {
 
 // ---- the camera
 
+/** What the camera offers for focus (the runner's `onCamera` says), in one plain line. */
+function offered(focus) {
+  if (!focus) return "no";
+  const { min, max, step } = focus.distance ?? {};
+  return `yes (modes: ${focus.modes.join(", ") || "none listed"}; distance: ${focus.distance ? `${min} to ${max}, step ${step}` : "no range"})`;
+}
+
 function trackText({ label, size, settings, capabilities }) {
   return [
     `Label: ${label || "(none)"}`,
@@ -162,10 +169,12 @@ async function ownPicture() {
 async function sketchPicture(fit) {
   let latest = null;
   let unavailable = null;
+  let focus = null;
   const camera = createCamera({
     fit,
     onFrame: (pixels, width, height) => { latest = { pixels: new Uint8ClampedArray(pixels), width, height }; },
     onUnavailable: (reason) => { unavailable = reason; },
+    onCamera: (info) => { if (info.open) focus = info.focus; },
   });
   camera.command({ command: "start", fields: ASKED });
   let first = null;
@@ -178,7 +187,7 @@ async function sketchPicture(fit) {
   const state = camera.state();
   camera.reset();
   if (!latest) throw new Error(`no picture arrived${unavailable ? `: ${unavailable}` : ""}`);
-  return { latest, state };
+  return { latest, state, focus };
 }
 
 async function checkCamera() {
@@ -203,11 +212,14 @@ async function checkCamera() {
   for (const fit of ["stretch", "cover"]) {
     say(`Taking the picture for "${fit}"...`);
     try {
-      const { latest, state } = await sketchPicture(fit);
+      const { latest, state, focus } = await sketchPicture(fit);
       const id = `cc-${fit}`;
       const wording = fit === "stretch" ? "What a sketch gets today (squeezed to fit)" : "What a sketch would get if the picture were cut to fit";
       put(id, `${id}-caption`, wording, latest.width, latest.height, (c) => c.putImageData(new ImageData(latest.pixels, latest.width, latest.height), 0, 0));
-      if (fit === "stretch") text.push(indent(trackText({ label: state.label, size: state.videoSize, settings: state.settings, capabilities: state.capabilities })));
+      if (fit === "stretch") {
+        text.push(indent(trackText({ label: state.label, size: state.videoSize, settings: state.settings, capabilities: state.capabilities })));
+        text.push(`  Focus control offered: ${offered(focus)}`);
+      }
       text.push(`  Picture for "${fit}": ${latest.width} x ${latest.height} from a ${state.videoSize.join(" x ")} camera picture`);
     } catch (error) {
       text.push(`  "${fit}": FAILED: ${error.message}`);
@@ -220,6 +232,48 @@ async function checkCamera() {
 
 // ---- the hand model, through the runner, once for each fit
 
+// The focus control (D-155) works during the hand check, the same way Play's does: it is shown while the camera is open and
+// offers focus, and it asks the runner of the run in progress.
+let handRunner = null;
+let lastFocus = null;                                      // the focus the camera offered, and was set to, in the run
+
+function showFocus(focus) {
+  lastFocus = focus;
+  const control = byId("cc-focus");
+  const auto = Boolean(focus?.modes.includes("continuous"));
+  const slider = Boolean(focus?.distance && focus.distance.min < focus.distance.max);
+  control.hidden = !auto && !slider;
+  byId("cc-focus-auto").hidden = !auto;
+  byId("cc-focus-auto").setAttribute("aria-pressed", String(focus?.mode === "continuous"));
+  byId("cc-focus-slider").hidden = !slider;
+  if (!slider) return;
+  const range = byId("cc-focus-slider");
+  const { min, max, step } = focus.distance;
+  Object.assign(range, { min, max, step: step || (max - min) / 100 });
+  if (control.dataset.shown !== "yes") range.value = focus.value ?? (min + max) / 2;       // a reply must not move a slider being dragged
+  control.dataset.shown = "yes";
+}
+
+function hideFocus() {
+  byId("cc-focus").hidden = true;
+  byId("cc-focus").dataset.shown = "no";
+}
+
+async function setFocus(setting) {
+  const focus = await handRunner?.cameraFocus(setting);
+  if (focus) showFocus(focus);
+}
+
+byId("cc-focus-auto").addEventListener("click", () => setFocus({ mode: "auto" }));
+byId("cc-focus-slider").addEventListener("input", (event) => setFocus({ mode: "manual", distance: Number(event.target.value) }));
+
+/** The focus the camera was using, as one plain line for the report. */
+function inUse(focus) {
+  if (!focus) return "the camera offers no focus";
+  const { mode, value } = focus;
+  return `mode ${mode ?? "unknown"}, distance ${value ?? "unknown"}`;
+}
+
 async function handRun(fit, canvasId) {
   const began = performance.now();
   const ticks = [];                                          // {at, answers, found, x, y} for each frame the sketch drew
@@ -230,6 +284,7 @@ async function handRun(fit, canvasId) {
     baseUrl: RUNNER_BASE,
     prewarm: false,
     fit,
+    onCamera: (info) => { if (info.open) showFocus(info.focus); else hideFocus(); },
     output: (text, stream) => {
       for (const line of String(text).split("\n")) {
         const parts = line.trim().split(" ");
@@ -242,6 +297,8 @@ async function handRun(fit, canvasId) {
       if (info.state === "downloading" && info.total) say(`Downloading the hand model (${fit}): ${(info.done / 1e6).toFixed(1)} of ${(info.total / 1e6).toFixed(1)} MB`);
     },
   });
+  handRunner = runner;
+  lastFocus = null;
   const pythonMs = performance.now() - began;
   say(`Starting the sketch (${fit})...`);
   const startedAt = performance.now();
@@ -275,12 +332,14 @@ async function handRun(fit, canvasId) {
       `  Answers per second: ${models.some((m) => m.state === "failed") ? "none, the model failed" : answersPerSecond.toFixed(1)}`,
       `  Frames drawn per second: ${((inWindow.length - 1) / seconds).toFixed(1)}`,
       `  Hand found: ${found.length ? "yes" : "NO"} (${found.length} of ${inWindow.length} frames)${tip ? `; last fingertip at ${tip.x}, ${tip.y} of 640 x 480` : ""}`,
+      `  Focus setting in use: ${inUse(lastFocus)}`,
     ];
   }
   const failed = models.filter((m) => m.state === "failed");
   if (failed.length) result.push(`  Model failed: ${failed.map((m) => m.reason).join(" | ")}`);
   if (other.length) result.push(`  The sketch printed: ${other.join(" | ")}`);
   await runner.stop();
+  handRunner = null;
   return result;
 }
 

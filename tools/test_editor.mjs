@@ -18,6 +18,8 @@
 // --debug         print what every page and frame writes to the console, and every failed request
 // --runner <dir>  use this funground-web runner/ folder (with its runtime/ built) instead of the one in RUNNER below, to test a
 //                 runner change that is on another branch or in another worktree. The FUNGROUND_RUNNER environment variable does the same
+// --preview <dir> use this funground-run.github.io folder as the preview instead of PREVIEW_REPO, to test a preview change that is on
+//                 another branch or in another worktree. The FUNGROUND_PREVIEW environment variable does the same
 // --phone <dir>   S-311 (PHONE_ONLY=landscape or portrait in the environment does just one): open Play on a phone (390 x 844 portrait, then 844 x 390 landscape, touch, 3x) with Chrome's fake camera,
 //                 run the follow-your-finger example, and save pictures in <dir>; no checks are run
 //
@@ -38,7 +40,8 @@ const { chromium } = await import("./codemirror/node_modules/playwright-core/ind
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE = path.resolve(HERE, "..");
-const PREVIEW_REPO = "C:/Projects/funground-run.github.io";
+const PREVIEW_REPO = process.argv.includes("--preview") ? process.argv[process.argv.indexOf("--preview") + 1]
+  : process.env.FUNGROUND_PREVIEW ?? "C:/Projects/funground-run.github.io";
 const FUNGROUND = "C:/Projects/playground";      // a checkout with funground/completions.json (S-196)
 const RUNNER = process.argv.includes("--runner") ? process.argv[process.argv.indexOf("--runner") + 1]
   : process.env.FUNGROUND_RUNNER ?? "C:/Projects/funground-web/runner";
@@ -3550,6 +3553,113 @@ print("written")
       }
     }
     return seen.join("; ");
+  });
+
+  // ---- the camera's focus control (D-155)
+  // Chrome's fake camera may or may not offer focus (this Chrome's does), so these checks give the preview's page a camera of
+  // their own: the real fake camera's track with focus capabilities (or none) put on it, and a record of every constraint applied.
+  // The init script runs in every frame of the context and does nothing outside the preview's origin.
+  async function focusContext({ offer, viewport = { width: 1280, height: 900 }, phone = false }) {
+    const where = await browser.newContext({ viewport, ...(phone ? { isMobile: true, hasTouch: true, deviceScaleFactor: 3 } : {}) });
+    await where.addInitScript(({ offer: offered }) => {
+      if (location.hostname !== "127.0.0.1") return;
+      window.focusCalls = [];
+      const ask = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (constraints) => {
+        const stream = await ask(constraints);
+        const track = stream.getVideoTracks()[0];
+        const { focusMode, focusDistance, ...others } = track.getCapabilities();
+        const capabilities = offered ? { ...others, focusMode: ["manual", "continuous"], focusDistance: { min: 0.1, max: 1, step: 0.01 } } : others;
+        const settings = { ...track.getSettings(), ...(offered ? { focusMode: "manual", focusDistance: 0.4 } : {}) };
+        track.getCapabilities = () => capabilities;
+        track.getSettings = () => ({ ...settings });
+        track.applyConstraints = async ({ advanced }) => {
+          window.focusCalls.push(advanced[0]);
+          Object.assign(settings, advanced[0]);
+        };
+        return stream;
+      };
+    }, { offer });
+    return where;
+  }
+  const focusControl = (page) => page.locator(".fg-play__camfocus");
+  const focusCalls = (page) => frameOf(page, PREVIEW).evaluate(() => window.focusCalls);
+
+  async function runCameraSketch(where) {
+    const page = await openEditor("", "", where);
+    await clearDrafts(page);
+    await typeCode(page, CAMERA_SKETCH);
+    await page.locator(".fg-btn--run").click();
+    await waitForPicture(frameOf(page, PREVIEW), (p) => p.colours > 8 && p.centre.join() !== "0,0,0", 30000);
+    return page;
+  }
+
+  await check(102, "a camera that offers no focus gets no focus control while a camera sketch runs (D-155)", async () => {
+    const where = await focusContext({ offer: false });
+    try {
+      const page = await runCameraSketch(where);
+      await sleep(1000);                                       // the control would show as soon as the camera opened
+      assert(await focusControl(page).isHidden(), "the focus control shows although the camera offers no focus");
+      assert((await focusCalls(page)).length === 0, `the preview asked the camera for focus: ${JSON.stringify(await focusCalls(page))}`);
+      await page.close();
+    } finally {
+      await where.close();
+    }
+  });
+
+  await check(103, "a camera that offers focus gets a Focus control: Auto and the slider reach the camera, and it hides on Stop (D-155)", async () => {
+    const where = await focusContext({ offer: true });
+    try {
+      const page = await runCameraSketch(where);
+      const control = focusControl(page);
+      await control.waitFor({ state: "visible", timeout: 10000 });
+      const auto = control.getByRole("button", { name: "Auto" });
+      const slider = control.getByRole("slider");
+      assert((await auto.getAttribute("aria-pressed")) === "true", "Auto is not pressed although the camera keeps its own focus");
+      assert((await slider.getAttribute("min")) === "0.1" && (await slider.getAttribute("max")) === "1" && (await slider.inputValue()) === "0.4",
+        `the slider is ${await slider.getAttribute("min")} to ${await slider.getAttribute("max")} at ${await slider.inputValue()}`);
+      await slider.fill("0.8");
+      await page.waitForFunction(() => document.querySelector(".fg-play__camfocus button").getAttribute("aria-pressed") === "false");
+      await sleep(300);
+      assert(JSON.stringify((await focusCalls(page)).at(-1)) === JSON.stringify({ focusMode: "manual", focusDistance: 0.8 }), `the camera got ${JSON.stringify(await focusCalls(page))}`);
+      // a quick drag: no more than about ten moves a second, and the last position always arrives
+      const before = (await focusCalls(page)).length;
+      for (const value of ["0.5", "0.6", "0.7", "0.9", "0.3"]) await slider.fill(value);
+      await sleep(400);
+      const drag = (await focusCalls(page)).slice(before);
+      assert(drag.length >= 1 && drag.length <= 3 && drag.at(-1).focusDistance === 0.3, `a quick drag sent ${JSON.stringify(drag)}`);
+      await auto.click();
+      await sleep(300);
+      assert(JSON.stringify((await focusCalls(page)).at(-1)) === JSON.stringify({ focusMode: "continuous" }), `after Auto the camera got ${JSON.stringify((await focusCalls(page)).at(-1))}`);
+      assert((await auto.getAttribute("aria-pressed")) === "true", "Auto is not pressed after it was pressed");
+      await page.getByRole("button", { name: "Stop", exact: true }).click();
+      await control.waitFor({ state: "hidden", timeout: 5000 });
+      await runButton(page).click();                           // a new run: the control comes back with the camera
+      await control.waitFor({ state: "visible", timeout: 30000 });
+      await page.close();
+      return `${drag.length} of 5 quick moves sent`;
+    } finally {
+      await where.close();
+    }
+  });
+
+  await check(104, "on a phone 390 px wide the page does not scroll sideways while the Focus control shows (D-155)", async () => {
+    const where = await focusContext({ offer: true, viewport: { width: 390, height: 844 }, phone: true });
+    try {
+      const page = await runCameraSketch(where);
+      const control = focusControl(page);
+      await control.waitFor({ state: "visible", timeout: 10000 });
+      const m = await page.evaluate(() => {
+        const r = document.querySelector(".fg-play__camfocus").getBoundingClientRect();
+        return { scrollWidth: document.documentElement.scrollWidth, left: r.left, right: r.right, height: r.height };
+      });
+      assert(m.scrollWidth <= 390, `the page is ${m.scrollWidth}px wide`);
+      assert(m.left >= 0 && m.right <= 390 && m.height > 0, `the control is at ${m.left} to ${m.right}`);
+      await page.close();
+      return `control ${Math.round(m.left)} to ${Math.round(m.right)} of 390`;
+    } finally {
+      await where.close();
+    }
   });
 } finally {
   await browser.close();
