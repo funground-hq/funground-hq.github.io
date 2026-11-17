@@ -169,6 +169,11 @@ const guidesButton = element("button", { class: "fg-btn fg-play__guides", type: 
   title: "Show a grid and the mouse's x and y over the picture" }, "Guides");
 const shareButton = element("button", { class: "fg-btn fg-play__share", title: "Copy a link that holds the code (Ctrl+S)" }, "Share");
 const resetButton = element("button", { class: "fg-btn fg-play__reset", hidden: "", title: "Go back to the original code" }, "Reset");
+// Focus mode (BF-D-046): one strip over the code and the picture. Not in an embed, which is already only that.
+const focusButton = element("button", { class: "fg-btn fg-play__focus", type: "button", title: "Hide everything but the code and the picture" }, "Focus");
+const leaveFocusButton = element("button", { class: "fg-btn fg-play__leavefocus", type: "button", hidden: "", title: "Bring everything back (Esc)" }, "Leave focus");
+// The page's own heading is for screen readers (play.css hides it), so this word is the one the eye sees (BF-D-041).
+const word = element("span", { class: "fg-play__word", "aria-hidden": "true" }, "Play");
 const helpButton = element("button", { class: "fg-iconbtn", "aria-label": "Help", "aria-expanded": "false",
   "aria-controls": "fg-play-help", title: "How the Play page works" }, "?");
 const status = element("span", { class: "fg-status fg-status--loading play-status", role: "status" },
@@ -221,11 +226,17 @@ const filesList = element("ul", { class: "fg-play__filelist" });
 const addFileButton = mineButton("Add file", "Keep a picture, GIF, sound or text file from this computer, for your sketches to open by name");
 const addFileInput = element("input", { type: "file", multiple: "", hidden: "", "aria-label": "Add a file", accept: ADD_ACCEPT });
 const filesNote = element("div", { class: "fg-play__minenote", role: "status" });
-const filesPanel = element("details", { class: "fg-play__files" }, filesSummary,
+const filesPanel = element("details", { class: "fg-play__files", hidden: "" }, filesSummary,
   element("p", { class: "fg-play__filesabout" }, "Sketches can open these by name, for example f.load_clip(\"take.gif\")."),
   filesList, element("div", { class: "fg-play__filesbar" }, addFileButton, addFileInput), filesNote);
-const mineBar = element("div", { class: "fg-play__mine", role: "group", "aria-label": "My sketches" },
-  newButton, openFileButton, keepButton, renameButton, duplicateButton, downloadButton, deleteButton, openFileInput);
+// The File menu (BF-D-045): the actions on the sketch and My files, in a menu beside the file's name, so they take no row of their own.
+const filesMenuItem = mineButton("My files", "Open the list of files this browser keeps for your sketches");
+const fileMenuButton = element("button", { class: "fg-play__minebtn fg-play__filebtn", type: "button", "aria-haspopup": "true",
+  "aria-expanded": "false", title: "New, open, keep, download and your files" }, "File ▾");
+const fileMenuItems = element("div", { class: "fg-play__menu", role: "group", "aria-label": "File", hidden: "" },
+  newButton, openFileButton, keepButton, renameButton, duplicateButton, downloadButton, deleteButton,
+  element("hr", { class: "fg-play__menusep" }), filesMenuItem);
+const fileMenu = element("span", { class: "fg-play__filemenu" }, fileMenuButton, fileMenuItems, openFileInput);
 // The course lesson's panel (S-216): an example with a `lesson` (assemble.py reads it from funground's
 // examples/course/play.json) shows it. It is shown only while an example from a lesson is open. Before the first Run the
 // Predict line stands out; after it, the Compare line does (data-stage). On a phone the head is one line that opens the rest.
@@ -259,7 +270,9 @@ const stillNote = element("span", { class: "fg-status fg-status--loading fg-play
 const still = element("div", { class: "fg-play__still", hidden: "" },
   stillImage, element("span", { class: "fg-play__still-tag" }, "Picture of the example"), stillNote);
 const frame = element("div", { class: "fg-play__frame" }, preview, still);
-const picture = element("div", { class: "fg-play__picture" }, frame);
+// In focus mode the status line is hidden, so this hint sits on the picture until the learner has given it the mouse and keys.
+const focusHint = element("div", { class: "fg-play__focushint", hidden: "" }, "Click the picture to give it the mouse and keys");
+const picture = element("div", { class: "fg-play__picture" }, frame, focusHint);
 const sizeText = element("span", {});
 const aboutText = element("span", {});
 const zoomOut = element("button", { class: "fg-play__zoombtn", type: "button", "aria-label": "Zoom out", title: "Smaller" }, "−");
@@ -274,8 +287,9 @@ const output = element("div", { class: "fg-console__body play-output", "aria-liv
 // The floating Run (phones, S-189): shown only while the toolbar's own Run is scrolled out of sight (see "phones" below).
 const fab = element("button", { class: "fg-play__fab", type: "button", "aria-label": "Run", title: "Run", hidden: "", disabled: "" }, "▶");
 
+const tab = element("div", { class: "fg-play__tab" }, fileName, nameInput, lineCount, fileMenu, linesLabel, viewSwitch);
 const work = element("div", { class: "fg-play__work" },
-  element("div", { class: "fg-play__editor" }, element("div", { class: "fg-play__tab" }, fileName, nameInput, lineCount, linesLabel, viewSwitch), lessonPanel, mineBar, mineNote, storageNote, filesPanel, editorBox, blocksBox),
+  element("div", { class: "fg-play__editor" }, tab, lessonPanel, mineNote, storageNote, filesPanel, editorBox, blocksBox),
   divider,
   element("div", { class: "fg-play__stage" },
     // The messages are above the picture and take no room while there are none: the rest belongs to the sketch.
@@ -290,13 +304,14 @@ const work = element("div", { class: "fg-play__work" },
       aboutText)));
 
 play.classList.add("fg-play");
-play.replaceChildren(
-  element("div", { class: "fg-play__bar play-toolbar" },
+const bar = element("div", { class: "fg-play__bar play-toolbar" }, word,
     element("span", { class: "fg-play__picker", role: "group", "aria-label": "Examples" }, previousButton, choose, nextButton), howLink, runButton, stopButton, ...(openInPlay ? [openInPlay] : []),
     element("label", { class: "fg-play__auto" }, autoRun, " Auto-run"),
-    element("label", { class: "fg-play__auto", title: "Show a Blocks view of the sketch: blocks that make the same Python" }, blocksOption, " Blocks"),
+    element("label", { class: "fg-play__auto fg-play__blocksoption", title: "Show a Blocks view of the sketch: blocks that make the same Python" }, blocksOption, " Blocks"),
     guidesButton,
-    element("span", { class: "spacer" }), status, shareButton, resetButton, helpButton),
+    element("span", { class: "spacer" }), status, shareButton, ...(embed ? [] : [focusButton]), resetButton, helpButton, leaveFocusButton);
+play.replaceChildren(
+  bar,
   linkField,
   help,
   work,
@@ -1057,10 +1072,23 @@ let filesTimer = null;
 const nameOrder = (a, b) => (a.name < b.name ? -1 : 1);
 
 function sayFile(text, ...extra) {
+  showFilesPanel();                // the note is in the panel: a message about a file must not be written where nobody can see it
   clearTimeout(filesTimer);
   filesNote.replaceChildren(text, ...extra);
   filesTimer = setTimeout(() => filesNote.replaceChildren(), extra.length ? UNDO_MS : 12000);
 }
+
+// My files has no row of its own (BF-D-045): the File menu opens its panel, and closing the panel puts it away again.
+function showFilesPanel() {
+  filesPanel.hidden = false;
+  filesPanel.open = true;
+}
+filesPanel.addEventListener("toggle", () => { if (!filesPanel.open) filesPanel.hidden = true; });
+filesMenuItem.addEventListener("click", () => {
+  showFilesPanel();
+  filesSummary.focus();
+  filesPanel.scrollIntoView({ block: "nearest" });
+});
 
 function showFiles() {
   filesSummary.textContent = kept.length ? `My files (${kept.length})` : "My files";
@@ -1454,6 +1482,8 @@ const handlers = {
     stopButton.disabled = false;
     if (focusOnStart) preview.focus();   // so the space bar reaches the sketch instead of pressing Run again
     focusOnStart = false;
+    hintDone = document.activeElement === preview;      // Run already gave it the keys
+    showFocusHint();
   },
   finished(message) {
     if (message.reason !== "ended") drawn = false;          // stopped or failed: its picture is gone ("ended" is a script that has drawn)
@@ -1467,6 +1497,7 @@ const handlers = {
     }
     stopButton.disabled = true;
     focusOnStart = false;
+    showFocusHint();
   },
 };
 
@@ -1485,6 +1516,7 @@ async function runSketch() {
   clearOutput();
   errorLine = null;
   startedThisRun = false;
+  hintDone = false;
   ranFilename = current ? current.source.split("/").pop() : "sketch.py";
   startedAt = performance.now();
   setStatus("Starting...", "running");
@@ -1519,10 +1551,77 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();                // not the browser's "save page" dialog
     if (!embed) shareButton.click();       // an embed has no Share
   } else if (event.key === "Escape") {
-    if (!help.hidden) showHelp(false);
+    // One key, one step, the nearest thing first: a menu, then the help, then a running sketch, then focus mode.
+    // So Esc still stops a sketch as it always did, and leaves focus only when there is nothing to stop.
+    if (!fileMenuItems.hidden) showFileMenu(false, true);
+    else if (!help.hidden) showHelp(false);
     else if (!stopButton.disabled) stopSketch();
+    else if (focusMode) showFocus(false);
   }
 });
+
+// ---- the File menu (BF-D-045): a button that opens a list of buttons
+
+// Closes on a choice, on a click outside, on Esc and when focus leaves it. Down and Up arrows, Home and End move between the items.
+function showFileMenu(open, backToButton = false) {
+  fileMenuItems.hidden = !open;
+  fileMenuButton.setAttribute("aria-expanded", String(open));
+  if (open) fileMenuItems.querySelector("button:not([hidden])").focus();
+  else if (backToButton) fileMenuButton.focus();
+}
+fileMenuButton.addEventListener("click", () => showFileMenu(fileMenuItems.hidden));
+fileMenuItems.addEventListener("click", (event) => {
+  if (!event.target.closest("button")) return;
+  // The choice has run already. If it moved the focus (Rename goes to the name, My files to its panel), leave it there;
+  // else it is still on the item that is about to go, so it goes back to the File button.
+  showFileMenu(false, fileMenuItems.contains(document.activeElement));
+});
+document.addEventListener("click", (event) => {
+  if (!fileMenuItems.hidden && !fileMenu.contains(event.target)) showFileMenu(false);
+});
+fileMenu.addEventListener("focusout", (event) => {
+  if (!fileMenuItems.hidden && !fileMenu.contains(event.relatedTarget)) showFileMenu(false);
+});
+fileMenu.addEventListener("keydown", (event) => {
+  const items = [...fileMenuItems.querySelectorAll("button:not([hidden])")];
+  const at = items.indexOf(document.activeElement);
+  const step = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[event.key];
+  if (step === undefined) return;
+  event.preventDefault();
+  if (fileMenuItems.hidden) showFileMenu(true);
+  else items[(step + items.length) % items.length].focus();
+});
+
+// ---- Focus mode (BF-D-046): one strip, then the code and the picture and nothing else
+
+// The Python | Blocks switch lives in the tab row; in focus mode it moves into the strip, so it is the same switch with the same
+// handlers. It goes back to the end of the tab row on leaving. Not remembered: a fresh page is never in focus mode.
+let focusMode = false;
+let hintDone = false;               // this run's picture has been given the mouse and keys
+function showFocusHint() {
+  focusHint.hidden = !(focusMode && !hintDone && !stopButton.disabled);
+}
+// Clicking the sketch's frame cannot be heard from here (it is another website), but it moves the keyboard focus into the frame.
+window.addEventListener("blur", () => setTimeout(() => {
+  if (document.activeElement === preview) hintDone = true;
+  showFocusHint();
+}));
+function showFocus(on) {
+  if (embed || on === focusMode) return;
+  focusMode = on;
+  showFileMenu(false);
+  showHelp(false);
+  document.documentElement.classList.toggle("fg-focus", on);
+  focusButton.hidden = on;
+  leaveFocusButton.hidden = !on;
+  if (on) bar.insertBefore(viewSwitch, autoRun.parentElement.nextSibling);
+  else tab.append(viewSwitch);
+  showFocusHint();
+  fillWindow();                     // the site's header went or came back, so the box has another height
+  (on ? runButton : focusButton).focus();
+}
+focusButton.addEventListener("click", () => showFocus(true));
+leaveFocusButton.addEventListener("click", () => showFocus(false));
 
 // ---- Share: the link holds the code; it is copied, and shown in case copying is not allowed
 
