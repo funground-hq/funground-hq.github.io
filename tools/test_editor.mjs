@@ -16,12 +16,18 @@
 // --shots <dir>  save pictures of the suggestions popup (checks 13 to 15), the hint, night and the toolbar (check 33), the guides (check 34), the first visit (check 35) and the blocks view (check 84) in that folder
 // --serve         assemble and serve Play as the checks see it, print its address, and wait (to try it by hand)
 // --debug         print what every page and frame writes to the console, and every failed request
+// --runner <dir>  use this funground-web runner/ folder (with its runtime/ built) instead of the one in RUNNER below, to test a
+//                 runner change that is on another branch or in another worktree. The FUNGROUND_RUNNER environment variable does the same
+// --preview <dir> use this funground-run.github.io folder as the preview instead of PREVIEW_REPO, to test a preview change that is on
+//                 another branch or in another worktree. The FUNGROUND_PREVIEW environment variable does the same
+// --phone <dir>   S-311 (PHONE_ONLY=landscape or portrait in the environment does just one): open Play on a phone (390 x 844 portrait, then 844 x 390 landscape, touch, 3x) with Chrome's fake camera,
+//                 run the follow-your-finger example, and save pictures in <dir>; no checks are run
 //
 // Needs `npm install` in tools/codemirror (playwright-core), Chrome, and a built funground-web runner/runtime.
 // Everything it makes goes in a temporary folder.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -34,14 +40,17 @@ const { chromium } = await import("./codemirror/node_modules/playwright-core/ind
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE = path.resolve(HERE, "..");
-const PREVIEW_REPO = "C:/Projects/funground-run.github.io";
+const PREVIEW_REPO = process.argv.includes("--preview") ? process.argv[process.argv.indexOf("--preview") + 1]
+  : process.env.FUNGROUND_PREVIEW ?? "C:/Projects/funground-run.github.io";
 const FUNGROUND = "C:/Projects/playground";      // a checkout with funground/completions.json (S-196)
-const RUNNER = "C:/Projects/funground-web/runner";
+const RUNNER = process.argv.includes("--runner") ? process.argv[process.argv.indexOf("--runner") + 1]
+  : process.env.FUNGROUND_RUNNER ?? "C:/Projects/funground-web/runner";
 const PYTHON = "C:/Projects/playground/.venv/Scripts/python.exe";
 const CHROME = "C:/Users/samirj/AppData/Local/Google/Chrome/Application/chrome.exe";
 
 const scriptsOnly = process.argv.includes("--scripts-only");
 const debug = process.argv.includes("--debug");
+const phoneDir = process.argv.includes("--phone") ? process.argv[process.argv.indexOf("--phone") + 1] : null;
 const shotsDir = process.argv.includes("--shots") ? process.argv[process.argv.indexOf("--shots") + 1] : null;
 const argumentAfter = (flag) => (process.argv.includes(flag) ? process.argv[process.argv.indexOf(flag) + 1] : null);
 // The checks of part `n` of `m`: the numbers 1 to the last check's, cut into m equal ranges. The last number is read
@@ -214,7 +223,13 @@ if (scriptsOnly) {
   writeFileSync(file, readFileSync(file, "utf8").replace('"allow-scripts allow-same-origin";', '"allow-scripts";'));
 }
 
-const editorServer = fileServer(path.join(docs), { "/play/": EDITOR_PAGE });
+// The camera check page (S-311): the markup of site_src/play/camera-check/index.md without MkDocs, as for Play above.
+const cameraCheckMarkup = readFileSync(path.join(SITE, "site_src", "play", "camera-check", "index.md"), "utf8").replace(/\r\n/g, "\n")
+  .replace(/^---\n[\s\S]*?\n---\n/, "").replace(/^# (.*)$/m, "<h1>$1</h1>");
+const CAMERA_CHECK_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Camera check</title>
+<link rel="stylesheet" href="../../stylesheets/funground.css"><link rel="stylesheet" href="../../stylesheets/play.css"></head>
+<body data-md-color-scheme="default"><article class="md-content__inner md-typeset">${cameraCheckMarkup}</article></body></html>`;
+const editorServer = fileServer(path.join(docs), { "/play/": EDITOR_PAGE, "/play/camera-check/": CAMERA_CHECK_PAGE });
 const previewServer = fileServer(PREVIEW_REPO);
 const strangerServer = http.createServer();
 const EDITOR = `http://localhost:${await listen(editorServer)}`;
@@ -238,6 +253,41 @@ if (process.argv.includes("--serve")) {
 // Chrome's fake camera stands in for any real one (check 55); the visitor's camera is never opened.
 const browser = await chromium.launch({ executablePath: CHROME, headless: true,
   args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
+
+// --phone <dir> (S-311): Play on a phone, as Chrome's device emulation shows it. No checks run. Without MkDocs the page has no
+// site header or menu, so what is seen is Play's own layout (play.css, play.js) and nothing around it.
+if (phoneDir) {
+  mkdirSync(phoneDir, { recursive: true });
+  for (const [name, viewport] of [["portrait", { width: 390, height: 844 }], ["landscape", { width: 844, height: 390 }]].filter(([name]) => !process.env.PHONE_ONLY || name === process.env.PHONE_ONLY)) {
+    const phone = await browser.newContext({ viewport, isMobile: true, hasTouch: true, deviceScaleFactor: 3, permissions: ["camera"] });
+    const page = await phone.newPage();
+    page.on("pageerror", (error) => console.log(`  page error: ${error.message}`));
+    if (debug) page.on("console", (message) => console.log(`  console ${message.type()}: ${message.text()}`));
+    await page.goto(`${EDITOR}/play/?preview=${PREVIEW}&example=models-02_follow_your_finger`);
+    await runButton(page).waitFor();
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 180000 });
+    await page.screenshot({ path: path.join(phoneDir, `${name}_1_open.png`) });
+    await page.screenshot({ path: path.join(phoneDir, `${name}_1_open_whole_page.png`), fullPage: true });
+    await runButton(page).tap();
+    await sleep(25000);              // the models library and the hand model download on the first run
+    await page.screenshot({ path: path.join(phoneDir, `${name}_2_running.png`) });
+    const metrics = await page.evaluate(() => {
+      const box = (selector) => { const r = document.querySelector(selector)?.getBoundingClientRect(); return r ? [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)] : null; };
+      return { window: [innerWidth, innerHeight], scrollWidth: document.documentElement.scrollWidth, scrollHeight: document.documentElement.scrollHeight,
+        bar: box(".fg-play__bar"), picture: box(".fg-play__picture"), frame: box(".fg-play__frame"), preview: box(".play-preview"), caption: box(".fg-play__caption"),
+        run: box(".fg-btn--run"), fab: box(".fg-play__fab"), status: box(".play-status"), editor: box(".fg-play__editor"), console: box(".fg-console") };
+    });
+    console.log(name, JSON.stringify(metrics));
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await sleep(500);
+    await page.screenshot({ path: path.join(phoneDir, `${name}_3_scrolled_down.png`) });
+    await phone.close();
+  }
+  await browser.close();
+  for (const server of [editorServer, previewServer, strangerServer]) server.close();
+  rmSync(scratch, { recursive: true, force: true });
+  process.exit(0);
+}
 console.log(`editor ${EDITOR}; preview ${PREVIEW}; iframe sandbox: allow-scripts${scriptsOnly ? "" : " allow-same-origin"}`);
 const context = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"], viewport: { width: 1280, height: 900 } });
 const problems = [];
@@ -3430,6 +3480,186 @@ print("written")
     assert((await page.locator(".fg-play__choose option", { hasText: title }).count()) >= 2, "the example is gone from the picker");
     await page.close();
     return "copy kept first";
+  });
+
+  // ---- the camera check page (S-311)
+  async function openCameraCheck() {
+    const page = await context.newPage();
+    watch(page);
+    await page.goto(`${EDITOR}/play/camera-check/`);
+    await page.locator("#cc-camera").waitFor();
+    return page;
+  }
+
+  await check(99, "the camera check lists the device, shows the camera's settings and capabilities and three pictures of the camera, and Copy all puts it all on the clipboard (S-311)", async () => {
+    const page = await openCameraCheck();
+    const device = await page.locator("#cc-device").innerText();
+    assert(device.includes("Browser: ") && device.includes("Pixel ratio: ") && device.includes("Cross-origin isolated: no"), `the device text is "${device}"`);
+    await page.locator("#cc-camera").click();
+    await page.waitForFunction(() => document.getElementById("cc-status").textContent.startsWith("The camera check is done"), null, { timeout: 60000 });
+    const text = await page.locator("#cc-camera-text").innerText();
+    for (const part of ["Label: ", "Settings now:", "frameRate:", "What it can do:", "focusMode", "1. Asked for nothing", "2. Asked as Play asks", 'Picture for "stretch": 640 x 480', 'Picture for "cover": 640 x 480'])
+      assert(text.includes(part), `the camera text has no "${part}": ${text}`);
+    const sizes = await page.evaluate(() => ["cc-own", "cc-stretch", "cc-cover"].map((id) => {
+      const c = document.getElementById(id);
+      const data = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+      const colours = new Set();
+      for (let i = 0; i < data.length; i += 40) colours.add((data[i] << 16) | (data[i + 1] << 8) | data[i + 2]);
+      return { width: c.width, height: c.height, colours: colours.size };
+    }));
+    assert(sizes[1].width === 640 && sizes[1].height === 480 && sizes[2].width === 640 && sizes[2].height === 480, `the sketch pictures are ${JSON.stringify(sizes)}`);
+    assert(sizes.every((s) => s.colours > 8), `a picture is blank: ${JSON.stringify(sizes)}`);
+    await page.locator("#cc-copy").click();
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    assert(copied.startsWith("funground camera check") && copied.includes("THIS DEVICE") && copied.includes("Settings now:") && copied.includes("THE HAND MODEL"), `the clipboard holds "${copied.slice(0, 200)}"`);
+    await page.close();
+    return `${sizes.map((s) => `${s.width}x${s.height}`).join(", ")}; ${copied.split("\n").length} lines copied`;
+  });
+
+  await check(100, "the camera check's hand model runs the real path once with each fit and reports the load time, answers a second and whether a hand was found (S-311)", async () => {
+    const page = await openCameraCheck();
+    await page.locator("#cc-hand").click();
+    await page.waitForFunction(() => document.getElementById("cc-status").textContent.startsWith("The hand check is done"), null, { timeout: 540000 });
+    const text = await page.locator("#cc-hand-text").innerText();
+    for (const fit of ["stretch", "cover"])
+      for (const part of [`Fit "${fit}":`, "Python ready after", "First answer", "Answers per second: ", "Hand found: "])
+        assert(text.includes(part), `the hand text has no "${part}" for ${fit}: ${text}`);
+    if (/could not download/.test(text)) throw new Skip("the hand model cannot be downloaded from here (no network to its host), so no hand can be found; the report itself was made");
+    assert(!/FAILED|did not start|no answer|Model failed/.test(text), `the hand check failed: ${text}`);
+    await page.close();
+    return text.split("\n").filter((l) => l.includes("Answers per second") || l.includes("Hand found")).join(" | ");
+  });
+
+  await check(101, "on a phone held sideways (844 x 390) the picture is fitted to the window's height as well, and still fits the width in portrait (S-311)", async () => {
+    const seen = [];
+    for (const [width, height] of [[844, 390], [390, 844]]) {
+      const phoneContext = await browser.newContext({ viewport: { width, height }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
+      try {
+        const page = await phoneContext.newPage();
+        watch(page);
+        await page.goto(`${EDITOR}/play/?preview=${PREVIEW}&example=${FIRST_SKETCH}`);
+        await runButton(page).waitFor();                          // the picture's size does not wait for Python to load
+        await sleep(1500);
+        const m = await page.evaluate(() => {
+          const r = document.querySelector(".fg-play__frame").getBoundingClientRect();
+          return { width: r.width, height: r.height, scrollWidth: document.documentElement.scrollWidth, inner: [innerWidth, innerHeight] };
+        });
+        assert(m.scrollWidth <= width, `${width} x ${height}: the page is ${m.scrollWidth}px wide`);
+        assert(m.width <= width && Math.abs(m.width / m.height - 1.6) < 0.03, `${width} x ${height}: the picture is ${m.width} x ${m.height}`);
+        if (height < 500) assert(m.height < height - 20, `${width} x ${height}: the picture is ${m.height}px tall, as tall as the screen`);
+        seen.push(`${width}x${height}: picture ${Math.round(m.width)}x${Math.round(m.height)}`);
+      } finally {
+        await phoneContext.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  // ---- the camera's focus control (D-155)
+  // Chrome's fake camera may or may not offer focus (this Chrome's does), so these checks give the preview's page a camera of
+  // their own: the real fake camera's track with focus capabilities (or none) put on it, and a record of every constraint applied.
+  // The init script runs in every frame of the context and does nothing outside the preview's origin.
+  async function focusContext({ offer, viewport = { width: 1280, height: 900 }, phone = false }) {
+    const where = await browser.newContext({ viewport, ...(phone ? { isMobile: true, hasTouch: true, deviceScaleFactor: 3 } : {}) });
+    await where.addInitScript(({ offer: offered }) => {
+      if (location.hostname !== "127.0.0.1") return;
+      window.focusCalls = [];
+      const ask = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (constraints) => {
+        const stream = await ask(constraints);
+        const track = stream.getVideoTracks()[0];
+        const { focusMode, focusDistance, ...others } = track.getCapabilities();
+        const capabilities = offered ? { ...others, focusMode: ["manual", "continuous"], focusDistance: { min: 0.1, max: 1, step: 0.01 } } : others;
+        const settings = { ...track.getSettings(), ...(offered ? { focusMode: "manual", focusDistance: 0.4 } : {}) };
+        track.getCapabilities = () => capabilities;
+        track.getSettings = () => ({ ...settings });
+        track.applyConstraints = async ({ advanced }) => {
+          window.focusCalls.push(advanced[0]);
+          Object.assign(settings, advanced[0]);
+        };
+        return stream;
+      };
+    }, { offer });
+    return where;
+  }
+  const focusControl = (page) => page.locator(".fg-play__camfocus");
+  const focusCalls = (page) => frameOf(page, PREVIEW).evaluate(() => window.focusCalls);
+
+  async function runCameraSketch(where) {
+    const page = await openEditor("", "", where);
+    await clearDrafts(page);
+    await typeCode(page, CAMERA_SKETCH);
+    await page.locator(".fg-btn--run").click();
+    await waitForPicture(frameOf(page, PREVIEW), (p) => p.colours > 8 && p.centre.join() !== "0,0,0", 30000);
+    return page;
+  }
+
+  await check(102, "a camera that offers no focus gets no focus control while a camera sketch runs (D-155)", async () => {
+    const where = await focusContext({ offer: false });
+    try {
+      const page = await runCameraSketch(where);
+      await sleep(1000);                                       // the control would show as soon as the camera opened
+      assert(await focusControl(page).isHidden(), "the focus control shows although the camera offers no focus");
+      assert((await focusCalls(page)).length === 0, `the preview asked the camera for focus: ${JSON.stringify(await focusCalls(page))}`);
+      await page.close();
+    } finally {
+      await where.close();
+    }
+  });
+
+  await check(103, "a camera that offers focus gets a Focus control: Auto and the slider reach the camera, and it hides on Stop (D-155)", async () => {
+    const where = await focusContext({ offer: true });
+    try {
+      const page = await runCameraSketch(where);
+      const control = focusControl(page);
+      await control.waitFor({ state: "visible", timeout: 10000 });
+      const auto = control.getByRole("button", { name: "Auto" });
+      const slider = control.getByRole("slider");
+      assert((await auto.getAttribute("aria-pressed")) === "true", "Auto is not pressed although the camera keeps its own focus");
+      assert((await slider.getAttribute("min")) === "0.1" && (await slider.getAttribute("max")) === "1" && (await slider.inputValue()) === "0.4",
+        `the slider is ${await slider.getAttribute("min")} to ${await slider.getAttribute("max")} at ${await slider.inputValue()}`);
+      await slider.fill("0.8");
+      await page.waitForFunction(() => document.querySelector(".fg-play__camfocus button").getAttribute("aria-pressed") === "false");
+      await sleep(300);
+      assert(JSON.stringify((await focusCalls(page)).at(-1)) === JSON.stringify({ focusMode: "manual", focusDistance: 0.8 }), `the camera got ${JSON.stringify(await focusCalls(page))}`);
+      // a quick drag: no more than about ten moves a second, and the last position always arrives
+      const before = (await focusCalls(page)).length;
+      for (const value of ["0.5", "0.6", "0.7", "0.9", "0.3"]) await slider.fill(value);
+      await sleep(400);
+      const drag = (await focusCalls(page)).slice(before);
+      assert(drag.length >= 1 && drag.length <= 3 && drag.at(-1).focusDistance === 0.3, `a quick drag sent ${JSON.stringify(drag)}`);
+      await auto.click();
+      await sleep(300);
+      assert(JSON.stringify((await focusCalls(page)).at(-1)) === JSON.stringify({ focusMode: "continuous" }), `after Auto the camera got ${JSON.stringify((await focusCalls(page)).at(-1))}`);
+      assert((await auto.getAttribute("aria-pressed")) === "true", "Auto is not pressed after it was pressed");
+      await page.getByRole("button", { name: "Stop", exact: true }).click();
+      await control.waitFor({ state: "hidden", timeout: 5000 });
+      await runButton(page).click();                           // a new run: the control comes back with the camera
+      await control.waitFor({ state: "visible", timeout: 30000 });
+      await page.close();
+      return `${drag.length} of 5 quick moves sent`;
+    } finally {
+      await where.close();
+    }
+  });
+
+  await check(104, "on a phone 390 px wide the page does not scroll sideways while the Focus control shows (D-155)", async () => {
+    const where = await focusContext({ offer: true, viewport: { width: 390, height: 844 }, phone: true });
+    try {
+      const page = await runCameraSketch(where);
+      const control = focusControl(page);
+      await control.waitFor({ state: "visible", timeout: 10000 });
+      const m = await page.evaluate(() => {
+        const r = document.querySelector(".fg-play__camfocus").getBoundingClientRect();
+        return { scrollWidth: document.documentElement.scrollWidth, left: r.left, right: r.right, height: r.height };
+      });
+      assert(m.scrollWidth <= 390, `the page is ${m.scrollWidth}px wide`);
+      assert(m.left >= 0 && m.right <= 390 && m.height > 0, `the control is at ${m.left} to ${m.right}`);
+      await page.close();
+      return `control ${Math.round(m.left)} to ${Math.round(m.right)} of 390`;
+    } finally {
+      await where.close();
+    }
   });
 } finally {
   await browser.close();

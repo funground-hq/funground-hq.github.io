@@ -24,6 +24,8 @@ blank sketch. With **Auto-run** on, the sketch runs again a moment after you sto
 <li><strong>My files:</strong> keep what a sketch saves, or add your own, and every sketch can open them by name. They stay in this browser only.</li>
 <li><strong>More than one file:</strong> open <strong>File</strong> and choose <strong>New file</strong> to add a file such as helpers.py to your sketch. Then write <code>import helpers</code> in your main file. Run always starts the main file. Download saves a sketch with several files as a .zip, and Share puts every file in the link.</li>
 <li class="fg-keys-only">Drag the bar between the code and the picture to give either one more room.</li>
+<li>If the camera does not work well on your device, the <a href="camera-check/">camera check</a> shows why.</li>
+<li>If your camera can change its focus, a Focus control appears under the picture while the camera is on: Auto, or a slider from near to far.</li>
 <li>Your sketches run in a separate, sandboxed website (funground-run.github.io), so a sketch can never reach
 this site. To keep sketches on GitHub, use the <a href="https://github.com/funground-hq/sketchbook">sketchbook</a> and the
 funground extension in github.dev.</li>
