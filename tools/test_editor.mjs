@@ -2,6 +2,8 @@
 //
 //   node tools/test_editor.mjs [--same-origin] [--only 3,4 | --part 1/2]
 //
+// Play's own zip module (S-242) has a separate test that needs no browser: node tools/test_zip.mjs
+//
 // It assembles the site with the browser runner, serves the editor on one local origin (http://localhost:PORT) and the
 // preview (the funground-run.github.io repository) on another (http://127.0.0.1:PORT), and drives the editor like a
 // learner: Run, typing, an error, Share, a draft, Stop. MkDocs is not needed: the editor page is a small page with the
@@ -2875,7 +2877,7 @@ print("written")
     await button.click();
     assert((await button.getAttribute("aria-expanded")) === "true" && await menu.isVisible(), "the menu did not open");
     const shown = await menu.getByRole("button").evaluateAll((all) => all.filter((e) => e.offsetParent).map((e) => e.textContent));
-    assert(shown.join("|") === "New sketch|Open .py|Keep as my sketch|Download .py|My files", `the menu shows ${shown.join("|")}`);
+    assert(shown.join("|") === "New sketch|New file|Open file|Keep as my sketch|Download .py|My files", `the menu shows ${shown.join("|")}`);
 
     // Esc closes it and gives the focus back to the button
     await page.keyboard.press("Escape");
@@ -2893,7 +2895,7 @@ print("written")
     assert(await menu.isVisible(), "Enter did not open the menu");
     assert((await page.evaluate(() => document.activeElement.textContent)) === "New sketch", "the first item has no focus");
     await page.keyboard.press("ArrowDown");
-    assert((await page.evaluate(() => document.activeElement.textContent)) === "Open .py", "ArrowDown did not move");
+    assert((await page.evaluate(() => document.activeElement.textContent)) === "New file", "ArrowDown did not move");
     await page.keyboard.press("ArrowUp");
     await page.keyboard.press("Enter");
     await tabIs(page, "Sketch 1");
@@ -3079,6 +3081,355 @@ print("written")
       delete overrides[FAKE];
       await ctx.close();
     }
+  });
+
+  // ---- several files in one sketch (S-242). The zip module has its own test, tools/test_zip.mjs, which runs in Node.
+  const fileTabNames = (page) => page.locator(".fg-play__ftabname").allInnerTexts();
+  const fileTab = (page, name) => page.getByRole("tab", { name, exact: true });
+  const tabStrip = (page) => page.locator(".fg-play__ftabs");
+  const nameHint = (page) => page.locator(".fg-play__filehint");
+  const mineNote = (page) => page.locator(".fg-play__minenote").first();
+  // Opens the form of New file, types a name and waits for the line that says what it will be called (or why not).
+  async function askNewFile(page, typed, hintStarts) {
+    await chooseFile(page, "New file");
+    await page.locator(".fg-play__fileform input").fill(typed);
+    if (!hintStarts) return;
+    await page.waitForFunction((text) => document.querySelector(".fg-play__filehint")?.textContent.startsWith(text), hintStarts, { timeout: 5000 })
+      .catch(async () => { throw new Error(`for "${typed}" the line says "${await nameHint(page).innerText()}", not "${hintStarts}..."`); });
+  }
+  async function makeFile(page, typed, hintStarts = "It will be called") {
+    await askNewFile(page, typed, hintStarts);
+    await page.locator(".fg-play__fileform button[type=submit]").click();
+  }
+  const noAutoRun = (page) => page.locator(".fg-play__auto input").first().uncheck();
+  const storedSketches = (page) => page.evaluate(() => JSON.parse(localStorage.getItem("funground.play.sketches")));
+
+  const SKETCH_WITH_HELPERS = 'import funground as f\nimport helpers\n\nprint("from helpers: " + helpers.COLOUR)\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    f.background(helpers.COLOUR)\n\n\nf.run()\n';
+
+  await check(91, "New file makes a second tab (the strip shows only then); a sketch imports its helper and the helper another helper; the output and the picture are right (S-242)", async () => {
+    const page = await freshEditor();
+    await noAutoRun(page);
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    assert(await tabStrip(page).isHidden(), "the tab strip shows for a sketch with one file");
+    assert(!(await fileItemShown(page, "Download .zip")) && (await fileItemShown(page, "Download .py")), "the menu offers a zip for one file");
+    await typeCode(page, SKETCH_WITH_HELPERS);
+    await makeFile(page, "helpers");
+    await tabStrip(page).waitFor();
+    assert((await fileTabNames(page)).join() === "Sketch 1,helpers.py", `the tabs are ${await fileTabNames(page)}`);
+    assert((await fileTab(page, "helpers.py").getAttribute("aria-selected")) === "true", "the new file is not the open tab");
+    assert((await editorText(page)) === "", `the new file holds ${JSON.stringify(await editorText(page))}`);
+    assert((await mineNote(page).innerText()).includes("import helpers"), `the note says "${await mineNote(page).innerText()}"`);
+    await typeCode(page, "import levels\n\nCOLOUR = levels.TOP\n");
+    await makeFile(page, "Levels");                     // capitals are made small
+    await typeCode(page, 'TOP = "gold"\n');
+    assert((await fileTabNames(page)).join() === "Sketch 1,helpers.py,levels.py", `the tabs are ${await fileTabNames(page)}`);
+    assert((await page.locator(".cm-content").count()) === 1, "more than one editor is in the page");
+    assert(await page.locator(".fg-play__filebtn").isVisible() && (await fileItemShown(page, "Download .zip")), "the menu does not offer a zip for several files");
+    await fileTab(page, "Sketch 1").click();
+    assert((await editorText(page)).includes("import helpers"), "the main tab does not show the main file");
+    await runButton(page).click();                      // Run starts the main file whichever tab is open; here it is the main one
+    const frame = frameOf(page, PREVIEW);
+    await waitForPicture(frame, (p) => p.opaque && p.centre.join() === "255,215,0");
+    await page.waitForFunction(() => document.querySelector(".play-output")?.textContent.includes("from helpers: gold"));
+    // Run from a helper's tab still runs the main file: change the colour there and run from it.
+    await fileTab(page, "levels.py").click();
+    await typeCode(page, 'TOP = "tomato"\n');
+    await runButton(page).click();
+    await waitForPicture(frame, (p) => p.opaque && p.centre.join() === "255,99,71");
+    await page.waitForFunction(() => document.querySelector(".play-output")?.textContent.includes("from helpers: tomato"));
+    await page.close();
+    return "two helpers imported; Run from a helper's tab ran the main file";
+  });
+
+  await check(92, "A refused file name says why (random, main, funground, 2d, a space and a !); \"Helpers 2\" is offered as helpers_2.py; a second helpers is refused; Esc closes the form (S-242)", async () => {
+    const names = JSON.parse(readFileSync(path.join(docs, "play", "stdlib_modules.json"), "utf8"));
+    assert(["random", "math", "sys", "json"].every((name) => names.includes(name)) && names.length > 100, `stdlib_modules.json has ${names.length} names`);
+    const page = await freshEditor();
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    const refused = [["random", "comes with Python"], ["math", "comes with Python"], ["main", "the sketch's own file"], ["Main.py", "the sketch's own file"],
+      ["funground", "funground library"], ["2d", "starts with a letter"], ["_x", "starts with a letter"], ["a!b", "Use letters, digits and _ only"], ["", "Type a name"]];
+    for (const [typed, why] of refused) {
+      await askNewFile(page, typed);
+      await page.waitForFunction((text) => document.querySelector(".fg-play__filehint")?.textContent.includes(text), why, { timeout: 5000 })
+        .catch(async () => { throw new Error(`for "${typed}" the line says "${await nameHint(page).innerText()}", not "...${why}..."`); });
+      await page.locator(".fg-play__fileform button[type=submit]").click();
+      assert(await page.locator(".fg-play__fileform").isVisible(), `the form closed for "${typed}"`);
+      assert((await nameHint(page).innerText()).includes(why), `after OK the line says "${await nameHint(page).innerText()}"`);
+      assert(await tabStrip(page).isHidden(), `a file was made for "${typed}"`);
+      await page.locator(".fg-play__fileform button", { hasText: "Cancel" }).click();
+    }
+    await askNewFile(page, "Helpers 2", "It will be called helpers_2.py.");
+    await page.locator(".fg-play__fileform input").press("Enter");
+    await fileTab(page, "helpers_2.py").waitFor();
+    await chooseFile(page, "New file");
+    await page.locator(".fg-play__fileform input").fill("helpers 2");
+    await page.waitForFunction(() => document.querySelector(".fg-play__filehint")?.textContent.includes("already has a file called helpers_2.py"));
+    await page.keyboard.press("Escape");
+    assert(await page.locator(".fg-play__fileform").isHidden(), "Esc did not close the form");
+    assert((await fileTabNames(page)).join() === "Sketch 1,helpers_2.py", `the tabs are ${await fileTabNames(page)}`);
+    assert(!(await page.locator(".play-status").innerText()).includes("Stopped"), "Esc stopped the sketch");
+    await page.close();
+    return `${refused.length} names refused; helpers_2.py made`;
+  });
+
+  await check(93, "A file's tab can be renamed and deleted with Undo; a tab keeps its cursor and undo history when another tab is shown (S-242)", async () => {
+    const page = await freshEditor();
+    await noAutoRun(page);
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    await makeFile(page, "helpers");
+    await typeCode(page, "X = 1\n");
+    await page.keyboard.type("Y = 2");
+    await fileTab(page, "Sketch 1").click();
+    await typeCode(page, "import helpers\n");
+    await fileTab(page, "helpers.py").click();
+    assert((await editorText(page)) === "X = 1\nY = 2", `helpers.py shows ${JSON.stringify(await editorText(page))}`);
+    // the cursor is where it was left (the end), and the undo history is the file's own: undo takes back the last typing only
+    await page.locator(".cm-content").focus();
+    await sleep(700);                                   // typing close together is one step of undo: this is a new step
+    await page.keyboard.type("!");
+    assert((await editorText(page)) === "X = 1\nY = 2!", `the cursor was not kept: ${JSON.stringify(await editorText(page))}`);
+    await page.keyboard.press("Control+Z");
+    assert((await editorText(page)) === "X = 1\nY = 2", `undo gave ${JSON.stringify(await editorText(page))}`);
+    await fileTab(page, "Sketch 1").click();
+    await page.locator(".cm-content").focus();
+    await page.keyboard.press("Control+Z");
+    const undone = await editorText(page);
+    assert(undone !== "import helpers\n" && !undone.includes("X = 1"), `the main tab's undo gave ${JSON.stringify(undone)}`);
+
+    // rename: the form has the name without .py; the tab, the stored sketch and a line about import follow
+    await page.getByRole("button", { name: "Rename helpers.py" }).click();
+    assert((await page.locator(".fg-play__fileform input").inputValue()) === "helpers", "the form does not start with the name");
+    await page.locator(".fg-play__fileform input").fill("Utils");
+    await page.locator(".fg-play__fileform input").press("Enter");
+    await fileTab(page, "utils.py").waitFor();
+    assert((await fileTabNames(page)).join() === "Sketch 1,utils.py", `the tabs are ${await fileTabNames(page)}`);
+    assert((await mineNote(page).innerText()).includes("import helpers") && (await mineNote(page).innerText()).includes("import utils"), `the note says "${await mineNote(page).innerText()}"`);
+    assert((await storedSketches(page))[0].files.map((file) => file.name).join() === "utils.py", "the stored sketch has the old name");
+    await fileTab(page, "utils.py").click();
+    assert((await editorText(page)) === "X = 1\nY = 2", `utils.py shows ${JSON.stringify(await editorText(page))}`);
+    // a rename to a refused name keeps the form and the name
+    await page.getByRole("button", { name: "Rename utils.py" }).click();
+    await page.locator(".fg-play__fileform input").fill("random");
+    await page.locator(".fg-play__fileform input").press("Enter");
+    assert((await nameHint(page).innerText()).includes("comes with Python") && (await fileTabNames(page)).join() === "Sketch 1,utils.py", "a refused rename went through");
+    await page.keyboard.press("Escape");
+
+    // delete: at once, with Undo; with no file left the strip goes
+    await page.getByRole("button", { name: "Delete utils.py" }).click();
+    await page.waitForFunction(() => document.querySelector(".fg-play__ftabs").hidden);
+    assert(!("files" in (await storedSketches(page))[0]), "an empty files list was kept");
+    assert(/Deleted utils\.py/.test(await mineNote(page).innerText()), `the note says "${await mineNote(page).innerText()}"`);
+    await mineNote(page).getByRole("button", { name: "Undo" }).click();
+    await fileTab(page, "utils.py").waitFor();
+    assert((await fileTabNames(page)).join() === "Sketch 1,utils.py", `the tabs are ${await fileTabNames(page)}`);
+    await fileTab(page, "utils.py").click();
+    assert((await editorText(page)) === "X = 1\nY = 2", `the file came back as ${JSON.stringify(await editorText(page))}`);
+    await page.close();
+    return "renamed, refused, deleted, undone";
+  });
+
+  await check(94, "A list written without files opens as before; a sketch with files survives a reload; a sketch holds at most 10 files (S-242)", async () => {
+    const page = await freshEditor();
+    await page.evaluate(() => {
+      localStorage.setItem("funground.play.sketches", JSON.stringify([{ id: "old1", name: "Old sketch", code: "x = 1\n", created: 1, updated: 1 }]));
+      localStorage.setItem("funground.play.last", JSON.stringify("my:old1"));
+    });
+    await reloadEditor(page);
+    await tabIs(page, "Old sketch");
+    assert((await editorText(page)) === "x = 1\n", `the old sketch shows ${JSON.stringify(await editorText(page))}`);
+    assert(await tabStrip(page).isHidden(), "the strip shows for an old sketch");
+    await makeFile(page, "extra");
+    await typeCode(page, "Y = 2\n");
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    await sleep(700);                                   // typing is written after a short pause
+    const stored = await storedSketches(page);
+    const old = stored.find((sketch) => sketch.id === "old1");
+    assert(JSON.stringify(old.files) === JSON.stringify([{ name: "extra.py", code: "Y = 2\n" }]), `the stored files are ${JSON.stringify(old.files)}`);
+    assert(!("files" in stored.find((sketch) => sketch.id !== "old1")), "a sketch with one file has a files key");
+    await page.locator(".fg-play__choose").selectOption({ label: "Old sketch" });
+    await tabIs(page, "Old sketch");
+    await reloadEditor(page);                           // a reload opens the last sketch again, with its files
+    await tabIs(page, "Old sketch");
+    assert((await fileTabNames(page)).join() === "Old sketch,extra.py", `after a reload the tabs are ${await fileTabNames(page)}`);
+    await fileTab(page, "extra.py").click();
+    assert((await editorText(page)) === "Y = 2\n", `extra.py shows ${JSON.stringify(await editorText(page))}`);
+    // an older Play would read the same list and show the main file only: the files stay in the list as objects it writes back
+    assert((await storedSketches(page)).find((sketch) => sketch.id === "old1").code === "x = 1\n", "the main code is not in `code`");
+
+    // ten files in a sketch, the main file counted: the tenth makes the eleventh refused
+    await page.evaluate(() => {
+      const files = Array.from({ length: 9 }, (_, i) => ({ name: `part${i + 1}.py`, code: `N = ${i + 1}\n` }));
+      localStorage.setItem("funground.play.sketches", JSON.stringify([{ id: "big1", name: "Big sketch", code: "x = 1\n", files, created: 1, updated: 1 }]));
+      localStorage.setItem("funground.play.last", JSON.stringify("my:big1"));
+    });
+    await reloadEditor(page);
+    await tabIs(page, "Big sketch");
+    assert((await fileTabNames(page)).length === 10, `the big sketch has ${(await fileTabNames(page)).length} tabs`);
+    await chooseFile(page, "New file");
+    await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes("at most 10 files"));
+    assert(await page.locator(".fg-play__fileform").isHidden(), "the form opened for the eleventh file");
+    await page.close();
+    return "old list, reload, ten files";
+  });
+
+  await check(95, "Download gives a .py for one file and a .zip (folder, main.py and the files) for several; Open file takes the zip back, and a zip from elsewhere with a main.py in a folder (S-242)", async () => {
+    const page = await freshEditor();
+    await noAutoRun(page);
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    await typeCode(page, "import helpers\nprint(helpers.X)\n");
+    const [single] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), chooseFile(page, "Download .py")]);
+    assert(single.suggestedFilename() === "sketch-1.py", `one file downloaded as ${single.suggestedFilename()}`);
+    await makeFile(page, "helpers");
+    await typeCode(page, "X = 41 + 1\n");
+    const [several] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), chooseFile(page, "Download .zip")]);
+    assert(several.suggestedFilename() === "sketch-1.zip", `several files downloaded as ${several.suggestedFilename()}`);
+    const zipFile = path.join(scratch, "sketch-1.zip");
+    writeFileSync(zipFile, readFileSync(await several.path()));
+    const listing = execFileSync(PYTHON, ["-I", "-c", "import sys, zipfile\nz = zipfile.ZipFile(sys.argv[1])\nassert z.testzip() is None\nprint(chr(124).join(z.namelist()))\nprint(repr(z.read('sketch-1/helpers.py').decode()))", zipFile], { encoding: "utf8" });
+    assert(listing.trim().split(/\r?\n/)[0] === "sketch-1/main.py|sketch-1/helpers.py", `Python reads the zip as ${listing}`);
+    assert(listing.includes("'X = 41 + 1\\n'"), `helpers.py in the zip: ${listing}`);
+    assert(/Saved sketch-1\.zip/.test(await mineNote(page).innerText()), `the note says "${await mineNote(page).innerText()}"`);
+
+    // the zip comes back as a new sketch with its files, and it runs
+    const input = page.locator(".fg-play__filemenu input[type=file]");
+    assert((await input.getAttribute("accept")).includes(".zip"), "the file input does not ask for .zip");
+    await input.setInputFiles(zipFile);
+    await tabIs(page, "sketch-1");
+    assert((await fileTabNames(page)).join() === "sketch-1,helpers.py", `the opened zip has the tabs ${await fileTabNames(page)}`);
+    assert((await editorText(page)) === "import helpers\nprint(helpers.X)\n", `main shows ${JSON.stringify(await editorText(page))}`);
+    await fileTab(page, "helpers.py").click();
+    assert((await editorText(page)) === "X = 41 + 1\n", `helpers.py shows ${JSON.stringify(await editorText(page))}`);
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".play-output")?.textContent.includes("42"));
+
+    // a zip from elsewhere: main.py in a folder, a file that is not a module name, a data folder: those left out are named
+    const robot = path.join(scratch, "robot.zip");
+    execFileSync(PYTHON, ["-I", "-c", "import sys, zipfile\nwith zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED) as z:\n    z.writestr('robot/main.py', 'import util\\nprint(util.NAME)\\n')\n    z.writestr('robot/util.py', 'NAME = \"robot\"\\n')\n    z.writestr('robot/Bad Name.py', 'X = 1\\n')\n    z.writestr('robot/data/notes.txt', 'hello')\n    z.writestr('__MACOSX/robot/._main.py', 'x')\n", robot]);
+    await input.setInputFiles(robot);
+    await tabIs(page, "robot");
+    assert((await fileTabNames(page)).join() === "robot,util.py", `robot.zip has the tabs ${await fileTabNames(page)}`);
+    assert((await mineNote(page).innerText()).includes("Bad Name.py"), `the note says "${await mineNote(page).innerText()}"`);
+    // refused: not a zip, and a zip with no main.py
+    await input.setInputFiles({ name: "notes.zip", mimeType: "application/zip", buffer: Buffer.from("this is not a zip file") });
+    await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes("not a zip file"));
+    const empty = path.join(scratch, "empty.zip");
+    execFileSync(PYTHON, ["-I", "-c", "import sys, zipfile\nwith zipfile.ZipFile(sys.argv[1], 'w') as z:\n    z.writestr('thing/other.py', 'x = 1\\n')\n", empty]);
+    await input.setInputFiles(empty);
+    await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes("has a main.py in it"));
+    assert((await tabName(page)) === "robot", "a refused zip changed the open sketch");
+    await page.close();
+    return "sketch-1.py, sketch-1.zip, back again; robot.zip; two refusals";
+  });
+
+  await check(96, "A shared link carries every file; someone who does not have them opens the tabs, runs the sketch and can keep all of it (S-242)", async () => {
+    const page = await freshEditor();
+    await noAutoRun(page);
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    await typeCode(page, SKETCH_WITH_HELPERS);
+    await makeFile(page, "helpers");
+    await typeCode(page, 'import levels\n\nCOLOUR = levels.TOP\n');
+    await makeFile(page, "levels");
+    await typeCode(page, 'TOP = "gold"\n');
+    await fileTab(page, "Sketch 1").click();
+    await page.getByRole("button", { name: "Share" }).click();
+    await page.waitForFunction(() => document.querySelector(".play-link")?.value.includes("#code="));
+    const link = await page.locator(".play-link").inputValue();
+    const hash = link.slice(link.indexOf("#"));
+    const parts = new URLSearchParams(hash.slice(1));
+    assert(parts.getAll("file").length === 2 && parts.getAll("file")[0].startsWith("helpers.py:") && parts.getAll("file")[1].startsWith("levels.py:"), `the link has the files ${parts.getAll("file").map((part) => part.slice(0, 12))}`);
+    const stranger = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    try {
+      const other = await openEditor("", hash, stranger);
+      assert((await status(other)).startsWith("Shared sketch: press Run"), `status "${await status(other)}"`);
+      assert((await fileTabNames(other)).join() === "Shared sketch,helpers.py,levels.py", `the shared sketch has the tabs ${await fileTabNames(other)}`);
+      assert((await other.getByRole("button", { name: "Delete helpers.py" }).count()) === 0, "a shared sketch's file can be deleted");
+      await fileTab(other, "levels.py").click();
+      assert((await editorText(other)) === 'TOP = "gold"\n', `levels.py shows ${JSON.stringify(await editorText(other))}`);
+      await runButton(other).click();
+      await waitForPicture(frameOf(other, PREVIEW), (p) => p.opaque && p.centre.join() === "255,215,0");
+      await other.waitForFunction(() => document.querySelector(".play-output")?.textContent.includes("from helpers: gold"));
+      // an edit of a helper is a draft of the shared sketch: it is still there after a reload of the same link
+      await typeCode(other, 'TOP = "tomato"\n');
+      await sleep(300);
+      await reloadEditor(other);
+      await fileTab(other, "levels.py").click();
+      assert((await editorText(other)) === 'TOP = "tomato"\n', `after a reload levels.py shows ${JSON.stringify(await editorText(other))}`);
+      // Keep keeps all the files
+      await chooseFile(other, "Keep as my sketch");
+      await tabIs(other, "Shared sketch");
+      assert((await fileTabNames(other)).join() === "Shared sketch,helpers.py,levels.py", `the kept sketch has the tabs ${await fileTabNames(other)}`);
+      assert((await storedSketches(other))[0].files.length === 2, "the kept sketch has not both files");
+      await fileTab(other, "levels.py").click();
+      assert((await editorText(other)) === 'TOP = "tomato"\n', `the kept levels.py shows ${JSON.stringify(await editorText(other))}`);
+      assert((await other.getByRole("button", { name: "Delete levels.py" }).count()) === 1, "a kept sketch's file cannot be deleted");
+      await other.close();
+    } finally {
+      await stranger.close();
+    }
+    await page.close();
+    return "two files in the link";
+  });
+
+  await check(97, "A traceback through a helper names it, and Go to line opens that tab at the line; a file with the helper's name from a library is not taken for it (S-242)", async () => {
+    const page = await freshEditor();
+    await noAutoRun(page);
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    await typeCode(page, "import funground as f\nimport helpers\n\nhelpers.boom()\n");
+    await makeFile(page, "helpers");
+    await typeCode(page, "def boom():\n    x = 1\n    return x / 0\n");
+    await fileTab(page, "Sketch 1").click();
+    await runButton(page).click();
+    const go = page.locator(".line-link");
+    await go.waitFor({ timeout: 20000 });
+    assert((await go.innerText()) === "Go to line 3 in helpers.py", `the link says "${await go.innerText()}"`);
+    const summary = await page.locator(".fg-play__error").innerText();
+    assert(summary.includes("ZeroDivisionError"), `the error says "${summary}"`);
+    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.includes("error on line 3 of helpers.py"), null, { timeout: 5000 });
+    assert((await page.locator(".cm-error-line").count()) === 0, "the main file's editor is marked, not the helper's");
+    await go.click();
+    assert((await fileTab(page, "helpers.py").getAttribute("aria-selected")) === "true", "the helper's tab did not open");
+    assert((await page.locator(".cm-error-line").innerText()).includes("x / 0"), `the marked line is "${await page.locator(".cm-error-line").innerText()}"`);
+    assert((await page.evaluate(() => getSelection().toString())).includes("return x / 0"), `the selection is "${await page.evaluate(() => getSelection().toString())}"`);
+    // an error in the main file goes to the main file, as it did
+    await fileTab(page, "Sketch 1").click();
+    await typeCode(page, "import funground as f\nimport helpers\n\nprint(undefined_name)\n");
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".line-link")?.textContent === "Go to line 4");
+    await fileTab(page, "helpers.py").click();
+    await page.locator(".line-link").click();
+    assert((await fileTab(page, "Sketch 1").getAttribute("aria-selected")) === "true", "Go to line 4 did not open the main tab");
+    await page.close();
+    return "helpers.py line 3; main line 4";
+  });
+
+  await check(98, "New file on an example keeps a copy in My sketches first and says so; cancelling the form keeps nothing (S-242)", async () => {
+    const page = await freshEditor(`&example=${FIRST_SKETCH}`);
+    const title = await page.locator(".fg-play__choose option:checked").innerText();
+    const original = await editorText(page);
+    assert((await mineNames(page)).length === 0, "My sketches is not empty");
+    await chooseFile(page, "New file");
+    assert((await page.locator(".fg-play__fileformtitle").innerText()).includes("kept in My sketches first"), `the form says "${await page.locator(".fg-play__fileformtitle").innerText()}"`);
+    await page.keyboard.press("Escape");
+    assert((await mineNames(page)).length === 0, "cancelling kept a copy");
+    await makeFile(page, "extra");
+    await tabIs(page, title);
+    await fileTab(page, "extra.py").waitFor();
+    assert((await mineNames(page)).join() === title, `My sketches lists ${await mineNames(page)}`);
+    const note = await mineNote(page).innerText();
+    assert(note.includes(`Kept as "${title}" in My sketches first`) && note.includes("Made extra.py"), `the note says "${note}"`);
+    assert((await fileTabNames(page)).join() === `${title},extra.py`, `the tabs are ${await fileTabNames(page)}`);
+    await fileTab(page, title).click();
+    assert((await editorText(page)) === original, "the copy does not hold the example's code");
+    assert((await page.locator(".fg-play__choose option", { hasText: title }).count()) >= 2, "the example is gone from the picker");
+    await page.close();
+    return "copy kept first";
   });
 } finally {
   await browser.close();
