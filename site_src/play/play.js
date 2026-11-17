@@ -526,6 +526,7 @@ function showLineCount() {
 // On a phone (900px or less) the page scrolls instead and the box is as tall as its parts (S-189).
 // An embed has its own layout (play.css): the frame is the window, so it is never "a phone".
 const phone = window.matchMedia(embed ? "not all" : "(max-width: 900px)");
+const shortScreen = window.matchMedia("(max-height: 500px)");           // a phone held sideways
 
 function fillWindow() {
   if (embed || phone.matches) {      // an embed fills its frame with CSS
@@ -554,6 +555,12 @@ function fitScale() {
   const { width, height } = sketchSize;
   let scale = Math.min(1, roomX / width);
   if (!phone.matches && roomY > 0) scale = Math.min(scale, roomY / height);
+  // A phone held sideways (S-311): the page scrolls, but a picture taller than the screen cannot be seen whole, so the picture is
+  // fitted to the window's height as well (less the caption under it).
+  if (phone.matches && shortScreen.matches) {
+    const caption = picture.parentElement.querySelector(".fg-play__caption");
+    scale = Math.min(scale, (window.innerHeight - (caption?.offsetHeight ?? 0) - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) - 16) / height);
+  }
   return Math.max(scale, 0.1);
 }
 
@@ -638,8 +645,8 @@ const HELP_SEEN = "funground.play.helpSeen";
 
 // On a phone the first visit shows one line instead (the full help is taller than the screen): S-208 follow-up.
 const notice = element("div", { class: "fg-play__notice", hidden: "" },
-  element("strong", {}, "New to funground? "), element("a", { href: "../get-started/" }, "First steps"), " · More help: ",
-  element("b", {}, "?"), element("span", { class: "spacer" }),
+  element("span", { class: "fg-play__noticetext" }, element("strong", {}, "New to funground? "), element("a", { href: "../get-started/" }, "First steps"), " · More help: ",
+    element("b", {}, "?")), element("span", { class: "spacer" }),
   element("button", { class: "fg-iconbtn", type: "button", "aria-label": "Close this note" }, "×"));
 help.before(notice);
 notice.querySelector("button").addEventListener("click", () => { notice.hidden = true; });
