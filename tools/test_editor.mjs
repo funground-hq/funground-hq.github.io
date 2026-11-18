@@ -3523,7 +3523,7 @@ print("written")
     await page.locator("#cc-camera").click();
     await page.waitForFunction(() => document.getElementById("cc-status").textContent.startsWith("The camera check is done"), null, { timeout: 60000 });
     const text = await page.locator("#cc-camera-text").innerText();
-    for (const part of ["Label: ", "Settings now:", "frameRate:", "What it can do:", "focusMode", "1. Asked for nothing", "2. Asked as Play asks", 'Picture for "stretch": 640 x 480', 'Picture for "cover": 640 x 480'])
+    for (const part of ["Label: ", "Settings now:", "frameRate:", "What it can do:", "focusMode", "1. Asked for nothing", "2. Asked as Play asks", 'Picture for "stretch" (the old way, squeezed): 640 x 480', 'Picture for "cover" (what a sketch gets, cut to fit): 640 x 480'])
       assert(text.includes(part), `the camera text has no "${part}": ${text}`);
     const sizes = await page.evaluate(() => ["cc-own", "cc-stretch", "cc-cover"].map((id) => {
       const c = document.getElementById(id);
@@ -3534,11 +3534,31 @@ print("written")
     }));
     assert(sizes[1].width === 640 && sizes[1].height === 480 && sizes[2].width === 640 && sizes[2].height === 480, `the sketch pictures are ${JSON.stringify(sizes)}`);
     assert(sizes.every((s) => s.colours > 8), `a picture is blank: ${JSON.stringify(sizes)}`);
+    const names = await page.evaluate(() => ["cc-stretch-caption", "cc-cover-caption"].map((id) => document.getElementById(id).textContent));
+    assert(names[0].includes("old way") && names[1].startsWith("What a sketch gets"), `the picture captions are ${JSON.stringify(names)}`);
     await page.locator("#cc-copy").click();
     const copied = await page.evaluate(() => navigator.clipboard.readText());
     assert(copied.startsWith("funground camera check") && copied.includes("THIS DEVICE") && copied.includes("Settings now:") && copied.includes("THE HAND MODEL"), `the clipboard holds "${copied.slice(0, 200)}"`);
     await page.close();
-    return `${sizes.map((s) => `${s.width}x${s.height}`).join(", ")}; ${copied.split("\n").length} lines copied`;
+    // On a phone 360 px wide the page does not scroll sideways, with long report lines in (the maintainer's phone gave 651 px on 347).
+    const phone = await browser.newContext({ viewport: { width: 360, height: 740 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
+    try {
+      const small = await phone.newPage();
+      watch(small);
+      await small.goto(`${EDITOR}/play/camera-check/`);
+      await small.locator("#cc-camera").waitFor();
+      await small.evaluate(() => {
+        const long = "deviceId: " + "a1b2c3d4".repeat(12) + "\n" + JSON.stringify({ capabilities: { deviceId: "x".repeat(90), groupId: "y".repeat(90) } });
+        for (const id of ["cc-device", "cc-camera-text", "cc-hand-text"]) document.getElementById(id).textContent = long;
+        for (const canvas of document.querySelectorAll("#camera-check canvas")) { canvas.width = 640; canvas.height = 480; }   // as the pictures are
+        document.getElementById("cc-focus").hidden = false;
+      });
+      const wide = await small.evaluate(() => document.documentElement.scrollWidth);
+      assert(wide <= 360, `the camera check is ${wide}px wide on a 360 px screen`);
+    } finally {
+      await phone.close();
+    }
+    return `${sizes.map((s) => `${s.width}x${s.height}`).join(", ")}; ${copied.split("\n").length} lines copied; no sideways scroll at 360`;
   });
 
   await check(100, "the camera check's hand model runs the real path once with each fit and reports the load time, answers a second and whether a hand was found (S-311)", async () => {
@@ -3584,9 +3604,9 @@ print("written")
   // Chrome's fake camera may or may not offer focus (this Chrome's does), so these checks give the preview's page a camera of
   // their own: the real fake camera's track with focus capabilities (or none) put on it, and a record of every constraint applied.
   // The init script runs in every frame of the context and does nothing outside the preview's origin.
-  async function focusContext({ offer, viewport = { width: 1280, height: 900 }, phone = false }) {
+  async function focusContext({ offer, facing = null, viewport = { width: 1280, height: 900 }, phone = false }) {
     const where = await browser.newContext({ viewport, ...(phone ? { isMobile: true, hasTouch: true, deviceScaleFactor: 3 } : {}) });
-    await where.addInitScript(({ offer: offered }) => {
+    await where.addInitScript(({ offer: offered, facing: facingMode }) => {
       if (location.hostname !== "127.0.0.1") return;
       window.focusCalls = [];
       const ask = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
@@ -3595,7 +3615,7 @@ print("written")
         const track = stream.getVideoTracks()[0];
         const { focusMode, focusDistance, ...others } = track.getCapabilities();
         const capabilities = offered ? { ...others, focusMode: ["manual", "continuous"], focusDistance: { min: 0.1, max: 1, step: 0.01 } } : others;
-        const settings = { ...track.getSettings(), ...(offered ? { focusMode: "manual", focusDistance: 0.4 } : {}) };
+        const settings = { ...track.getSettings(), ...(offered ? { focusMode: "manual", focusDistance: 0.4 } : {}), ...(facingMode ? { facingMode } : {}) };
         track.getCapabilities = () => capabilities;
         track.getSettings = () => ({ ...settings });
         track.applyConstraints = async ({ advanced }) => {
@@ -3604,7 +3624,7 @@ print("written")
         };
         return stream;
       };
-    }, { offer });
+    }, { offer, facing });
     return where;
   }
   const focusControl = (page) => page.locator(".fg-play__camfocus");
@@ -3619,7 +3639,7 @@ print("written")
     return page;
   }
 
-  await check(102, "a camera that offers no focus gets no focus control while a camera sketch runs (D-155)", async () => {
+  await check(102, "a camera that offers no focus, and a front camera that lists it, get no focus control while a camera sketch runs (D-155, D-156)", async () => {
     const where = await focusContext({ offer: false });
     try {
       const page = await runCameraSketch(where);
@@ -3630,10 +3650,20 @@ print("written")
     } finally {
       await where.close();
     }
+    // D-156: a front camera lists focus, as the Nokia's did, and still gets no control.
+    const front = await focusContext({ offer: true, facing: "user" });
+    try {
+      const page = await runCameraSketch(front);
+      await sleep(1000);
+      assert(await focusControl(page).isHidden(), "the focus control shows for a front camera (facingMode user)");
+      await page.close();
+    } finally {
+      await front.close();
+    }
   });
 
   await check(103, "a camera that offers focus gets a Focus control: Auto and the slider reach the camera, and it hides on Stop (D-155)", async () => {
-    const where = await focusContext({ offer: true });
+    const where = await focusContext({ offer: true, facing: "environment" });
     try {
       const page = await runCameraSketch(where);
       const control = focusControl(page);
