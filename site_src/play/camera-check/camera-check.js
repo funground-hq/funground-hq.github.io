@@ -1,9 +1,9 @@
 // The camera check (story S-311): a page for a person to open on a phone, press two buttons and paste a report.
 //
 // It runs the same code Play runs, not a copy of it: the camera is opened by the runner's own createCamera (the
-// "stretch" picture is what a sketch gets today, the "cover" picture is what it would get if the picture were cut to
-// fit), and the hand model runs through the runner's own createRunner with a tiny sketch that calls ml.hand(cam) at
-// 640 x 480, once with each fit. Nothing here is sent anywhere: "Copy all" puts the report on the clipboard.
+// "cover" picture is what a sketch gets (D-154); the "stretch" picture is the old way, squeezed to fit, kept to compare),
+// and the hand model runs through the runner's own createRunner with a tiny sketch that calls ml.hand(cam) at 640 x 480,
+// once with each fit. Nothing here is sent anywhere: "Copy all" puts the report on the clipboard.
 //
 // This page is not linked from the site's menus. Play's help has one line that points to it.
 import { createCamera } from "../runner/camera.js";
@@ -214,13 +214,13 @@ async function checkCamera() {
     try {
       const { latest, state, focus } = await sketchPicture(fit);
       const id = `cc-${fit}`;
-      const wording = fit === "stretch" ? "What a sketch gets today (squeezed to fit)" : "What a sketch would get if the picture were cut to fit";
+      const wording = fit === "stretch" ? "The old way (squeezed to fit), for comparison" : "What a sketch gets (cut to fit, so faces keep their shape)";
       put(id, `${id}-caption`, wording, latest.width, latest.height, (c) => c.putImageData(new ImageData(latest.pixels, latest.width, latest.height), 0, 0));
       if (fit === "stretch") {
         text.push(indent(trackText({ label: state.label, size: state.videoSize, settings: state.settings, capabilities: state.capabilities })));
         text.push(`  Focus control offered: ${offered(focus)}`);
       }
-      text.push(`  Picture for "${fit}": ${latest.width} x ${latest.height} from a ${state.videoSize.join(" x ")} camera picture`);
+      text.push(`  Picture for "${fit}" (${fit === "stretch" ? "the old way, squeezed" : "what a sketch gets, cut to fit"}): ${latest.width} x ${latest.height} from a ${state.videoSize.join(" x ")} camera picture`);
     } catch (error) {
       text.push(`  "${fit}": FAILED: ${error.message}`);
     }

@@ -27,8 +27,8 @@ hide:
 <pre id="cc-camera-text" class="fg-camcheck__text">Not checked yet.</pre>
 <div class="fg-camcheck__pictures">
 <figure><canvas id="cc-own" width="4" height="3"></canvas><figcaption id="cc-own-caption">The camera's own picture</figcaption></figure>
-<figure><canvas id="cc-stretch" width="4" height="3"></canvas><figcaption id="cc-stretch-caption">What a sketch gets today (squeezed to fit)</figcaption></figure>
-<figure><canvas id="cc-cover" width="4" height="3"></canvas><figcaption id="cc-cover-caption">What a sketch would get if the picture were cut to fit</figcaption></figure>
+<figure><canvas id="cc-stretch" width="4" height="3"></canvas><figcaption id="cc-stretch-caption">The old way (squeezed to fit), for comparison</figcaption></figure>
+<figure><canvas id="cc-cover" width="4" height="3"></canvas><figcaption id="cc-cover-caption">What a sketch gets (cut to fit, so faces keep their shape)</figcaption></figure>
 </div>
 <h2>The hand model</h2>
 <pre id="cc-hand-text" class="fg-camcheck__text">Not checked yet.</pre>
@@ -38,8 +38,8 @@ Focus
 near <input type="range" id="cc-focus-slider" min="0" max="1" step="any" aria-label="Focus distance, from near to far"> far
 </p>
 <div class="fg-camcheck__pictures">
-<figure><canvas id="cc-hand-stretch" width="4" height="3"></canvas><figcaption>Squeezed to fit (today). The gold dot is the tip of the index finger.</figcaption></figure>
-<figure><canvas id="cc-hand-cover" width="4" height="3"></canvas><figcaption>Cut to fit. The gold dot is the tip of the index finger.</figcaption></figure>
+<figure><canvas id="cc-hand-stretch" width="4" height="3"></canvas><figcaption>The old way (squeezed to fit). The gold dot is the tip of the index finger.</figcaption></figure>
+<figure><canvas id="cc-hand-cover" width="4" height="3"></canvas><figcaption>What a sketch gets (cut to fit). The gold dot is the tip of the index finger.</figcaption></figure>
 </div>
 </div>
 
