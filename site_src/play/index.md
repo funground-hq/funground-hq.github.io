@@ -18,6 +18,10 @@ blank sketch. With **Auto-run** on, the sketch runs again a moment after you sto
 <kbd>Ctrl</kbd> + <kbd>S</kbd> shares. Click the picture to give it the mouse and keys.</li>
 <li class="fg-keys-only"><strong>Numbers:</strong> put the cursor on a number and press <kbd>Alt</kbd> +
 <kbd>↑</kbd> or <kbd>↓</kbd> to change it. Add <kbd>Shift</kbd> for bigger steps. Or hold <kbd>Alt</kbd> and drag it.</li>
+<li class="fg-phone-only"><strong>Read mode:</strong> on a phone the code starts in Read mode. You can scroll it and select it, but it does not type and no keyboard opens. Tap <strong>Edit</strong> to change the code. Tap <strong>Done</strong> when you finish.</li>
+<li class="fg-phone-only"><strong>Editing on a phone:</strong> the picture shrinks to a small one at the top, with Undo (↶), Redo (↷), Run and Done. Above the keyboard is a row of symbols. Tap one to type it. Swipe the row sideways for more. Undo takes back a symbol, a typo or a paste.</li>
+<li class="fg-phone-only"><strong>More (⋯):</strong> Auto-run, Guides, Share, Save picture and Reset are in the More menu.</li>
+<li><strong>Code | Blocks:</strong> the switch by the file name shows your sketch as code or as blocks that make the same code. The blocks view takes a moment to load the first time.</li>
 <li><strong>Share</strong> copies a link that holds your code. Anyone who opens it sees your code and can run it.</li>
 <li><strong>Reset</strong> goes back to the original. Unsaved changes stay in this browser only.</li>
 <li><strong>Messages:</strong> the line in the bar at the top tells you what Play is doing, what it just did, and what went wrong in your sketch. A note goes after a few seconds. An error stays until the next Run. The small button with a number opens everything Play said in this visit. What your sketch prints stays in Output.</li>

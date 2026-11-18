@@ -196,9 +196,14 @@ const BLANK_TEXT_FOR_TEST = "import funground as f\n\n\ndef setup():\n    f.size
 const CAMERA_SKETCH = "import funground as f\nfrom funground import camera\n\ncam = camera.open()\n\n\ndef setup():\n    f.size(160, 120)\n    cam.start(160, 120)\n\n\ndef draw():\n    f.background(\"black\")\n    f.image(cam, 0, 0)\n\n\nf.run()\n";
 
 async function typeCode(page, text) {
+  // On a phone the code starts in Read mode (BF-15): Edit first, and Done after, as a learner does.
+  const edit = page.locator(".fg-play__readhint button");
+  const reading = await edit.isVisible();
+  if (reading) await edit.click();
   await page.locator(".cm-content").click();
   await page.keyboard.press("Control+A");
   await page.keyboard.insertText(text);
+  if (reading) await page.getByRole("button", { name: "Done", exact: true }).click();
 }
 
 // What the sketch has drawn: the preview's canvas, read from inside its frame.
@@ -554,7 +559,7 @@ try {
   await check(12, "a sketch that cannot stop in time: the status says Python starts again, then the next run works", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    await page.getByLabel("Auto-run", { exact: true }).uncheck();
+    await page.locator(".fg-play__bar > .fg-play__auto").getByLabel("Auto-run", { exact: true }).uncheck();
     // Every frame takes three seconds, so 'stop' cannot be answered within the runner's one second.
     await typeCode(page, "import time\nimport funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    time.sleep(3)\n\n\nf.run()\n");
     await runButton(page).click();
@@ -785,7 +790,7 @@ try {
   await check(27, "f.circl(...) marks the line, underlines circl and links the errors page; editing the line clears both", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    await page.getByLabel("Auto-run", { exact: true }).uncheck();
+    await page.locator(".fg-play__bar > .fg-play__auto").getByLabel("Auto-run", { exact: true }).uncheck();
     await typeCode(page, SKETCH_WITH("f.circl(10, 10, 10)"));
     await runButton(page).click();
     await page.locator(".cm-error-name").waitFor({ timeout: 20000 });
@@ -812,7 +817,7 @@ try {
   await check(28, "a NameError underlines the bare name, a TypeError links its section and underlines nothing", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    await page.getByLabel("Auto-run", { exact: true }).uncheck();
+    await page.locator(".fg-play__bar > .fg-play__auto").getByLabel("Auto-run", { exact: true }).uncheck();
     await typeCode(page, SKETCH_WITH("circl(10, 10, 10)"));
     await runButton(page).click();
     await page.locator(".cm-error-name").waitFor({ timeout: 20000 });
@@ -903,7 +908,7 @@ try {
     await typeCode(page, `${await editorText(page)}\n# edit\n`);              // the most buttons: Reset shows
     const measure = () => page.evaluate(() => {
       const bar = document.querySelector(".fg-play__bar").getBoundingClientRect();
-      const kids = [...document.querySelectorAll(".fg-play__bar button:not([hidden]), .fg-play__bar select, .fg-play__bar .fg-status")].map((e) => e.getBoundingClientRect());
+      const kids = [...document.querySelectorAll(".fg-play__bar button:not([hidden]), .fg-play__bar select, .fg-play__bar .fg-status")].map((e) => e.getBoundingClientRect()).filter((r) => r.width > 0);
       return { height: Math.round(bar.height), centres: Math.round(Math.max(...kids.map((r) => r.top + r.height / 2)) - Math.min(...kids.map((r) => r.top + r.height / 2))), right: Math.max(...kids.map((r) => r.right)),
                scrollWidth: document.documentElement.scrollWidth };
     });
@@ -1112,11 +1117,19 @@ try {
       const toEditor = () => page.evaluate(() => scrollTo(0, document.querySelector(".cm-editor").getBoundingClientRect().top + scrollY - 60));
       await toEditor();
       await sleep(200);
+      // Read mode first (BF-15): a touch types nothing; Edit, then the cursor is in, and Done goes back
+      const readOnly = await editorText(page);
       const inView = await page.locator(".cm-content").boundingBox();
       await page.mouse.click(inView.x + 24, inView.y + 10);
+      await page.keyboard.insertText("zzz");
+      assert((await editorText(page)) === readOnly, "typing changed the code in Read mode");
+      await page.getByRole("button", { name: "Edit", exact: true }).tap();
       await page.keyboard.press("Control+Home");
       await page.keyboard.insertText("# typed on a phone\n");
       assert((await editorText(page)).startsWith("# typed on a phone"), "typing in the editor did nothing");
+      await page.getByRole("button", { name: "Done", exact: true }).tap();
+      // The one-row bar (BF-15) leaves the page so little to scroll at 844 high that Run never leaves the window: use a shorter window here.
+      await page.setViewportSize({ width: 390, height: 600 });
       // The floating Run: hidden while the toolbar's Run is in view, shown when it is scrolled away, and it runs the sketch.
       await page.evaluate(() => scrollTo(0, 0));
       await sleep(300);
@@ -1125,7 +1138,7 @@ try {
       await page.locator(".fg-play__fab").waitFor({ state: "visible", timeout: 5000 });
       const fab = await page.locator(".fg-play__fab").boundingBox();
       assert(Math.round(fab.width) === 56 && Math.round(fab.height) === 56, `the floating Run is ${fab.width} x ${fab.height}`);
-      assert(fab.x + fab.width <= 390 && fab.x > 390 - 56 - 32 && fab.y + fab.height <= 844 && fab.y > 844 - 56 - 32, "the floating Run is not at the bottom right");
+      assert(fab.x + fab.width <= 390 && fab.x > 390 - 56 - 32 && fab.y + fab.height <= 600 && fab.y > 600 - 56 - 32, "the floating Run is not at the bottom right");
       assert((await page.locator(".fg-play__fab").getAttribute("aria-label")) === "Run", "the floating Run has no name");
       if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_390_fab.png") });
       await page.mouse.click(fab.x + fab.width / 2, fab.y + fab.height / 2);
@@ -1134,7 +1147,7 @@ try {
       await sleep(1000);                                                       // the picture is brought into view
       assert((await measureLayout(page)).scrollWidth <= 390, "the page scrolls sideways after a run");
       const after = await page.locator(".play-preview").boundingBox();
-      assert(after.y >= 0 && after.y + after.height <= 844, `after Run the picture is at y ${Math.round(after.y)}`);
+      assert(after.y >= 0 && after.y + after.height <= 600, `after Run the picture is at y ${Math.round(after.y)}`);
       if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_390_ran.png") });
       await page.close();
       // A tablet: still one column (768 is under 900), the picture at 1:1 at most.
@@ -1342,13 +1355,9 @@ try {
       await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
       await sleep(300);
       assert(!(await page.locator("#fg-play-help").isVisible()), "the full help opened on a phone");
+      // BF-15: a phone has no note on a first visit: the help holds First steps
       const note = page.locator(".fg-play__notice");
-      assert(await note.isVisible(), "no note on a first visit");
-      const box = await note.boundingBox();
-      assert(box.height < 60, `the note is ${box.height}px tall`);
-      const text = (await note.innerText()).replace(/\s+/g, " ");
-      assert(/New to funground\? First steps/.test(text) && /More help: \?/.test(text), `note says "${text}"`);
-      assert((await note.locator("a").getAttribute("href")) === "../get-started/", "the note's link");
+      assert(!(await note.isVisible()), "a note shows on a phone's first visit");
       const pic = await page.locator(".play-preview").boundingBox();
       assert(pic.y < 844, `the picture starts at y ${Math.round(pic.y)}`);
       if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "phone_first_visit.png") });
@@ -1356,7 +1365,7 @@ try {
       assert(await page.locator("#fg-play-help").isVisible(), "? did not open the help");
       assert(await page.locator("#fg-play-help").getByText("Share copies").isVisible(), "the help lacks its text");
       assert(!(await page.locator("#fg-play-help .fg-keys-only").first().isVisible()), "a keyboard line shows on a phone");
-      assert(!(await note.isVisible()), "the note stays when the help opens");
+      assert(await page.locator("#fg-play-help").getByText("First steps").isVisible(), "the help lacks First steps");
       await page.reload();                                                          // a second visit: nothing opens by itself
       await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
       assert(!(await page.locator(".fg-play__notice").isVisible()) && !(await page.locator("#fg-play-help").isVisible()), "the note or help came back");
@@ -1665,8 +1674,11 @@ f.run()
       await typeCode(phonePage, SAVING_SKETCH);
       await phonePage.locator(".fg-play__saved").nth(1).waitFor({ timeout: 20000 });
       await phonePage.waitForFunction(() => !document.querySelector(".fg-play__savepicture").disabled);
-      const phoneButton = await phonePage.locator(".fg-play__savepicture").boundingBox();
-      assert(phoneButton.x >= 0 && phoneButton.x + phoneButton.width <= 390, `Save picture is at x ${phoneButton.x}, width ${phoneButton.width}`);
+      // BF-15: on a phone Save picture is in the More list, and works the button under the picture
+      await phonePage.getByRole("button", { name: "More", exact: true }).tap();
+      const phoneButton = await phonePage.locator(".fg-play__moremenu").getByRole("button", { name: "Save picture", exact: true }).boundingBox();
+      assert(phoneButton && phoneButton.x >= 0 && phoneButton.x + phoneButton.width <= 390, `Save picture is at x ${phoneButton?.x}, width ${phoneButton?.width}`);
+      await phonePage.keyboard.press("Escape");
       assert(await phonePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "sideways scroll on a phone");
       const line = await phonePage.locator(".fg-play__saved").first().boundingBox();
       assert(line.x + line.width <= 390, "a saved line reaches past the window");
@@ -2704,7 +2716,6 @@ print("written")
     await clearDrafts(page);
     const sketch = "import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    f.background('gold')\n    f.circle(100, 50, 40)\n\n\nf.run()\n";
     await typeCode(page, sketch);
-    await page.getByLabel("Blocks", { exact: true }).check();      // Blocks is optional (BF-D-031): the switch shows once it is ticked
     const started = Date.now();
     await page.getByRole("button", { name: "Blocks", exact: true }).click();
     const box = page.locator(".fg-play__blocks");
@@ -2732,7 +2743,7 @@ print("written")
     if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_blocks.png") });
 
     // back to Python, then text that is not finished Python: refused with its line, the view stays Python
-    await page.getByRole("button", { name: "Python" }).click();
+    await page.getByRole("button", { name: "Code", exact: true }).click();
     assert(await page.locator(".fg-play__code").isVisible(), "the code did not come back");
     await typeCode(page, "x = 1\nif x > 0\n    print(x)\n");
     await page.getByRole("button", { name: "Blocks", exact: true }).click();
@@ -2742,7 +2753,7 @@ print("written")
     return `blocks shown ${ms} ms after the click (the first time: the bundle loads)`;
   });
 
-  await check(85, "Blocks is optional: a tick box, remembered, ?blocks=1 and ?blocks=0, nothing fetched while off, a running sketch is told it was stopped (BF-D-031, BF-D-026)", async () => {
+  await check(85, "Code | Blocks is a switch by the file name at every size, nothing is fetched until Blocks is pressed, a running sketch is told it was stopped (BF-15, BF-D-026)", async () => {
     const page = await openEditor();
     await clearDrafts(page);
     const reload = async (query = "") => {
@@ -2750,41 +2761,26 @@ print("written")
       await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
     };
     const bundleRequests = () => page.evaluate(() => performance.getEntriesByType("resource").filter((e) => e.name.includes("vendor/blockly-fun/")).length);
-    const tick = page.getByLabel("Blocks", { exact: true });
     const switchShown = () => page.locator(".fg-play__views").isVisible();
+    const pressed = () => page.evaluate(() => [...document.querySelectorAll(".fg-play__view")].map((b) => `${b.textContent}=${b.getAttribute("aria-pressed")}`).join(" "));
     const blocksShown = (target) => target.waitForFunction(() => [...document.querySelectorAll(".fg-play__view")].some((b) => b.textContent === "Blocks"
       && b.getAttribute("aria-pressed") === "true"), null, { timeout: 90000 });
     await reload();
-    assert(!(await tick.isChecked()) && !(await switchShown()), "Blocks is on at first");
-    assert(await bundleRequests() === 0, "the blocks bundle was fetched while Blocks is off");
+    assert(await switchShown(), "the switch is not there at first");
+    assert(await page.getByLabel("Blocks", { exact: true }).count() === 0, "the Blocks tick box is still there");
+    assert(await pressed() === "Code=true Blocks=false", `the switch says ${await pressed()}`);
+    assert(await bundleRequests() === 0, "the blocks bundle was fetched before Blocks was pressed");
 
-    // ticked: the switch shows; unticked while the blocks are open: back to Python, switch hidden
-    await tick.check();
-    assert(await switchShown(), "the switch did not show");
+    // Blocks, then Code: the code comes back
     await page.getByRole("button", { name: "Blocks", exact: true }).click();
     await blocksShown(page);
-    await tick.uncheck();
-    assert(!(await switchShown()), "the switch is still shown");
-    assert(await page.locator(".fg-play__code").isVisible() && !(await page.locator(".fg-play__blocks").isVisible()), "Play did not go back to Python");
-
-    // remembered; the address can tick or untick it
-    await tick.check();
-    await reload();
-    assert(await tick.isChecked() && await switchShown(), "the tick was not remembered");
-    await reload("&blocks=0");
-    assert(!(await tick.isChecked()) && !(await switchShown()), "?blocks=0 did not untick it");
-    await reload();
-    assert(!(await tick.isChecked()), "?blocks=0 was not remembered");
-    await reload("&blocks=1");
-    assert(await tick.isChecked() && await switchShown(), "?blocks=1 did not tick it");
-    await reload();
-    assert(await tick.isChecked(), "?blocks=1 was not remembered");
-    await tick.uncheck();
-    await reload();
-    assert(await bundleRequests() === 0, "the blocks bundle was fetched while Blocks is off");
+    assert(await pressed() === "Code=false Blocks=true", `the switch says ${await pressed()}`);
+    await page.getByRole("button", { name: "Code", exact: true }).click();
+    assert(await page.locator(".fg-play__code").isVisible() && !(await page.locator(".fg-play__blocks").isVisible()), "Play did not go back to the code");
+    assert(await pressed() === "Code=true Blocks=false", `the switch says ${await pressed()}`);
 
     // Blocks pressed while a sketch runs: it stops, and the output says why
-    await reload("&example=animation-01_bounce&blocks=1");
+    await reload("&example=animation-01_bounce");
     const frame = frameOf(page, PREVIEW);
     await runButton(page).click();
     const first = (await waitForPicture(frame, (p) => p.opaque)).picture;
@@ -2794,12 +2790,12 @@ print("written")
     await page.close();
 
     // and with nothing running there is no such line
-    const idle = await openEditor("&blocks=1");
+    const idle = await openEditor();
     await idle.getByRole("button", { name: "Blocks", exact: true }).click();
     await blocksShown(idle);
     assert(!(await idle.locator(".play-output").innerText()).includes("Stopped to show"), "the line appeared with nothing running");
     await idle.close();
-    return "tick box, memory, address, no fetch while off, stop line";
+    return "switch always there, no fetch before Blocks, Code goes back, stop line";
   });
 
   await check(86, "The blocks read funground's catalogue: the name list, its search, a name with its own block, the list of what an object has, Help, a colour grid (BF-5)", async () => {
@@ -2995,7 +2991,7 @@ print("written")
     });
     // The message area is not in this list: it stays in focus mode (BF-14).
     const everyday = { "the example list": ".fg-play__picker", "Share": ".fg-play__share", "the help button": "[aria-label='Help']",
-      "the Blocks tick": ".fg-play__blocksoption", "Guides": ".fg-play__guides", "the tab row": ".fg-play__tab", "the File menu": ".fg-play__filemenu",
+      "Guides": ".fg-play__guides", "the tab row": ".fg-play__tab", "the File menu": ".fg-play__filemenu",
       "the site header": ".md-header", "the word Play": ".fg-play__word", "Focus": ".fg-play__focus" };
     for (const [name, selector] of Object.entries(everyday)) assert(await page.locator(selector).first().isVisible(), `${name} is hidden before focus mode`);
     assert(!(await page.locator(".fg-play__leavefocus").isVisible()), "Leave focus shows before focus mode");
@@ -3012,7 +3008,7 @@ print("written")
                bar: document.querySelector(".fg-play__bar").getBoundingClientRect().bottom, width: innerWidth };
     });
     const names = strip.visible.map((e) => e.text).join("|");
-    assert(/^▶ RunCtrl ↵\|Stop\|Auto-run\|PythonBlocks\|area\|Leave focus$/.test(names), `the strip holds ${names}`);
+    assert(/^▶ RunCtrl ↵\|Stop\|Auto-run\|CodeBlocks\|area\|Leave focus$/.test(names), `the strip holds ${names}`);
     assert(new Set(strip.visible.map((e) => e.top)).size === 1, "the strip is more than one row");
     // the message area is between the controls and Leave focus, which is at the far right (the switch before them is in the left half)
     assert(strip.visible.at(-1).right > strip.width - 40 && strip.visible.at(-3).right < strip.width / 2 && strip.visible.at(-2).right < strip.visible.at(-1).right,
@@ -3033,7 +3029,7 @@ print("written")
     await page.getByRole("button", { name: "Blocks", exact: true }).click();
     await page.waitForFunction(() => document.querySelector(".fg-play__blocks").offsetParent !== null
       && [...document.querySelectorAll(".fg-play__view")].some((b) => b.textContent === "Blocks" && b.getAttribute("aria-pressed") === "true"), null, { timeout: 90000 });
-    await page.getByRole("button", { name: "Python", exact: true }).click();
+    await page.getByRole("button", { name: "Code", exact: true }).click();
 
     // Esc stops a running sketch first, and leaves focus mode only when nothing is running (run it again: the switch may have stopped it)
     await page.locator(".cm-content").click();
@@ -3062,11 +3058,6 @@ print("written")
     await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
     assert(!(await page.evaluate(() => document.documentElement.classList.contains("fg-focus"))), "focus mode was remembered");
 
-    // the switch shows in the strip only while the Blocks tick is on
-    await page.goto(`${EDITOR}/play/?preview=${PREVIEW}&blocks=0`);
-    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
-    await page.getByRole("button", { name: "Focus", exact: true }).click();
-    assert(!(await page.locator(".fg-play__views").isVisible()), "the switch shows with the Blocks tick off");
     await page.close();
   });
 
@@ -3296,7 +3287,7 @@ print("written")
     await page.waitForFunction(() => document.querySelector(".fg-play__ftabs").hidden);
     assert(!("files" in (await storedSketches(page))[0]), "an empty files list was kept");
     assert(/Deleted utils\.py/.test(await mineNote(page).innerText()), `the note says "${await mineNote(page).innerText()}"`);
-    await mineNote(page).getByRole("button", { name: "Undo" }).click();
+    await page.locator(".fg-msg").getByRole("button", { name: "Undo" }).click();      // BF-14: the buttons are beside the status, not in it
     await fileTab(page, "utils.py").waitFor();
     assert((await fileTabNames(page)).join() === "Sketch 1,utils.py", `the tabs are ${await fileTabNames(page)}`);
     await fileTab(page, "utils.py").click();
@@ -3703,6 +3694,8 @@ print("written")
     try {
       const page = await runCameraSketch(where);
       const control = focusControl(page);
+      // BF-15: on a phone the bar's Focus button shows while the camera offers focus, and opens the control under the picture
+      await page.getByRole("button", { name: "Camera focus" }).tap({ timeout: 10000 });
       await control.waitFor({ state: "visible", timeout: 10000 });
       const m = await page.evaluate(() => {
         const r = document.querySelector(".fg-play__camfocus").getBoundingClientRect();
@@ -3861,6 +3854,226 @@ print("written")
         `the area is ${Math.round(m.area.left)} to ${Math.round(m.area.right)}, the list ${Math.round(m.list.left)} to ${Math.round(m.list.right)}`);
       await page.close();
       return `page ${m.scrollWidth}px, list ${Math.round(m.list.left)} to ${Math.round(m.list.right)}`;
+    }
+  });
+
+  // ---- Play on a phone (BF-15, BF-D-049): a screen whose narrow side is under 600px is a phone
+  const SIZES = [{ width: 390, height: 844 }, { width: 360, height: 720 }];
+  const phoneContext = (viewport) => browser.newContext({ viewport, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  const openPhone = async (where) => {
+    const page = await where.newPage();
+    watch(page);
+    await page.goto(`${EDITOR}/play/?preview=${PREVIEW}`);
+    await runButton(page).waitFor();
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+    return page;
+  };
+  const noSidewaysScroll = async (page, width, where) => {
+    const wide = await page.evaluate(() => document.documentElement.scrollWidth);
+    assert(wide <= width, `${where}: the page is ${wide}px wide on a ${width}px screen`);
+  };
+  const editable = (page) => page.evaluate(() => document.querySelector(".cm-content").getAttribute("contenteditable"));
+  const shot = (page, name) => (shotsDir ? page.screenshot({ path: path.join(shotsDir, name) }) : null);
+
+  await check(110, "on a phone the toolbar is one row (Run, Stop, the message, More); More opens its list and Esc closes it (BF-15)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        const rows = await page.evaluate(() => {
+          const middle = (e) => { const r = e.getBoundingClientRect(); return Math.round((r.top + r.bottom) / 2); };
+          const pick = (selector) => document.querySelector(selector);
+          return { run: middle(pick(".fg-btn--run")), stop: middle(pick(".fg-play__stop")), area: middle(pick(".fg-msg")), more: middle(pick(".fg-play__more")),
+            picker: middle(pick(".fg-play__picker")), help: middle(pick("[aria-label='Help']")), bottom: pick(".fg-play__bar").getBoundingClientRect().bottom };
+        });
+        assert(Math.max(rows.run, rows.stop, rows.area, rows.more) - Math.min(rows.run, rows.stop, rows.area, rows.more) <= 4, `Run, Stop, the message and More are not on one row: ${JSON.stringify(rows)}`);
+        assert(rows.picker < rows.run - 20 && Math.abs(rows.picker - rows.help) <= 4, `the list and Help are not on the row above: ${JSON.stringify(rows)}`);
+        assert(rows.bottom < 130, `the bar is ${Math.round(rows.bottom)}px tall`);
+        for (const hidden of [".fg-play__auto", ".fg-play__guides", ".fg-play__share", ".fg-play__focus", ".fg-play__notice", ".fg-play__how"]) {
+          assert(!(await page.locator(hidden).first().isVisible()), `${hidden} shows in the phone's bar`);
+        }
+        assert(await page.getByRole("button", { name: "Run", exact: true }).isVisible() && await page.getByRole("button", { name: "Stop", exact: true }).isVisible(), "Run or Stop has lost its name");
+        await noSidewaysScroll(page, size.width, "the bar");
+        await shot(page, `phone_${size.width}_bar.png`);
+
+        const more = page.getByRole("button", { name: "More", exact: true });
+        assert(!(await page.locator(".fg-play__moremenu").isVisible()), "More is open at first");
+        await more.tap();
+        const menu = page.locator(".fg-play__moremenu");
+        await menu.waitFor({ state: "visible" });
+        for (const name of ["Guides", "Share", "Save picture"]) assert(await menu.getByRole("button", { name, exact: true }).isVisible(), `${name} is not in More`);
+        assert(await menu.getByText("Auto-run").isVisible(), "Auto-run is not in More");
+        assert((await more.getAttribute("aria-expanded")) === "true", "More does not say it is open");
+        const box = await menu.boundingBox();
+        assert(box.x >= 0 && box.x + box.width <= size.width, `the list is at ${Math.round(box.x)} to ${Math.round(box.x + box.width)}`);
+        await noSidewaysScroll(page, size.width, "More open");
+        await shot(page, `phone_${size.width}_more.png`);
+        // Auto-run in the list is the toolbar's own tick box
+        await menu.getByLabel("Auto-run").uncheck();
+        assert(!(await page.locator(".fg-play__auto input").evaluate((e) => e.checked)), "the list's Auto-run did not turn Auto-run off");
+        await page.keyboard.press("Escape");
+        assert(!(await menu.isVisible()), "Esc did not close More");
+        assert((await page.evaluate(() => document.activeElement.getAttribute("aria-label"))) === "More", "the focus did not go back to More");
+        await more.tap();
+        await page.locator(".fg-play__editor").tap({ position: { x: 20, y: 20 } });
+        assert(!(await menu.isVisible()), "a tap outside did not close More");
+        seen.push(`${size.width}x${size.height}: bar ${Math.round(rows.bottom)}px`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(111, "on a phone the code starts in Read mode: a touch types nothing and opens no keyboard; Edit makes it editable and puts the cursor in (BF-15)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await clearDrafts(page);
+        assert((await editable(page)) === "false", "the editor is editable in Read mode");
+        const hint = page.locator(".fg-play__readhint");
+        await hint.scrollIntoViewIfNeeded();
+        assert((await hint.innerText()).includes("Read mode. Tap Edit to change the code."), `the hint says "${await hint.innerText()}"`);
+        const before = await editorText(page);
+        const at = await page.locator(".cm-line").nth(2).boundingBox();
+        await page.touchscreen.tap(at.x + 40, at.y + at.height / 2);
+        await page.keyboard.type("zzz");
+        assert((await editorText(page)) === before, "a touch and typing changed the code in Read mode");
+        assert(!(await page.evaluate(() => document.activeElement.closest(".cm-content") !== null)), "the code has the focus in Read mode");
+        await noSidewaysScroll(page, size.width, "Read mode");
+        await shot(page, `phone_${size.width}_read_mode.png`);
+
+        await page.getByRole("button", { name: "Edit", exact: true }).tap();
+        assert((await editable(page)) === "true", "Edit did not make the editor editable");
+        assert(await page.evaluate(() => document.activeElement.classList.contains("cm-content")), "Edit did not put the cursor in the code");
+        assert(await page.evaluate(() => document.querySelector(".fg-play").classList.contains("fg-editing")), "the editor did not take the screen");
+        assert(!(await hint.isVisible()), "the Read mode hint shows while editing");
+        seen.push(`${size.width}: read mode, then Edit`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(112, "editing on a phone: the strip (thumbnail, Undo, Redo, Run, Done) and the symbol row show, a key types at the cursor and Undo takes it back, the row scrolls sideways, Done goes back to Read mode (BF-15)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await clearDrafts(page);
+        await page.getByRole("button", { name: "Edit", exact: true }).tap();
+        const state = await page.evaluate(() => {
+          const box = (selector) => { const e = document.querySelector(selector); const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height, shown: e.offsetParent !== null || getComputedStyle(e).position === "fixed" }; };
+          const keys = [...document.querySelectorAll(".fg-play__symbols .fg-play__key")].map((k) => { const r = k.getBoundingClientRect(); return { text: k.textContent, label: k.getAttribute("aria-label"), width: r.width, height: r.height, right: r.right }; });
+          return { box: box(".fg-play"), strip: box(".fg-play__editstrip"), row: box(".fg-play__symbols"), thumb: box(".fg-play__frame"), bar: getComputedStyle(document.querySelector(".fg-play__bar")).display,
+            keys, inner: { width: innerWidth, height: innerHeight }, code: box(".fg-play__code") };
+        });
+        assert(state.bar === "none", "the toolbar shows while editing");
+        assert(Math.abs(state.box.height - state.inner.height) < 2 && state.box.top === 0, `the editing screen is not the whole window: ${JSON.stringify(state.box)}`);
+        assert(state.strip.top === 0 && state.strip.height >= 48 && state.strip.height <= 66, `the strip is ${state.strip.height}px tall`);
+        assert(state.thumb.top >= 0 && state.thumb.bottom <= state.strip.bottom + 1 && state.thumb.right - state.thumb.left > 40, `the thumbnail: ${JSON.stringify(state.thumb) + " strip " + JSON.stringify(state.strip)}`);
+        for (const name of ["Undo", "Redo", "Done"]) assert(await page.getByRole("button", { name, exact: true }).isVisible(), `${name} is not in the strip`);
+        assert(await page.getByRole("button", { name: "▶ Run", exact: true }).isVisible(), "Run is not in the strip");
+        assert(state.row.bottom <= state.inner.height + 1 && state.row.top > state.strip.bottom, "the symbol row is not at the bottom");
+        const first = state.keys.slice(0, 11).map((k) => k.text).join(" ");
+        assert(first === '( ) , . " _ = : # + -', `the first keys are ${first}`);
+        assert(state.keys.slice(0, 11).every((k) => k.width === 28 && k.height >= 40 && k.right <= size.width), "the first eleven keys are not 28 x 40 and inside the screen");
+        const rest = state.keys.slice(11).map((k) => k.text).join(" ");
+        assert(rest === "* [ ] / { } < > % ' ⇥ ⇤", `the other keys are ${rest}`);
+        assert(state.code.height > 150, `the code has ${state.code.height}px`);
+        await noSidewaysScroll(page, size.width, "editing");
+        await shot(page, `phone_${size.width}_editing.png`);
+
+        // a key types at the cursor, and the editor keeps the focus (so the keyboard stays up)
+        const before = await editorText(page);
+        await page.getByRole("button", { name: "(", exact: true }).tap();
+        const after = await editorText(page);
+        assert(after === "(" + before, `the key typed: ${JSON.stringify(after.slice(0, 20))}`);
+        assert(await page.evaluate(() => document.activeElement.classList.contains("cm-content")), "a key took the focus from the editor");
+        await page.getByRole("button", { name: "Undo", exact: true }).tap();
+        assert((await editorText(page)) === before, "Undo did not take the symbol back");
+        await page.getByRole("button", { name: "Redo", exact: true }).tap();
+        assert((await editorText(page)) === after, "Redo did not bring the symbol back");
+        await page.getByRole("button", { name: "Undo", exact: true }).tap();
+        assert(await page.evaluate(() => document.activeElement.classList.contains("cm-content")), "Undo took the focus from the editor");
+
+        // the row scrolls sideways by a swipe: a touch drag through the browser's own input
+        const scroll = await page.evaluate(() => { const r = document.querySelector(".fg-play__symbols"); return { client: r.clientWidth, whole: r.scrollWidth }; });
+        assert(scroll.whole > scroll.client + 40, `the row does not scroll: ${scroll.whole} in ${scroll.client}`);
+        const client = await page.context().newCDPSession(page);
+        const row = await page.locator(".fg-play__symbols").boundingBox();
+        const y = row.y + row.height / 2;
+        const touch = (type, x) => client.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
+        await touch("touchStart", row.x + row.width - 12);
+        for (let x = row.x + row.width - 12; x > row.x + 20; x -= 20) await touch("touchMove", x);
+        await touch("touchEnd");
+        await sleep(300);
+        const moved = await page.evaluate(() => document.querySelector(".fg-play__symbols").scrollLeft);
+        assert(moved > 40, `a swipe moved the row ${moved}px`);
+        assert((await editorText(page)) === before, "a swipe typed a symbol");
+        await page.getByRole("button", { name: "[", exact: true }).tap();
+        assert((await editorText(page)).startsWith("["), "a key of the swiped part did not type");
+        await page.getByRole("button", { name: "Undo", exact: true }).tap();
+        await shot(page, `phone_${size.width}_symbols_swiped.png`);
+        await noSidewaysScroll(page, size.width, "the row swiped");
+
+        // Run from the strip, then Done: Read mode again
+        await page.getByRole("button", { name: "▶ Run", exact: true }).tap();
+        await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 30000 });
+        await page.getByRole("button", { name: "Done", exact: true }).tap();
+        assert((await editable(page)) === "false", "Done left the editor editable");
+        assert(!(await page.evaluate(() => document.activeElement.classList.contains("cm-content"))), "Done left the cursor in the code");
+        assert(!(await page.evaluate(() => document.querySelector(".fg-play").classList.contains("fg-editing"))), "the editor still has the screen");
+        assert(await page.locator(".fg-btn--run").isVisible() && await page.locator(".fg-play__readhint").isVisible(), "the toolbar or the hint did not come back");
+        await noSidewaysScroll(page, size.width, "after Done");
+        seen.push(`${size.width}x${size.height}: row ${scroll.client} of ${scroll.whole}px, swiped ${Math.round(moved)}`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(113, "on a laptop the toolbar is as it was (no More, no Read mode, no strip); Code | Blocks is a switch and Blocks shows the blocks (BF-15)", async () => {
+    const where = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    try {
+      const page = await openPhone(where);
+      await clearDrafts(page);
+      for (const [name, selector] of Object.entries({ "the word Play": ".fg-play__word", "Auto-run": ".fg-play__auto", Guides: ".fg-play__guides", Share: ".fg-play__share", "the Focus button": ".fg-play__focus" })) {
+        assert(await page.locator(selector).first().isVisible(), `${name} is not in the laptop's toolbar`);
+      }
+      for (const [name, selector] of Object.entries({ More: ".fg-play__more", "the Read mode hint": ".fg-play__readhint", "the editing strip": ".fg-play__editstrip", "the symbol row": ".fg-play__symbols", "the camera Focus button": ".fg-play__camfocusbtn" })) {
+        assert(!(await page.locator(selector).first().isVisible()), `${name} shows on a laptop`);
+      }
+      assert((await editable(page)) === "true", "the laptop's editor starts in Read mode");
+      assert(!(await page.locator(".fg-play__phoneonly").first().isVisible()), "something for phones shows on a laptop");
+      assert(!(await page.locator(".fg-phone-only").first().isVisible()), "a help line for phones shows");
+      const switchBox = page.locator(".fg-play__views");
+      assert(await switchBox.isVisible(), "no Code | Blocks switch");
+      const names = await switchBox.locator("button").allInnerTexts();
+      assert(names.join("|") === "Code|Blocks", `the switch has ${names}`);
+      await typeCode(page, "x = 1\n");
+      assert((await editorText(page)).startsWith("x = 1"), "typing does not work on a laptop");
+      await page.getByRole("button", { name: "Blocks", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector(".fg-play__blocks").offsetParent !== null
+        && [...document.querySelectorAll(".fg-play__view")].some((b) => b.textContent === "Blocks" && b.getAttribute("aria-pressed") === "true"), null, { timeout: 90000 })
+        .catch(async (e) => { throw new Error(`${e.message}; the status says "${await status(page)}"`); });
+      assert(!(await page.locator(".fg-play__code").isVisible()), "the code shows beside the blocks");
+      await page.getByRole("button", { name: "Code", exact: true }).click();
+      assert(await page.locator(".fg-play__code").isVisible() && !(await page.locator(".fg-play__blocks").isVisible()), "Code did not bring the code back");
+      await page.close();
+      return "toolbar as before, switch Code | Blocks works";
+    } finally {
+      await where.close();
     }
   });
 } finally {

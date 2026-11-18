@@ -32,6 +32,17 @@ const play = document.getElementById("funground-play");
 const embed = new URLSearchParams(location.search).get("embed") === "1";
 if (embed) document.documentElement.classList.add("fg-embed");
 
+// Play on a phone (BF-15, BF-D-049). The screen's size decides what a phone is: a screen whose narrow side is under 600 CSS px.
+// A tablet or a touch laptop is not a phone and keeps the page it always had. It is decided here, and again when the window
+// changes size (see "Play on a phone" below). On a phone the code starts in Read mode (touches scroll and select, and type
+// nothing), and Edit gives the editor the whole screen while the keyboard is up.
+const PHONE_BELOW = 600;
+const phoneScreen = () => !embed && Math.min(screen.width, screen.height) < PHONE_BELOW;
+let isPhone = phoneScreen();
+let readMode = isPhone;       // the editors are not editable
+let editing = false;          // a phone, Edit pressed: the editor takes the screen
+play.classList.toggle("fg-phone", isPhone);
+
 // ---- where the preview is, and how it is fenced in
 
 const PREVIEW_URL = "https://funground-run.github.io/preview.html";
@@ -173,10 +184,8 @@ const howLink = element("a", { class: "fg-play__how", hidden: "" }, "How it work
 // The accessible name stays "Run"; the key is shown beside it.
 const runButton = element("button", { class: "fg-btn fg-btn--run", "aria-label": "Run", title: "Run (Ctrl+Enter)", disabled: "" },
   "▶ Run", element("kbd", {}, "Ctrl ↵"));
-const stopButton = element("button", { class: "fg-btn", disabled: "", title: "Stop (Esc)" }, "Stop");
+const stopButton = element("button", { class: "fg-btn fg-play__stop", disabled: "", title: "Stop (Esc)", "aria-label": "Stop" }, "Stop");
 const autoRun = element("input", { type: "checkbox", checked: "" });
-// Blocks is optional (BF-D-031): off at first, and while it is off the Python | Blocks switch is hidden.
-const blocksOption = element("input", { type: "checkbox" });
 const guidesButton = element("button", { class: "fg-btn fg-play__guides", type: "button", "aria-pressed": "false",
   title: "Show a grid and the mouse's x and y over the picture" }, "Guides");
 const shareButton = element("button", { class: "fg-btn fg-play__share", title: "Copy a link that holds the code (Ctrl+S)" }, "Share");
@@ -218,18 +227,20 @@ if (pageText) help.append(...pageText.childNodes);
 pageText?.remove();
 // The help opens by itself on a first visit, so this is where a new learner sees the way in (S-200).
 const firstSteps = element("a", { class: "fg-play__firststeps", href: "../get-started/" }, "First steps");
-help.prepend(element("p", { class: "fg-play__new" }, element("strong", {}, "New to funground? "), firstSteps));
+// On a phone the first-visit note and the "How it works" link are not in the bar (BF-15): they are here.
+const helpHowLink = element("a", { class: "fg-play__helphow", hidden: "" }, "How it works ›");
+help.prepend(element("p", { class: "fg-play__new" }, element("strong", {}, "New to funground? "), firstSteps, element("span", { class: "fg-play__phoneonly" }, " · ", helpHowLink)));
 
 // The name in the tab strip: for the learner's own sketch it is a button (click to rename); for an example it is the file's name.
 const fileName = element("button", { class: "fg-play__name", type: "button", disabled: "" }, "sketch.py");
 const nameInput = element("input", { class: "fg-play__nameinput", type: "text", maxlength: "40", "aria-label": "Sketch name", hidden: "" });
-const lineCount = element("span", {});
+const lineCount = element("span", { class: "fg-play__linecount" });
 const editorBox = element("div", { class: "fg-play__code play-editor" });
-// The blocks view (blockly-fun, S-288): the same file as blocks. Python | Blocks in the tab; blocks.js has the rest.
-const pythonViewButton = element("button", { class: "fg-play__view", type: "button", "aria-pressed": "true" }, "Python");
+// The blocks view (blockly-fun, S-288): the same file as blocks. Code | Blocks in the tab (BF-15: always there); blocks.js has the rest.
+const pythonViewButton = element("button", { class: "fg-play__view", type: "button", "aria-pressed": "true", title: "Show the Python code" }, "Code");
 const blocksViewButton = element("button", { class: "fg-play__view", type: "button", "aria-pressed": "false",
   title: "Show the sketch as blocks that make the same Python" }, "Blocks");
-const viewSwitch = element("span", { class: "fg-play__views", role: "group", "aria-label": "View", hidden: "" }, pythonViewButton, blocksViewButton);
+const viewSwitch = element("span", { class: "fg-play__views", role: "group", "aria-label": "View" }, pythonViewButton, blocksViewButton);
 // The line of Python under each block: on at first, remembered when turned off. Shown only with the blocks.
 const linesOption = element("input", { type: "checkbox" });
 const linesLabel = element("label", { class: "fg-play__lines", hidden: "", title: "Show the line of Python each block makes" },
@@ -319,6 +330,44 @@ const output = element("div", { class: "fg-console__body play-output", "aria-liv
 // The floating Run (phones, S-189): shown only while the toolbar's own Run is scrolled out of sight (see "phones" below).
 const fab = element("button", { class: "fg-play__fab", type: "button", "aria-label": "Run", title: "Run", hidden: "", disabled: "" }, "▶");
 
+// Play on a phone (BF-15): what only a phone shows. play.css hides each of these on any other screen (.fg-play__phoneonly).
+// The bar's Focus is the camera's (D-155, D-156): it shows only while the camera control does, and opens it under the picture.
+const camFocusButton = element("button", { class: "fg-btn fg-play__phoneonly fg-play__camfocusbtn", type: "button", hidden: "",
+  "aria-label": "Camera focus", "aria-expanded": "false", title: "Show the camera's focus" }, "Focus");
+const moreButton = element("button", { class: "fg-btn fg-play__phoneonly fg-play__more", type: "button", "aria-haspopup": "true",
+  "aria-expanded": "false", "aria-label": "More", title: "Auto-run, Guides, Share, Save picture and Reset" }, "⋯");
+const moreAuto = element("input", { type: "checkbox", checked: "" });
+const moreItem = (text, title) => element("button", { class: "fg-play__minebtn", type: "button", title }, text);
+const moreGuides = moreItem("Guides", "Show a grid and the mouse's x and y over the picture");
+const moreShare = moreItem("Share", "Copy a link that holds the code");
+const moreSave = moreItem("Save picture", "Save the picture as it is now as a PNG file");
+const moreReset = moreItem("Reset", "Go back to the original code");
+const moreMenu = element("div", { class: "fg-play__phoneonly fg-play__moremenu", role: "group", "aria-label": "More", hidden: "" },
+  element("label", { class: "fg-play__moreauto" }, "Auto-run", moreAuto), moreGuides, moreShare, moreSave,
+  element("hr", { class: "fg-play__menusep" }), moreReset);
+// Read mode's hint, over the foot of the editor.
+const editButton = element("button", { class: "fg-play__minebtn", type: "button" }, "Edit");
+const readHint = element("div", { class: "fg-play__readhint fg-play__phoneonly", hidden: "" },
+  element("span", {}, "Read mode. Tap Edit to change the code."), editButton);
+// Editing: the strip at the top (the picture is a small thumbnail at its left), and the symbol row above the keyboard.
+const stripButton = (title, text, name) => element("button", { class: "fg-play__minebtn fg-play__stripbtn", type: "button", title, ...(name ? { "aria-label": name } : {}) }, text);
+const undoButton = stripButton("Undo", "↶", "Undo");
+const redoButton = stripButton("Redo", "↷", "Redo");
+const editRunButton = stripButton("Run the sketch", "▶ Run");
+const doneButton = stripButton("Stop editing and close the keyboard", "Done");
+editRunButton.disabled = true;
+const editStrip = element("div", { class: "fg-play__editstrip fg-play__phoneonly", role: "toolbar", "aria-label": "Editing" },
+  undoButton, redoButton, element("span", { class: "spacer" }), editRunButton, doneButton);
+// The symbols a Python sketch uses most (counted in 217 sketches, BF-D-049): the 11 that fill the row, then the rest by swiping.
+const SYMBOLS = ["(", ")", ",", ".", "\"", "_", "=", ":", "#", "+", "-"];
+const MORE_SYMBOLS = ["*", "[", "]", "/", "{", "}", "<", ">", "%", "'"];
+const symbolKey = (text, attributes = {}) => element("button", { class: "fg-play__key", type: "button", ...attributes }, text);
+const indentKey = symbolKey("⇥", { "aria-label": "Indent", title: "Indent" });
+const outdentKey = symbolKey("⇤", { "aria-label": "Outdent", title: "Outdent" });
+const symbolRow = element("div", { class: "fg-play__symbols fg-play__phoneonly", role: "toolbar", "aria-label": "Python symbols: swipe or drag for more" },
+  ...SYMBOLS.map((text) => symbolKey(text)), element("span", { class: "fg-play__keysep", "aria-hidden": "true" }),
+  ...MORE_SYMBOLS.map((text) => symbolKey(text)), indentKey, outdentKey);
+
 const tab = element("div", { class: "fg-play__tab" }, fileName, nameInput, lineCount, fileMenu, linesLabel, viewSwitch);
 // The files of the sketch (S-242): a strip of tabs, shown from the second file on. The main file's tab is named as the sketch.
 const fileTabs = element("div", { class: "fg-play__ftabs", role: "tablist", "aria-label": "Files of this sketch", hidden: "" });
@@ -331,7 +380,7 @@ const fileNameOk = element("button", { class: "fg-play__minebtn", type: "submit"
 const fileNameCancel = element("button", { class: "fg-play__minebtn", type: "button" }, "Cancel");
 const fileForm = element("form", { class: "fg-play__fileform", hidden: "" }, fileFormTitle, fileNameField, fileNameOk, fileNameCancel, fileNameHint);
 const work = element("div", { class: "fg-play__work" },
-  element("div", { class: "fg-play__editor" }, tab, fileTabs, fileForm, lessonPanel, filesPanel, editorBox, blocksBox),
+  element("div", { class: "fg-play__editor" }, tab, fileTabs, fileForm, lessonPanel, filesPanel, editorBox, blocksBox, readHint),
   divider,
   element("div", { class: "fg-play__stage" },
     // The messages are above the picture and take no room while there are none: the rest belongs to the sketch.
@@ -349,15 +398,17 @@ play.classList.add("fg-play");
 const bar = element("div", { class: "fg-play__bar play-toolbar" }, word,
     element("span", { class: "fg-play__picker", role: "group", "aria-label": "Examples" }, previousButton, choose, nextButton), howLink, runButton, stopButton, ...(openInPlay ? [openInPlay] : []),
     element("label", { class: "fg-play__auto" }, autoRun, " Auto-run"),
-    element("label", { class: "fg-play__auto fg-play__blocksoption", title: "Show a Blocks view of the sketch: blocks that make the same Python" }, blocksOption, " Blocks"),
     guidesButton,
-    element("span", { class: "spacer" }), messageArea, shareButton, ...(embed ? [] : [focusButton]), resetButton, helpButton, leaveFocusButton);
+    element("span", { class: "spacer" }), messageArea, shareButton, ...(embed ? [] : [focusButton]), resetButton, helpButton, leaveFocusButton,
+    camFocusButton, moreButton, moreMenu);
 play.replaceChildren(
   bar,
   linkField,
   help,
   work,
   fab,
+  editStrip,
+  symbolRow,
   errorAlert,
   dialog,
 );
@@ -550,6 +601,7 @@ function newEditor() {
   const pane = element("div", { class: "fg-play__pane" });
   const made = { editor: createEditor({ parent: pane, dark: isDark(), onChange: edited }), pane, scroll: 0 };
   if (suggestions) made.editor.setCompletions(suggestions);
+  if (readMode) made.editor.setEditable(false);
   allEditors.push(made);
   return made;
 }
@@ -562,7 +614,7 @@ let editor = mainEditor.editor;        // always the editor on show
 const blocks = createBlocksView({
   box: blocksBox, getText: () => editor.getText(), setText: (text) => { editor.setText(text); edited(); },   // a block edit is the learner's: a draft, Reset, Auto-run
   send: (message) => tell(message), say: setStatus, onClose: showPythonView,
-  catalogue: () => catalogue, pythonLine: () => linesOption.checked,
+  catalogue: () => catalogue, pythonLine: () => linesOption.checked, phone: () => isPhone,
 });
 const LINES_NAME = "funground.play.blocklines";
 linesOption.checked = recall(LINES_NAME) !== false;
@@ -585,6 +637,7 @@ function showPythonView() {
   linesLabel.hidden = true;
   pythonViewButton.setAttribute("aria-pressed", "true");
   blocksViewButton.setAttribute("aria-pressed", "false");
+  showReadHint();
 }
 
 // Python is needed to read the code as blocks, and it runs in the preview: before "ready" the blocks wait.
@@ -601,35 +654,26 @@ async function showBlocksView() {
   const wasRunning = !stopButton.disabled;
   blocksViewButton.disabled = true;
   editorBox.hidden = true;           // the code makes room for the blocks at once; it comes back if they cannot be shown
+  showReadHint();
   const shown = await blocks.show();
   blocksViewButton.disabled = false;
   if (wasRunning && stopButton.disabled) addOutput("Stopped to show the blocks.", "stdout");
   if (!shown) {
     editorBox.hidden = false;
+    showReadHint();
     return;
   }
   linesLabel.hidden = false;
   pythonViewButton.setAttribute("aria-pressed", "false");
   blocksViewButton.setAttribute("aria-pressed", "true");
+  showReadHint();
 }
 pythonViewButton.addEventListener("click", showPythonView);
 blocksViewButton.addEventListener("click", showBlocksView);
 
-// The Blocks tick box (BF-D-031): the switch shows only while it is ticked, and the choice is kept in this browser.
-// ?blocks=1 ticks it and ?blocks=0 unticks it. Unticked, blocks.js is never asked to load the bundle (it loads on the first show).
-const BLOCKS_NAME = "funground.play.blocks";
-function showBlocksOption() {
-  viewSwitch.hidden = !blocksOption.checked;
-  if (!blocksOption.checked && blocks.active) showPythonView();      // the blocks are not wanted: back to the code
-}
-const blocksAsked = new URLSearchParams(location.search).get("blocks");
-blocksOption.checked = blocksAsked === "1" || (blocksAsked !== "0" && recall(BLOCKS_NAME) === true);
-if (blocksAsked === "1" || blocksAsked === "0") remember(BLOCKS_NAME, blocksOption.checked ? true : null);
-showBlocksOption();
-blocksOption.addEventListener("change", () => {
-  remember(BLOCKS_NAME, blocksOption.checked ? true : null);
-  showBlocksOption();
-});
+// Code | Blocks is always in the tab (BF-15; BF-D-031 had a Blocks tick box that showed it). blocks.js is never asked to load the
+// bundle until Blocks is pressed. The tick box's saved choice is not used any more: its leftover is removed.
+remember("funground.play.blocks", null);
 // The suggestions list (funground's own, copied to this folder by assemble.py). It arrives after the editor is
 // there; if it cannot be fetched, the editor simply has no funground suggestions.
 // The blocks read the same list (blockly-fun's catalogue: the call blocks' name list, slot labels, Help): blocks.js
@@ -704,7 +748,7 @@ const percent = (scale) => (Math.abs(scale - 1) < 0.005 ? "1:1" : `${Math.round(
 
 function fitPicture() {
   const { width, height } = sketchSize;
-  const scale = zoom ?? fitScale();
+  const scale = editing ? fitScale() : zoom ?? fitScale();       // editing on a phone: the picture is a thumbnail, whatever the zoom
   preview.style.width = `${width}px`;
   preview.style.height = `${height}px`;
   preview.style.transform = `scale(${scale})`;
@@ -809,7 +853,8 @@ document.addEventListener("pointerdown", (event) => {
   if (!help.hidden && !help.contains(event.target) && event.target !== helpButton) showHelp(false);
 });
 if (!embed && !recall(HELP_SEEN)) {
-  if (phone.matches) { notice.hidden = false; remember(HELP_SEEN, true); }
+  if (isPhone) remember(HELP_SEEN, true);          // a phone has no note and no open help: Help holds both (BF-15)
+  else if (phone.matches) { notice.hidden = false; remember(HELP_SEEN, true); }
   else showHelp(true);
 }
 
@@ -970,7 +1015,8 @@ async function open(wanted) {
   aboutText.textContent = current ? current.title : "";
   showLesson();
   howLink.hidden = !current?.page;
-  if (current?.page) howLink.href = current.page;
+  helpHowLink.hidden = !current?.page;
+  if (current?.page) howLink.href = helpHowLink.href = current.page;
   showOpenInPlay();
   if (missing) setStatus(NOT_IN_PLAY, "error");
   else if (useDraft) setStatus("Your unsaved changes are back. Reset goes back to the original.");
@@ -2256,6 +2302,7 @@ document.addEventListener("keydown", (event) => {
     // An open popup closes itself on Esc, so this does nothing then.
     if (dialog.open) return;
     if (!historyList.hidden) showHistory(false, true);
+    else if (!moreMenu.hidden) showMore(false, true);
     else if (!fileMenuItems.hidden) showFileMenu(false, true);
     else if (!help.hidden) showHelp(false);
     else if (!stopButton.disabled) stopSketch();
@@ -2328,6 +2375,159 @@ function showFocus(on) {
 }
 focusButton.addEventListener("click", () => showFocus(true));
 leaveFocusButton.addEventListener("click", () => showFocus(false));
+
+// ---- Play on a phone (BF-15, BF-D-049)
+//
+// A phone is a screen whose narrow side is under 600 CSS px (phoneScreen, at the top). Only a phone gets what is in this section; the
+// look of it is in play.css under .fg-phone. What changes:
+//   - the toolbar is one row (Run, Stop, the message area, the camera's Focus while it is offered, More); More holds Auto-run, Guides,
+//     Share, Save picture and Reset, and works as the File menu does;
+//   - the code starts in Read mode: the editors are not editable, so a touch scrolls or selects and never types by accident, and no
+//     keyboard opens. Edit makes them editable and puts the cursor in;
+//   - while editing, the editor takes the screen: a strip at the top (the picture as a thumbnail, Undo, Redo, Run and Done) and a row
+//     of Python's symbols above the keyboard. The screen is sized to the visual viewport, which the keyboard shrinks. Done goes back.
+// The page's keys and buttons here never take the editor's focus, so the keyboard stays up while they work.
+
+function showReadHint() {
+  readHint.hidden = !(isPhone && readMode && !editorBox.hidden);
+}
+
+function setReadMode(on) {
+  readMode = on;
+  for (const { editor: each } of allEditors) each.setEditable(!on);
+  showReadHint();
+}
+
+// The editing screen is the visual viewport: the part of the page the learner sees, which the keyboard makes shorter.
+function sizeEditing() {
+  const view = window.visualViewport;
+  const box = view ? { left: view.offsetLeft, top: view.offsetTop, width: view.width, height: view.height } : { left: 0, top: 0, width: innerWidth, height: innerHeight };
+  for (const [name, value] of Object.entries(box)) play.style.setProperty(`--vv-${name}`, `${value}px`);
+  editor.revealCursor();
+}
+window.visualViewport?.addEventListener("resize", () => { if (editing) sizeEditing(); });
+window.visualViewport?.addEventListener("scroll", () => { if (editing) sizeEditing(); });
+
+function showEditing(on) {
+  if (on === editing || (on && !isPhone)) return;
+  editing = on;
+  showMore(false);
+  showHistory(false);
+  showHelp(false);
+  showFileMenu(false);
+  play.classList.toggle("fg-editing", on);
+  document.documentElement.classList.toggle("fg-editing", on);
+  setReadMode(!on);
+  if (on) {
+    sizeEditing();
+    editor.focus();                 // from the tap on Edit, so the keyboard opens
+  } else {
+    editor.blur();                  // and the keyboard closes
+    for (const name of ["left", "top", "width", "height"]) play.style.removeProperty(`--vv-${name}`);
+  }
+  fitPicture();
+}
+editButton.addEventListener("click", () => showEditing(true));
+doneButton.addEventListener("click", () => showEditing(false));
+
+// The strip's buttons and the symbol keys act on the editor without taking its focus, or the keyboard would go down at each tap.
+for (const row of [editStrip, symbolRow]) {
+  for (const type of ["pointerdown", "mousedown"]) row.addEventListener(type, (event) => { if (event.target.closest("button")) event.preventDefault(); });
+}
+undoButton.addEventListener("click", () => editor.undo());
+redoButton.addEventListener("click", () => editor.redo());
+editRunButton.addEventListener("click", () => runButton.click());
+editRunButton.disabled = runButton.disabled;
+new MutationObserver(() => { editRunButton.disabled = runButton.disabled; }).observe(runButton, { attributes: true, attributeFilter: ["disabled"] });
+
+// A symbol key types at the cursor like a key of the keyboard (one step of Undo). The row moves sideways by a swipe; a mouse has no
+// swipe, so a drag moves it too, and a drag that moved it types nothing.
+let dragFrom = null;
+let dragged = false;
+symbolRow.addEventListener("pointerdown", (event) => {
+  if (event.pointerType === "mouse") dragFrom = { x: event.clientX, left: symbolRow.scrollLeft };
+  dragged = false;
+});
+window.addEventListener("pointermove", (event) => {
+  if (!dragFrom) return;
+  if (Math.abs(event.clientX - dragFrom.x) > 4) dragged = true;
+  symbolRow.scrollLeft = dragFrom.left - (event.clientX - dragFrom.x);
+});
+window.addEventListener("pointerup", () => { dragFrom = null; });
+symbolRow.addEventListener("click", (event) => {
+  const key = event.target.closest("button");
+  if (!key || dragged) return;
+  if (key === indentKey) editor.indentMore();
+  else if (key === outdentKey) editor.indentLess();
+  else editor.insert(key.textContent);
+});
+
+// More: a button that opens a list, as File does. The list holds what a phone uses less; each item works the control the laptop's
+// toolbar has, which is hidden on a phone.
+function showMore(open, backToButton = false) {
+  if (open) {
+    moreAuto.checked = autoRun.checked;
+    moreGuides.setAttribute("aria-pressed", String(guidesOn));
+    moreSave.disabled = savePicture.disabled;
+    moreReset.hidden = resetButton.hidden;
+  }
+  moreMenu.hidden = !open;
+  moreButton.setAttribute("aria-expanded", String(open));
+  if (open) moreAuto.focus();
+  else if (backToButton) moreButton.focus();
+}
+moreButton.addEventListener("click", () => showMore(moreMenu.hidden));
+moreAuto.addEventListener("change", () => { autoRun.checked = moreAuto.checked; });
+for (const [item, control] of [[moreGuides, guidesButton], [moreShare, shareButton], [moreSave, savePicture], [moreReset, resetButton]]) {
+  item.addEventListener("click", () => {
+    control.click();
+    showMore(false, moreMenu.contains(document.activeElement));
+  });
+}
+document.addEventListener("click", (event) => {
+  if (!moreMenu.hidden && !moreMenu.contains(event.target) && !moreButton.contains(event.target)) showMore(false);
+});
+bar.addEventListener("focusout", (event) => {
+  if (!moreMenu.hidden && !moreMenu.contains(event.relatedTarget) && event.relatedTarget !== moreButton) showMore(false);
+});
+moreMenu.addEventListener("keydown", (event) => {
+  const items = [moreAuto, ...moreMenu.querySelectorAll("button:not([hidden])")];
+  const at = items.indexOf(document.activeElement);
+  const step = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[event.key];
+  if (step === undefined) return;
+  event.preventDefault();
+  items[(step + items.length) % items.length].focus();
+});
+
+// The camera's Focus (D-155, D-156): the camera control says when a back camera offers it; the bar's Focus then shows and opens the
+// control under the picture.
+function showCamFocusOpen(open) {
+  focusControl.classList.toggle("is-open", open);
+  camFocusButton.setAttribute("aria-expanded", String(open));
+}
+function showCamFocusButton() {
+  camFocusButton.hidden = focusControl.hidden;
+  if (focusControl.hidden) showCamFocusOpen(false);
+}
+camFocusButton.addEventListener("click", () => showCamFocusOpen(!focusControl.classList.contains("is-open")));
+new MutationObserver(showCamFocusButton).observe(focusControl, { attributes: true, attributeFilter: ["hidden"] });
+showCamFocusButton();
+
+// The window changed size: decide again what a phone is (the Blocks editor's phone layout follows; its picture too).
+function showPhone() {
+  const now = phoneScreen();
+  if (now === isPhone) return;
+  isPhone = now;
+  if (!isPhone) showEditing(false);
+  play.classList.toggle("fg-phone", isPhone);
+  showMore(false);
+  setReadMode(isPhone);
+  blocks.setPhone(isPhone);
+  fillWindow();
+  fitPicture();
+}
+window.addEventListener("resize", showPhone);
+showReadHint();
 
 // ---- Share: the link holds the code; it is copied, and shown in case copying is not allowed
 
