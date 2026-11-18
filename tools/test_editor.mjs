@@ -165,6 +165,24 @@ function assert(condition, message) {
 
 const FIRST_SKETCH = "session1-01_first_sketch";
 const status = (page) => page.locator(".play-status").innerText();
+// The message area's list of this visit's messages, newest first: it opens the list, reads it and closes it again.
+const visitMessages = async (page) => {
+  const more = page.getByRole("button", { name: "This visit's messages" });
+  await more.click();
+  const texts = await page.locator(".fg-msg__item .fg-msg__text").allInnerTexts();
+  await more.click();
+  return texts;
+};
+// Waits until one of this visit's messages includes `text`.
+async function waitForVisitMessage(page, text, timeout = 10000) {
+  const until = Date.now() + timeout;
+  for (;;) {
+    const texts = await visitMessages(page);
+    if (texts.some((line) => line.includes(text))) return texts;
+    assert(Date.now() < until, `no message says "${text}"; the visit's messages are ${JSON.stringify(texts)}`);
+    await sleep(200);
+  }
+}
 const runButton = (page) => page.getByRole("button", { name: "Run", exact: true });
 
 async function editorText(page) {
@@ -776,9 +794,9 @@ try {
     assert(JSON.stringify(await underlined(page)) === '["circl"]', `underlined: ${JSON.stringify(await underlined(page))}`);
     const wavy = await page.locator(".cm-error-name").evaluate((e) => getComputedStyle(e).textDecorationLine + " " + getComputedStyle(e).textDecorationStyle);
     assert(wavy === "underline wavy", `the underline is ${wavy}`);
-    const line = await page.locator(".fg-play__error").innerText();
+    const line = await page.locator(".fg-msg--error .play-status").innerText();
     assert(line.includes("has no attribute 'circl'"), `the message was "${line}"`);
-    const link = page.locator(".fg-play__what-link");
+    const link = page.locator(".fg-msg [data-action='What this means']");
     assert((await link.innerText()) === "What this means", "no link text");
     assert((await link.getAttribute("href")) === "../guide/errors/#nameerror-or-attributeerror-on-an-f-name", `href ${await link.getAttribute("href")}`);
     // Editing another line leaves the marks; editing that line clears them.
@@ -799,11 +817,11 @@ try {
     await runButton(page).click();
     await page.locator(".cm-error-name").waitFor({ timeout: 20000 });
     assert(JSON.stringify(await underlined(page)) === '["circl"]', `underlined: ${JSON.stringify(await underlined(page))}`);
-    assert((await page.locator(".fg-play__error").innerText()).includes("name 'circl' is not defined"), "message");
-    assert((await page.locator(".fg-play__what-link").getAttribute("href")).endsWith("#nameerror-or-attributeerror-on-an-f-name"), "anchor");
+    assert((await page.locator(".fg-msg--error .play-status").innerText()).includes("name 'circl' is not defined"), "message");
+    assert((await page.locator(".fg-msg [data-action='What this means']").getAttribute("href")).endsWith("#nameerror-or-attributeerror-on-an-f-name"), "anchor");
     await typeCode(page, SKETCH_WITH("f.circle(10)"));
     await runButton(page).click();
-    await page.waitForFunction(() => document.querySelector(".fg-play__what-link")?.getAttribute("href").endsWith("#typeerror-missing-arguments"), null, { timeout: 20000 })
+    await page.waitForFunction(() => document.querySelector(".fg-msg [data-action='What this means']")?.getAttribute("href").endsWith("#typeerror-missing-arguments"), null, { timeout: 20000 })
       .catch(async () => { throw new Error(`output: ${await page.locator(".play-output").innerText()}`); });
     assert(await page.locator(".cm-error-line").count() === 1 && await page.locator(".cm-error-name").count() === 0, "a name was underlined");
     await page.close();
@@ -1033,14 +1051,14 @@ try {
     await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.startsWith("Running"), null, { timeout: 60000 });
     await page.waitForFunction(() => /640 × 400/.test(document.querySelector(".fg-play__caption").textContent), null, { timeout: 20000 });
     await typeCode(page, SKETCH_WITH("pass").replace("f.size(200, 100)", "f.size(200, 100)\n    f.circl(1, 2, 3)"));
-    await page.locator(".fg-play__error").waitFor({ timeout: 20000 });
-    const caption = await page.locator(".fg-play__caption").innerText();
+    await page.locator(".fg-msg--error").waitFor({ timeout: 20000 });
+    const caption =await page.locator(".fg-play__caption").innerText();
     assert(!/640|400/.test(caption) && !/× /.test(caption), `the caption says "${caption}"`);
     await typeCode(page, SKETCH_WITH("f.background('gold')"));
     await page.waitForFunction(() => /200 × 100/.test(document.querySelector(".fg-play__caption").textContent), null, { timeout: 20000 });
     // An error after setup has run keeps the size: the sketch did start.
     await typeCode(page, SKETCH_WITH("f.circl(1, 2, 3)"));
-    await page.locator(".fg-play__error").waitFor({ timeout: 20000 });
+    await page.locator(".fg-msg--error").waitFor({ timeout: 20000 });
     assert(/200 × 100/.test(await page.locator(".fg-play__caption").innerText()), "the size went after an error in draw()");
     await page.close();
   });
@@ -1756,9 +1774,9 @@ f.run()
     await tabIs(page, "Sketch 1");
     assert((await editorText(page)) === "# original\n", "changing the copy changed the first sketch");
     await chooseFile(page, "Delete");
-    await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes('Deleted "Sketch 1"'));
+    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.includes('Deleted "Sketch 1"'));
     assert((await mineNames(page)).join() === "Sketch 1 copy", `after Delete the group lists ${await mineNames(page)}`);
-    await clickAt(page, page.locator(".fg-play__minenote").getByRole("button", { name: "Undo" }));
+    await clickAt(page, page.locator(".fg-msg").getByRole("button", { name: "Undo" }));
     await tabIs(page, "Sketch 1");
     assert((await mineNames(page)).join() === "Sketch 1 copy,Sketch 1", `after Undo the group lists ${await mineNames(page)}`);
     assert((await editorText(page)) === "# original\n", "Undo gave back other code");
@@ -1797,9 +1815,9 @@ f.run()
     const big = path.join(scratch, "big.py");
     writeFileSync(big, "x = 1\n".repeat(40000));
     await input.setInputFiles(big);
-    await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes("bigger than 200 KB"));
+    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.includes("bigger than 200 KB"));
     await input.setInputFiles({ name: "picture.py", mimeType: "text/plain", buffer: Buffer.from([0xff, 0xfe, 0x00, 0x01, 0x89, 0x50]) });
-    await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes("not a text file"));
+    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.includes("not a text file"));
     assert((await mineNames(page)).length === 2, `a refused file was added: ${await mineNames(page)}`);
     assert((await tabName(page)) === "falling_stars", "a refused file changed the open sketch");
     await input.setInputFiles(file);
@@ -1848,18 +1866,20 @@ f.run()
     await page.addInitScript(() => { localStorage.clear(); Storage.prototype.setItem = function () { throw new DOMException("blocked", "QuotaExceededError"); }; });
     await page.goto(`${EDITOR}/play/?preview=${PREVIEW}`);
     await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
-    const warning = page.locator(".fg-play__minenote--warn");
-    assert(!(await warning.isVisible()), "the warning shows before anything was kept");
+    // The warning is said like a status and stays in the visit's list, in gold; the note about the new sketch is on screen over it.
+    const warnings = async () => (await visitMessages(page)).filter((line) => line.startsWith("This browser is not keeping sketches"));
+    assert((await warnings()).length === 0, "the warning shows before anything was kept");
     await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 1");
-    assert(await warning.isVisible(), "no warning after a sketch could not be stored");
-    assert((await warning.innerText()) === "This browser is not keeping sketches: download yours with Download .py", `it says "${await warning.innerText()}"`);
+    const said = await warnings();
+    assert(said.length === 1, "no warning after a sketch could not be stored");
+    assert(said[0] === "This browser is not keeping sketches: download yours with Download .py", `it says "${said[0]}"`);
     await typeCode(page, "# still typing\n");
     await sleep(600);
     assert((await editorText(page)) === "# still typing\n", "editing stopped");
     await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 2");
-    assert((await page.locator(".fg-play__minenote--warn").count()) === 1, "the warning is more than one line");
+    assert((await warnings()).length === 1, "the warning is more than one line");
     assert((await mineNames(page)).join() === "Sketch 2,Sketch 1", `in memory the group lists ${await mineNames(page)}`);
     await page.close();
   });
@@ -2294,8 +2314,9 @@ f.run()
   }
   const filesSummary = (page) => page.locator(".fg-play__files summary");
   const filesRows = (page) => page.locator(".fg-play__file .fg-play__filename");
-  const filesNote = (page) => page.locator(".fg-play__files .fg-play__minenote");
-  const filesNoteHas = (page, text) => page.waitForFunction((t) => document.querySelector(".fg-play__files .fg-play__minenote")?.textContent.includes(t), text, { timeout: 10000 });
+  // A note about a file is in the message area now (BF-14), not in the panel.
+  const filesNote = (page) => page.locator(".fg-msg");
+  const filesNoteHas = (page, text) => page.waitForFunction((t) => document.querySelector(".play-status")?.textContent.includes(t), text, { timeout: 10000 });
   // A page with nothing stored (drafts and kept files), ready to run, with My files open.
   async function freshFilesEditor() {
     const page = await freshEditor();
@@ -2397,11 +2418,11 @@ f.run()
     assert((await input.getAttribute("accept")).includes(".gif") && (await input.getAttribute("accept")).includes(".wav"), "the input does not ask for GIF and WAV");
     await input.setInputFiles({ name: "program.exe", mimeType: "application/octet-stream", buffer: Buffer.from("MZ") });
     await filesNoteHas(page, '"program.exe" was not added');
-    assert(/^"program\.exe" was not added\. My files takes pictures/.test(await filesNote(page).innerText()), "the line is not plain");
+    assert(/^"program\.exe" was not added\. My files takes pictures/.test(await page.locator(".play-status").innerText()), "the line is not plain");
     await input.setInputFiles({ name: "huge.txt", mimeType: "text/plain", buffer: Buffer.alloc(26 * 1024 * 1024, 97) });
     await filesNoteHas(page, '"huge.txt" is bigger than 25 MB');
     assert((await filesRows(page).count()) === 0, "a refused file was added");
-    assert((await filesNote(page).allInnerTexts()).length === 1, "more than one line");
+    assert((await page.locator(".play-status").allInnerTexts()).length === 1, "more than one line");
     await page.close();
   });
   await check(71, "My files: a sketch that rewrites a kept file shows a new Saved line, so the new version can be kept", async () => {
@@ -2480,7 +2501,7 @@ print("written")
     await tabIs(page, "Lesson 1: Look, frame and compose");
     await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 3, null, { timeout: 30000 });
     assert((await filesRows(page).allInnerTexts()).join() === "studio/001.json,studio/001.png,studio/001.py", `My files lists ${await filesRows(page).allInnerTexts()}`);
-    const line = await page.locator(".fg-play__minenote").first().innerText();
+    const line = await page.locator(".play-status").innerText();
     assert(line.includes("My sketches") && line.includes("studio/001.png"), `the line says "${line}"`);
     assert((await page.locator(".fg-play__savedrow .fg-play__keepfile", { hasText: "Kept" }).count()) === 3, "the saved lines do not say Kept");
     assert((await page.locator(".fg-play__saved").allInnerTexts()).length === 3, "the saved lines are not shown");
@@ -2502,7 +2523,7 @@ print("written")
     await panel(page).getByRole("button", { name: "Keep this" }).click();
     await panel(page).getByRole("button", { name: "Save", exact: true }).click();
     await tabIs(page, "Lesson 1: Look, frame and compose");
-    const line = await page.locator(".fg-play__minenote").first().innerText();
+    const line = await page.locator(".play-status").innerText();
     assert(line.includes("Run the sketch, then Keep this, to keep its picture too."), `the line says "${line}"`);
     assert((await filesRows(page).count()) === 0, "a file was kept");
     // Stopped is not running either: run it, stop the page's run by opening the sketch again, then keep.
@@ -2514,7 +2535,7 @@ print("written")
     await panel(page).getByRole("button", { name: "Keep this" }).click();
     await panel(page).getByRole("button", { name: "Save", exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll(".fg-play__choose optgroup[label='My sketches'] option").length === 2);
-    assert((await page.locator(".fg-play__minenote").first().innerText()).includes("Run the sketch, then Keep this"), "the picture of a sketch that was stopped was kept");
+    assert((await page.locator(".play-status").innerText()).includes("Run the sketch, then Keep this"), "the picture of a sketch that was stopped was kept");
     assert((await filesRows(page).count()) === 0, "a file was kept for a sketch that was not running");
     await page.close();
   });
@@ -2669,8 +2690,8 @@ print("written")
     await clearDrafts(page);
     await typeCode(page, 'name = input("Your name? ")\nprint("never")\n');
     await runButton(page).click();
-    await page.locator(".fg-play__error").waitFor({ timeout: 30000 });
-    const error = await page.locator(".fg-play__error").innerText();
+    await page.locator(".fg-msg--error").waitFor({ timeout: 30000 });
+    const error = await page.locator(".fg-msg--error .play-status").innerText();
     assert(error.includes("Play cannot wait for typing yet. Run this on your computer, or put the answer in the code."), `the error says "${error}"`);
     const output = await page.locator(".play-output").innerText();
     assert(output.includes("Your name? ") && !output.includes("OSError") && !output.includes("never"), `the output is "${output}"`);
@@ -2967,12 +2988,13 @@ print("written")
     await page.close();
   });
 
-  await check(90, "Focus mode: one strip with Run, Stop, Auto-run and the switch, Leave focus alone at the right; the rest is hidden and comes back (BF-D-046)", async () => {
+  await check(90, "Focus mode: one strip with Run, Stop, Auto-run, the switch and the message area, Leave focus at the right; the rest is hidden and comes back (BF-D-046, BF-14)", async () => {
     const page = await freshEditor("&blocks=1");
     await page.evaluate(() => {          // what MkDocs puts round the page
       for (const name of ["md-header", "md-tabs"]) document.body.prepend(Object.assign(document.createElement("div"), { className: name, textContent: name }));
     });
-    const everyday = { "the example list": ".fg-play__picker", "the status": ".play-status", "Share": ".fg-play__share", "the help button": "[aria-label='Help']",
+    // The message area is not in this list: it stays in focus mode (BF-14).
+    const everyday = { "the example list": ".fg-play__picker", "Share": ".fg-play__share", "the help button": "[aria-label='Help']",
       "the Blocks tick": ".fg-play__blocksoption", "Guides": ".fg-play__guides", "the tab row": ".fg-play__tab", "the File menu": ".fg-play__filemenu",
       "the site header": ".md-header", "the word Play": ".fg-play__word", "Focus": ".fg-play__focus" };
     for (const [name, selector] of Object.entries(everyday)) assert(await page.locator(selector).first().isVisible(), `${name} is hidden before focus mode`);
@@ -2985,14 +3007,16 @@ print("written")
     // the strip: the controls are on one row, the switch among them, Leave focus alone at the far right
     const strip = await page.evaluate(() => {
       const box = (e) => { const r = e.getBoundingClientRect(); return { top: Math.round((r.top + r.bottom) / 40), right: r.right }; };    // the middle, in 20px steps
-      const visible = [...document.querySelectorAll(".fg-play__bar > *")].filter((e) => e.offsetParent).map((e) => ({ text: e.textContent.trim(), ...box(e) }));
+      const visible = [...document.querySelectorAll(".fg-play__bar > *")].filter((e) => e.offsetParent).map((e) => ({ text: e.classList.contains("fg-msg") ? "area" : e.textContent.trim(), ...box(e) }));
       return { visible, work: document.querySelector(".fg-play__work").getBoundingClientRect().top,
                bar: document.querySelector(".fg-play__bar").getBoundingClientRect().bottom, width: innerWidth };
     });
     const names = strip.visible.map((e) => e.text).join("|");
-    assert(/^▶ RunCtrl ↵\|Stop\|Auto-run\|PythonBlocks\|Leave focus$/.test(names), `the strip holds ${names}`);
+    assert(/^▶ RunCtrl ↵\|Stop\|Auto-run\|PythonBlocks\|area\|Leave focus$/.test(names), `the strip holds ${names}`);
     assert(new Set(strip.visible.map((e) => e.top)).size === 1, "the strip is more than one row");
-    assert(strip.visible.at(-1).right > strip.width - 40 && strip.visible.at(-2).right < strip.width / 2, "Leave focus is not alone at the far right");
+    // the message area is between the controls and Leave focus, which is at the far right (the switch before them is in the left half)
+    assert(strip.visible.at(-1).right > strip.width - 40 && strip.visible.at(-3).right < strip.width / 2 && strip.visible.at(-2).right < strip.visible.at(-1).right,
+      "Leave focus is not at the far right, after the message area");
     assert(Math.abs(strip.work - strip.bar) < 2, "something sits between the strip and the code");
 
     // Run works; the hint is on the picture until it is clicked
@@ -3049,7 +3073,7 @@ print("written")
   // S-307: a model's download and start are in the status line. No real model is downloaded: the table of models.json is replaced by
   // one where "hand" is a 3 MB file of zeros on this server (held back until the check lets it go), and "pose" is a file that is not there.
   // The zeros are not an ONNX file, so the start ends in "failed" and a "ready" is sent by hand from the preview's frame.
-  await check(87, "a model's download and start show in the status line and as one changing line in the output: downloading, starting, failed, ready, and Stop clears them", async () => {
+  await check(87, "a model's download and start show in the message area (not in the output): downloading, starting, failed, ready, and Stop clears them", async () => {
     const RUNTIME = "/play/runner/runtime/";
     const FAKE = "/play/fake-models/hand.bin";
     const bytes = Buffer.alloc(3_000_000);
@@ -3088,29 +3112,29 @@ print("written")
 
       await typeCode(page, sketch("hand"));
       await runButton(page).click();
-      await waitForStatus('text.startsWith("Downloading the hand model: ") && text.endsWith(" of 3 MB...")');
+      await waitForStatus('text.startsWith("Downloading the hand model: ") && text.includes(" of 3 MB. Only this once")');
       const title = await page.locator(".play-status").getAttribute("title");
       assert(title === await status(page), `the title is "${title}"`);
-      // the output has the same wait as one line that changes in place, with the turning mark (data-state busy)
-      const modelLine = () => page.evaluate(() => [...document.querySelectorAll(".fg-play__modelline")].map((l) => ({ text: l.textContent, state: l.dataset.state })));
-      const busy = await modelLine();
-      assert(busy.length === 1 && busy[0].state === "busy" && busy[0].text.startsWith("Downloading the hand model: "), `the output's model line is ${JSON.stringify(busy)}`);
+      // the wait is in the message area only, with the turning ring (the loading look); the output has no model line (BF-14)
+      assert((await page.locator(".play-status").getAttribute("class")).includes("fg-status--loading"), "the area has no ring while the model downloads");
+      assert(!/Downloading the hand model|Starting the hand model/.test(await page.locator(".play-output").innerText()), "the output has a model line");
       release();
       await waitForStatus('isError && text.includes("hand")');
       const seen = await lines();
-      assert(seen.includes("Downloading the hand model: 3 of 3 MB...") || seen.some((line) => line.startsWith("Downloading the hand model")), `lines: ${seen}`);
+      assert(seen.some((line) => line.startsWith("Downloading the hand model") && line.includes(" of 3 MB")), `lines: ${seen}`);
       assert(seen.includes("Starting the hand model..."), `no start line: ${seen.join(" | ")}`);
       const failed = await status(page);
       assert(failed.startsWith("ml.hand()"), `the failed line is "${failed}"`);
-      const after = await modelLine();
-      assert(after.length === 1 && after[0].state === "failed" && after[0].text === "The hand model did not load: the reason is below.", `the output's model line is ${JSON.stringify(after)}`);
       const printed = await page.locator(".play-output").innerText();
       assert(!/Downloading the hand model, d+ MB, once/.test(printed), "the runner still printed its fixed download line");
+      assert(!/did not load|is ready/.test(printed), `the output has a model line: ${printed}`);
       // A model that is ready puts back the line the status had before: the one for a running sketch.
       await frameOf(page, PREVIEW).evaluate(() => window.parent.postMessage({ type: "model", task: "hand", word: "hand", state: "ready" }, "*"));
       await waitForStatus('text.startsWith("Running.") && !isError');
-      const ready = await modelLine();
-      assert(ready.length === 1 && ready[0].state === "done" && ready[0].text === "The hand model is ready.", `the output's model line is ${JSON.stringify(ready)}`);
+      assert(!/Downloading the hand model|Starting the hand model/.test(await page.locator(".play-output").innerText()), "the output has a model line after ready");
+      // The download is one entry in the visit's list that changed in place, not one for every step.
+      const downloads = (await visitMessages(page)).filter((line) => line.startsWith("Downloading the hand model"));
+      assert(downloads.length <= 1, `the list has ${downloads.length} download lines`);
       // Stop clears it; a late message from the old run says nothing.
       await page.getByRole("button", { name: "Stop", exact: true }).click();
       await waitForStatus('text === "Stopped."');
@@ -3138,7 +3162,7 @@ print("written")
   const fileTab = (page, name) => page.getByRole("tab", { name, exact: true });
   const tabStrip = (page) => page.locator(".fg-play__ftabs");
   const nameHint = (page) => page.locator(".fg-play__filehint");
-  const mineNote = (page) => page.locator(".fg-play__minenote").first();
+  const mineNote = (page) => page.locator(".play-status");
   // Opens the form of New file, types a name and waits for the line that says what it will be called (or why not).
   async function askNewFile(page, typed, hintStarts) {
     await chooseFile(page, "New file");
@@ -3320,7 +3344,7 @@ print("written")
     await tabIs(page, "Big sketch");
     assert((await fileTabNames(page)).length === 10, `the big sketch has ${(await fileTabNames(page)).length} tabs`);
     await chooseFile(page, "New file");
-    await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes("at most 10 files"));
+    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.includes("at most 10 files"));
     assert(await page.locator(".fg-play__fileform").isHidden(), "the form opened for the eleventh file");
     await page.close();
     return "old list, reload, ten files";
@@ -3366,11 +3390,11 @@ print("written")
     assert((await mineNote(page).innerText()).includes("Bad Name.py"), `the note says "${await mineNote(page).innerText()}"`);
     // refused: not a zip, and a zip with no main.py
     await input.setInputFiles({ name: "notes.zip", mimeType: "application/zip", buffer: Buffer.from("this is not a zip file") });
-    await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes("not a zip file"));
+    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.includes("not a zip file"));
     const empty = path.join(scratch, "empty.zip");
     execFileSync(PYTHON, ["-I", "-c", "import sys, zipfile\nwith zipfile.ZipFile(sys.argv[1], 'w') as z:\n    z.writestr('thing/other.py', 'x = 1\\n')\n", empty]);
     await input.setInputFiles(empty);
-    await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes("has a main.py in it"));
+    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.includes("has a main.py in it"));
     assert((await tabName(page)) === "robot", "a refused zip changed the open sketch");
     await page.close();
     return "sketch-1.py, sketch-1.zip, back again; robot.zip; two refusals";
@@ -3436,12 +3460,13 @@ print("written")
     await typeCode(page, "def boom():\n    x = 1\n    return x / 0\n");
     await fileTab(page, "Sketch 1").click();
     await runButton(page).click();
-    const go = page.locator(".line-link");
+    const go = page.locator(".fg-msg [data-action^='Go to line']");
     await go.waitFor({ timeout: 20000 });
     assert((await go.innerText()) === "Go to line 3 in helpers.py", `the link says "${await go.innerText()}"`);
-    const summary = await page.locator(".fg-play__error").innerText();
+    const summary = await page.locator(".fg-msg--error .play-status").innerText();
     assert(summary.includes("ZeroDivisionError"), `the error says "${summary}"`);
-    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.includes("error on line 3 of helpers.py"), null, { timeout: 5000 });
+    // The error holds the screen, so the status that follows it is in the list.
+    await waitForVisitMessage(page, "error on line 3 of helpers.py", 5000);
     assert((await page.locator(".cm-error-line").count()) === 0, "the main file's editor is marked, not the helper's");
     await go.click();
     assert((await fileTab(page, "helpers.py").getAttribute("aria-selected")) === "true", "the helper's tab did not open");
@@ -3451,9 +3476,9 @@ print("written")
     await fileTab(page, "Sketch 1").click();
     await typeCode(page, "import funground as f\nimport helpers\n\nprint(undefined_name)\n");
     await runButton(page).click();
-    await page.waitForFunction(() => document.querySelector(".line-link")?.textContent === "Go to line 4");
+    await page.waitForFunction(() => document.querySelector(".fg-msg [data-action^='Go to line']")?.textContent === "Go to line 4");
     await fileTab(page, "helpers.py").click();
-    await page.locator(".line-link").click();
+    await page.locator(".fg-msg [data-action^='Go to line']").click();
     assert((await fileTab(page, "Sketch 1").getAttribute("aria-selected")) === "true", "Go to line 4 did not open the main tab");
     await page.close();
     return "helpers.py line 3; main line 4";
@@ -3659,6 +3684,153 @@ print("written")
       return `control ${Math.round(m.left)} to ${Math.round(m.right)} of 390`;
     } finally {
       await where.close();
+    }
+  });
+
+  // ---- the message area (BF-14, BF-D-048): the status, Play's notes and the sketch's errors in one place
+  const area = (page) => page.locator(".fg-msg");
+  const areaText = (page) => page.locator(".play-status").innerText();
+  const detailsDialog = (page) => page.locator("dialog.fg-play__dialog");
+  const PRINTING_SKETCH = 'import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n    print("one")\n    print("two")\n    print("three")\n\n\ndef draw():\n    f.background("gold")\n\n\nf.run()\n';
+
+  await check(105, "a note shows in the message area, Undo works from it, and the area goes back to the status afterwards (BF-14)", async () => {
+    const page = await freshEditor();
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    await chooseFile(page, "Delete");
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.includes('Deleted "Sketch 1"'));
+    const undo = area(page).getByRole("button", { name: "Undo", exact: true });
+    assert(await undo.isVisible(), "no Undo beside the note");
+    assert((await page.locator(".play-output").innerText()).trim() === "", "the note was written into Output");
+    await clickAt(page, undo);
+    await tabIs(page, "Sketch 1");
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.includes('"Sketch 1" is back.'));
+    assert((await area(page).getByRole("button", { name: "Undo" }).count()) === 0, "Undo stayed after it was used");
+    // The note goes by itself after 12 seconds and the status is on screen again.
+    await page.waitForFunction(() => /^Ready/.test(document.querySelector(".play-status").textContent), null, { timeout: 20000 });
+    assert(!(await areaText(page)).includes("is back"), "the note stayed");
+    await page.close();
+    return "Delete, Undo, then the status again";
+  });
+
+  await check(106, "an error shows in the message area with Go to line and What this means and holds the screen against a note; Details opens the traceback and Esc closes it; the next Run clears it (BF-14)", async () => {
+    const page = await freshEditor();
+    await noAutoRun(page);
+    await typeCode(page, SKETCH_WITH("f.circl(10, 10, 10)"));
+    await runButton(page).click();
+    await page.locator(".fg-msg--error").waitFor({ timeout: 30000 });
+    assert((await areaText(page)).includes("has no attribute 'circl'"), `the area says "${await areaText(page)}"`);
+    const alert = await page.locator("[role=alert]").innerText();
+    assert(alert.includes("circl"), `the alert says "${alert}"`);
+    assert((await area(page).locator("[role=status]").count()) === 1, "the message area is not one role=status region");
+    const means = area(page).locator("[data-action='What this means']");
+    assert((await means.getAttribute("href")).endsWith("#nameerror-or-attributeerror-on-an-f-name"), "What this means has another link");
+    // Go to line puts the cursor on the line of the error.
+    await clickEndOfLine(page, page.locator(".cm-line", { hasText: "import funground" }));
+    await area(page).getByRole("button", { name: "Go to line", exact: false }).click();
+    assert((await page.evaluate(() => getSelection().toString())).includes("f.circl"), `the selection is "${await page.evaluate(() => getSelection().toString())}"`);
+    // A note made while the error shows does not replace it on screen, but it is in the list.
+    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), chooseFile(page, "Download .py")]);
+    assert(download.suggestedFilename().endsWith(".py"), "no download");
+    await waitForVisitMessage(page, "Saved ", 5000);
+    assert((await area(page).evaluate((e) => e.classList.contains("fg-msg--error"))) && (await areaText(page)).includes("circl"), `the note replaced the error: "${await areaText(page)}"`);
+    // Details: the traceback in a popup; Esc closes it and focus goes back to Details.
+    const details = area(page).getByRole("button", { name: "Details", exact: true });
+    await details.click();
+    await detailsDialog(page).waitFor({ state: "visible", timeout: 5000 });
+    const trace = await detailsDialog(page).locator("pre").innerText();
+    assert(trace.includes("Traceback") && trace.includes("circl"), `the popup holds "${trace.slice(0, 80)}"`);
+    await page.keyboard.press("Escape");
+    await detailsDialog(page).waitFor({ state: "hidden", timeout: 5000 });
+    assert(await page.evaluate(() => document.activeElement?.dataset?.action === "Details"), "focus did not go back to Details");
+    assert((await page.locator(".play-output .stderr").count()) > 0, "the traceback is not in Output");
+    assert((await page.locator(".fg-console .count").innerText()) === "1", "the error count changed");
+    // The next Run clears the error from the area.
+    await typeCode(page, SKETCH_WITH("f.background('gold')"));
+    await runButton(page).click();
+    await page.waitForFunction(() => !document.querySelector(".fg-msg--error") && /^(Starting|Running)/.test(document.querySelector(".play-status").textContent), null, { timeout: 30000 });
+    assert((await page.locator("[role=alert]").innerText()) === "", "the alert was not cleared");
+    await page.close();
+    return "error, Go to line, note kept off the screen, Details, cleared by Run";
+  });
+
+  await check(107, "the history button counts this visit's messages and its list shows them newest first, in full, with the time; Esc and a click outside close it (BF-14)", async () => {
+    const page = await freshEditor();
+    const more = page.getByRole("button", { name: "This visit's messages" });
+    const count = async () => Number((await more.innerText()).replace(/\D/g, ""));
+    const before = await count();
+    assert(before >= 1 && (await more.getAttribute("aria-expanded")) === "false", `the button says "${await more.innerText()}"`);
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    const input = page.locator(".fg-play__filemenu input[type=file]");
+    await input.setInputFiles({ name: "big.py", mimeType: "text/plain", buffer: Buffer.alloc(210 * 1024, 120) });
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.includes("bigger than 200 KB"));
+    assert((await count()) >= before + 2, `the count is ${await count()} after two notes, it was ${before}`);
+    await more.click();
+    assert((await more.getAttribute("aria-expanded")) === "true", "the button does not say the list is open");
+    const items = page.locator(".fg-msg__item");
+    const texts = await items.locator(".fg-msg__text").allInnerTexts();
+    assert(texts.length === (await count()), `the list has ${texts.length} lines for a count of ${await count()}`);
+    assert(texts[0] === `"big.py" is bigger than 200 KB, so it was not opened. Sketches are small text files.`, `the newest line is "${texts[0]}"`);
+    assert(texts.findIndex((t) => t.startsWith('Made "Sketch 1"')) > 0, `the earlier note is not below it: ${JSON.stringify(texts)}`);
+    assert(texts.at(-1).startsWith("Loading Python"), `the oldest line is "${texts.at(-1)}"`);
+    assert(/^\d\d:\d\d$/.test(await items.first().locator("time").innerText()), "the line has no time");
+    await page.keyboard.press("Escape");
+    assert(await page.locator(".fg-msg__list").isHidden() && (await more.getAttribute("aria-expanded")) === "false", "Esc did not close the list");
+    await more.click();
+    await page.locator(".cm-content").click();
+    assert(await page.locator(".fg-msg__list").isHidden(), "a click outside did not close the list");
+    await page.close();
+    return `${texts.length} messages listed`;
+  });
+
+  await check(108, "focus mode keeps the message area: an error shows in it, and an Output chip counts what the sketch prints and opens the lines (BF-14)", async () => {
+    const page = await freshEditor();
+    await noAutoRun(page);
+    await page.getByRole("button", { name: "Focus", exact: true }).click();
+    assert(await area(page).isVisible(), "the message area is hidden in focus mode");
+    assert(!(await page.locator(".fg-console").isVisible()), "Output shows in focus mode");
+    assert(await page.locator(".fg-msg__chip").isHidden(), "the Output chip shows before the sketch printed");
+    await typeCode(page, SKETCH_WITH("f.circl(10, 10, 10)"));
+    await runButton(page).click();
+    await page.locator(".fg-msg--error").waitFor({ timeout: 30000 });
+    assert(await area(page).isVisible() && (await areaText(page)).includes("circl"), "the error is not in the area");
+    assert(await area(page).getByRole("button", { name: "Details", exact: true }).isVisible(), "no Details in focus mode");
+    await typeCode(page, PRINTING_SKETCH);
+    await runButton(page).click();
+    const chip = page.locator(".fg-msg__chip");
+    await page.waitForFunction(() => document.querySelector(".fg-msg__chip")?.textContent === "Output 3", null, { timeout: 30000 });
+    await chip.click();
+    await detailsDialog(page).waitFor({ state: "visible", timeout: 5000 });
+    assert((await detailsDialog(page).locator("pre").innerText()) === "one\ntwo\nthree", `the popup holds ${JSON.stringify(await detailsDialog(page).locator("pre").innerText())}`);
+    await page.keyboard.press("Escape");
+    await detailsDialog(page).waitFor({ state: "hidden", timeout: 5000 });
+    assert(await chip.isHidden(), "the chip stayed after it was opened");
+    assert(await page.evaluate(() => document.documentElement.classList.contains("fg-focus")), "Esc left focus mode with the popup open");
+    await page.close();
+    return "error in the strip; Output 3 opens one, two, three";
+  });
+
+  await check(109, "at 390 px wide the page does not scroll sideways with an error in the message area and the list open (BF-14)", async () => {
+    // The layout follows the window's width (play.css, max-width 900px), so a 390 px window shows the phone's layout.
+    {
+      const page = await openEditor();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.addStyleTag({ content: "body { margin: 0; }" });
+      await clearDrafts(page);
+      await typeCode(page, SKETCH_WITH("f.circl(10, 10, 10)"));
+      await page.locator(".fg-msg--error").waitFor({ timeout: 30000 });
+      await page.getByRole("button", { name: "This visit's messages" }).click();
+      await page.locator(".fg-msg__list").waitFor({ state: "visible" });
+      const m = await page.evaluate(() => {
+        const box = (selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return { left: r.left, right: r.right, height: r.height }; };
+        return { scrollWidth: document.documentElement.scrollWidth, area: box(".fg-msg"), list: box(".fg-msg__list") };
+      });
+      assert(m.scrollWidth <= 390, `the page is ${m.scrollWidth}px wide`);
+      assert(m.area.left >= 0 && m.area.right <= 390 && m.list.left >= 0 && m.list.right <= 390 && m.list.height > 0,
+        `the area is ${Math.round(m.area.left)} to ${Math.round(m.area.right)}, the list ${Math.round(m.list.left)} to ${Math.round(m.list.right)}`);
+      await page.close();
+      return `page ${m.scrollWidth}px, list ${Math.round(m.list.left)} to ${Math.round(m.list.right)}`;
     }
   });
 } finally {
