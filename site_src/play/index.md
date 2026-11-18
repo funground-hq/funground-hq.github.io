@@ -11,7 +11,9 @@ hide:
 <div class="fg-play-help" markdown>
 
 **Write a sketch, press Run, and see it**, with nothing to install. Pick an example from the list, or start with a
-blank sketch. With **Auto-run** on, the sketch runs again a moment after you stop typing.
+blank sketch. With **Auto-run** on, the sketch runs again a moment after you stop typing. It also runs by itself when you
+open an example or one of your sketches, as soon as Python is ready. A shared link, and an example from a course lesson, wait
+for you to press Run: you read the code, or make your prediction, first. Turn Auto-run off and nothing runs by itself.
 
 <ul>
 <li class="fg-keys-only"><strong>Keys:</strong> <kbd>Ctrl</kbd> + <kbd>Enter</kbd> runs, <kbd>Esc</kbd> stops,
@@ -20,11 +22,14 @@ blank sketch. With **Auto-run** on, the sketch runs again a moment after you sto
 <kbd>↑</kbd> or <kbd>↓</kbd> to change it. Add <kbd>Shift</kbd> for bigger steps. Or hold <kbd>Alt</kbd> and drag it.</li>
 <li class="fg-phone-only"><strong>Read mode:</strong> on a phone the code starts in Read mode. You can scroll it and select it, but it does not type and no keyboard opens. Tap <strong>Edit</strong> to change the code. Tap <strong>Done</strong> when you finish.</li>
 <li class="fg-phone-only"><strong>Editing on a phone:</strong> the picture shrinks to a small one at the top, with Undo (↶), Redo (↷), Run and Done. Above the keyboard is a row of symbols. Tap one to type it. Swipe the row sideways for more. Undo takes back a symbol, a typo or a paste.</li>
+<li class="fg-phone-only"><strong>One screen:</strong> on a phone Play fits the screen and the page does not scroll. The code, or the blocks, scroll inside their own box, and <strong>Edit</strong> stays at the foot of the screen.</li>
+<li class="fg-phone-only"><strong>▴ Canvas:</strong> under the canvas, this button folds the canvas away to give the code all the room. <strong>▾ Canvas</strong> brings it back. Run unfolds it. In the Blocks view the canvas starts folded. The zoom (− Fit +) is in the same line.</li>
+<li class="fg-phone-only"><strong>Output:</strong> the Output button under the canvas opens what your sketch printed, in a sheet from the foot of the screen. The red number counts new lines since you last opened it. Close, Esc or a tap outside closes the sheet, and Clear empties it. An error still shows in the message line.</li>
 <li class="fg-phone-only"><strong>More (⋯):</strong> Auto-run, Guides, Share, Save picture and Reset are in the More menu.</li>
-<li><strong>Code | Blocks:</strong> the switch by the file name shows your sketch as code or as blocks that make the same code. The blocks view takes a moment to load the first time.</li>
+<li><strong>Code | Blocks:</strong> the switch by the file name shows your sketch as code or as blocks that make the same code. The blocks view takes a moment to load the first time. While the blocks show, <strong>↶</strong> and <strong>↷</strong> take back a change to the blocks and bring it back. <strong>Python on blocks</strong> shows the line of Python under each block. It starts off on a phone, and on a phone it is in the File menu.</li>
 <li><strong>Share</strong> copies a link that holds your code. Anyone who opens it sees your code and can run it.</li>
 <li><strong>Reset</strong> goes back to the original. Unsaved changes stay in this browser only.</li>
-<li><strong>Messages:</strong> the line in the bar at the top tells you what Play is doing, what it just did, and what went wrong in your sketch. A note goes after a few seconds. An error stays until the next Run. The small button with a number opens everything Play said in this visit. What your sketch prints stays in Output.</li>
+<li><strong>Messages:</strong> the line in the bar at the top tells you what Play is doing, what it just did, and what went wrong in your sketch. A note goes after a few seconds. An error stays until the next Run. The small button with a number opens everything Play said in this visit. <strong>Clear</strong> at the end of the list empties it and the number. Opening another example starts the number again. What your sketch prints stays in Output.</li>
 <li><strong>Course lessons:</strong> an example from the course shows what to predict and compare. After Compare, <strong>Extend</strong> opens the same experiment written with funground's studio tools. <strong>Keep this</strong> copies your sketch, with your note, into My sketches. If the sketch is running, it also keeps its picture, a copy of the code and a record in My files (they are called studio/001.png, studio/001.py and studio/001.json).</li>
 <li><strong>My files:</strong> keep what a sketch saves, or add your own, and every sketch can open them by name. They stay in this browser only.</li>
 <li><strong>More than one file:</strong> open <strong>File</strong> and choose <strong>New file</strong> to add a file such as helpers.py to your sketch. Then write <code>import helpers</code> in your main file. Run always starts the main file. Download saves a sketch with several files as a .zip, and Share puts every file in the link.</li>

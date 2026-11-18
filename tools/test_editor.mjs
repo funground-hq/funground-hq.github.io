@@ -312,7 +312,26 @@ if (phoneDir) {
   process.exit(0);
 }
 console.log(`editor ${EDITOR}; preview ${PREVIEW}; iframe sandbox: allow-scripts${scriptsOnly ? "" : " allow-same-origin"}`);
-const context = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"], viewport: { width: 1280, height: 900 } });
+
+// A sketch the learner opens runs by itself once Python is ready, when Auto-run is on (BF-D-050), and Auto-run is on at first. Most checks
+// are about something else and begin from an idle page, so in a context made by newContext Auto-run is off while Python loads and goes
+// back on once the Run button can be pressed: typing then runs the sketch again, as it always did. A context made with
+// { autoRunOnOpen: true } is the learner's own: nothing is held (checks 114 onward use it).
+const HOLD_AUTO_RUN = `if (window.top === window) {
+  let held = false, done = false;
+  new MutationObserver((changes, watcher) => {
+    const box = document.querySelector(".fg-play__auto input"), run = document.querySelector(".fg-btn--run");
+    if (!box || !run || done) return;
+    if (!held) { held = true; box.checked = false; }
+    if (!run.disabled) { box.checked = true; done = true; watcher.disconnect(); }
+  }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
+}`;
+async function newContext({ autoRunOnOpen = false, ...options } = {}) {
+  const made = await browser.newContext(options);
+  if (!autoRunOnOpen) await made.addInitScript(HOLD_AUTO_RUN);
+  return made;
+}
+const context = await newContext({ permissions: ["clipboard-read", "clipboard-write"], viewport: { width: 1280, height: 900 } });
 const problems = [];
 
 function watch(page) {
@@ -1093,8 +1112,8 @@ try {
     return `editor ${m.editor.width} x ${m.editor.height}, picture ${m.preview.width} x ${m.preview.height}`;
   });
 
-  await check(38, "at 390 x 844 on a phone: stacked, a tall editor you can type in, a wide picture, a floating Run, no sideways scroll", async () => {
-    const phoneContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  await check(38, "at 390 x 844 on a phone: stacked, an editor you can type in, a wide picture, Run in the bar, a page that does not scroll (BF-D-050)", async () => {
+    const phoneContext = await newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     try {
       const page = await phoneContext.newPage();
       watch(page);
@@ -1112,7 +1131,9 @@ try {
       assert(m.editor.height >= 400, `the editor is ${m.editor.height}px tall`);
       assert(m.preview.width >= 360 && m.preview.width <= 390, `the picture is ${m.preview.width}px wide`);
       assert(Math.abs(m.preview.width / m.preview.height - 1.6) < 0.03, `the picture is ${m.preview.width} x ${m.preview.height}, not 640 : 400`);
-      assert(m.play.height > 844, "the page does not scroll: the box is the window's height");
+      // One still screen (BF-D-050): Play is the window's height and the page does not scroll
+      assert(Math.abs(m.play.height - 844) <= 1, `Play is ${m.play.height}px tall in a window of 844`);
+      assert(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight), "the page scrolls");
       // Typing: tap in the code (a point, not the element: a long line scrolls the editor sideways) and type.
       const toEditor = () => page.evaluate(() => scrollTo(0, document.querySelector(".cm-editor").getBoundingClientRect().top + scrollY - 60));
       await toEditor();
@@ -1128,30 +1149,24 @@ try {
       await page.keyboard.insertText("# typed on a phone\n");
       assert((await editorText(page)).startsWith("# typed on a phone"), "typing in the editor did nothing");
       await page.getByRole("button", { name: "Done", exact: true }).tap();
-      // The one-row bar (BF-15) leaves the page so little to scroll at 844 high that Run never leaves the window: use a shorter window here.
+      // A shorter window: the screen still holds still, and Run is in the bar (no floating Run on a phone), in view, and runs the sketch.
       await page.setViewportSize({ width: 390, height: 600 });
-      // The floating Run: hidden while the toolbar's Run is in view, shown when it is scrolled away, and it runs the sketch.
-      await page.evaluate(() => scrollTo(0, 0));
       await sleep(300);
-      assert(await page.locator(".fg-play__fab").isHidden(), "the floating Run shows while the toolbar's Run is in view");
-      await toEditor();
-      await page.locator(".fg-play__fab").waitFor({ state: "visible", timeout: 5000 });
-      const fab = await page.locator(".fg-play__fab").boundingBox();
-      assert(Math.round(fab.width) === 56 && Math.round(fab.height) === 56, `the floating Run is ${fab.width} x ${fab.height}`);
-      assert(fab.x + fab.width <= 390 && fab.x > 390 - 56 - 32 && fab.y + fab.height <= 600 && fab.y > 600 - 56 - 32, "the floating Run is not at the bottom right");
-      assert((await page.locator(".fg-play__fab").getAttribute("aria-label")) === "Run", "the floating Run has no name");
-      if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_390_fab.png") });
-      await page.mouse.click(fab.x + fab.width / 2, fab.y + fab.height / 2);
+      assert(await page.locator(".fg-play__fab").isHidden(), "a floating Run shows on a phone");
+      const run = await runButton(page).boundingBox();
+      assert(run && run.y >= 0 && run.y + run.height <= 600, `Run is at y ${run?.y}`);
+      await runButton(page).tap();
       const { picture: drawn } = await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque, 30000);
       assert(drawn.width >= 640, `the sketch drew ${drawn.width} wide`);
-      await sleep(1000);                                                       // the picture is brought into view
+      await sleep(500);
       assert((await measureLayout(page)).scrollWidth <= 390, "the page scrolls sideways after a run");
+      assert(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight), "the page scrolls after a run");
       const after = await page.locator(".play-preview").boundingBox();
       assert(after.y >= 0 && after.y + after.height <= 600, `after Run the picture is at y ${Math.round(after.y)}`);
       if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_390_ran.png") });
       await page.close();
       // A tablet: still one column (768 is under 900), the picture at 1:1 at most.
-      const tablet = await browser.newContext({ viewport: { width: 768, height: 1024 }, isMobile: true, hasTouch: true });
+      const tablet = await newContext({ viewport: { width: 768, height: 1024 }, isMobile: true, hasTouch: true });
       const tp = await tablet.newPage();
       await tp.goto(`${EDITOR}/play/?preview=${PREVIEW}&example=${FIRST_SKETCH}`);
       await tp.addStyleTag({ content: "body { margin: 0; }" });
@@ -1345,7 +1360,7 @@ try {
   });
 
   await check(41, "on a phone the first visit shows a one-line note, not the full help; ? opens the help without the keyboard lines; on a desktop the help opens", async () => {
-    const phoneContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    const phoneContext = await newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     try {
       const page = await phoneContext.newPage();
       watch(page);
@@ -1372,7 +1387,7 @@ try {
     } finally {
       await phoneContext.close();
     }
-    const desktop = await browser.newContext({ viewport: { width: 1366, height: 768 } });
+    const desktop = await newContext({ viewport: { width: 1366, height: 768 } });
     try {
       const page = await desktop.newPage();
       await page.goto(`${EDITOR}/play/?preview=${PREVIEW}`);
@@ -1393,7 +1408,7 @@ try {
     assert(examples.every((e) => e.picture === undefined || /^\.\.\/gallery\/images\/.+\.png$/.test(e.picture)), "a picture path is odd");
     const next = examples[examples.findIndex((e) => e.id === GALLERY) + 1];
     const hold = async (viewport, extra = {}) => {
-      const held = await browser.newContext({ viewport, ...extra });
+      const held = await newContext({ viewport, ...extra });
       const MANIFEST = "/play/runner/runtime/manifest.json";
       let release;
       gates[MANIFEST] = new Promise((resolve) => { release = resolve; });
@@ -1437,6 +1452,10 @@ try {
       // Python comes: the status over the picture changes, the picture stays until Run.
       desktop.release();
       await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      // With Auto-run on, an example chosen next would run by itself (BF-D-050, check 119): it is off for the rest of this page, as
+      // for a learner who turned it off. (The context turns it back on once Python is ready: see HOLD_AUTO_RUN.)
+      await page.waitForFunction(() => document.querySelector(".fg-play__auto input").checked);
+      await page.locator(".fg-play__auto input").uncheck();
       assert(await stillShown(page), "the picture went when Python was ready");
       const ready = (await page.locator(".fg-play__still-note").innerText()).trim();
       assert(ready.startsWith("Ready. Press Run"), `the status over the picture is "${ready}"`);
@@ -1445,8 +1464,7 @@ try {
       // Switching examples before Run shows the new example's picture (Next, with the mouse).
       await clickMouse(page, page.locator(".fg-play__step").nth(1));
       await page.waitForFunction((id) => document.querySelector(".fg-play__still-image")?.getAttribute("src")?.endsWith(`${id}.png`), next.id);
-      assert(await stillShown(page), "no picture after Next");
-      await page.locator(".fg-play__choose").selectOption(GALLERY);
+      assert(await stillShown(page), "no picture after Next");      await page.locator(".fg-play__choose").selectOption(GALLERY);
       await page.waitForFunction((id) => document.querySelector(".fg-play__still-image")?.getAttribute("src")?.endsWith(`${id}.png`), GALLERY);
 
       // Typing makes the code differ from the picture: the picture goes.
@@ -1664,7 +1682,7 @@ f.run()
     await page.close();
 
     // A phone: the button is inside the window, nothing scrolls sideways, and a saved file's line fits.
-    const phoneContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    const phoneContext = await newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     try {
       const phonePage = await phoneContext.newPage();
       watch(phonePage);
@@ -1672,7 +1690,8 @@ f.run()
       await phonePage.addStyleTag({ content: "body { margin: 0; }" });
       await phonePage.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
       await typeCode(phonePage, SAVING_SKETCH);
-      await phonePage.locator(".fg-play__saved").nth(1).waitFor({ timeout: 20000 });
+      // the lines are in the Output sheet, closed until its chip is tapped (BF-D-050)
+      await phonePage.locator(".fg-play__saved").nth(1).waitFor({ state: "attached", timeout: 20000 });
       await phonePage.waitForFunction(() => !document.querySelector(".fg-play__savepicture").disabled);
       // BF-15: on a phone Save picture is in the More list, and works the button under the picture
       await phonePage.getByRole("button", { name: "More", exact: true }).tap();
@@ -1680,6 +1699,8 @@ f.run()
       assert(phoneButton && phoneButton.x >= 0 && phoneButton.x + phoneButton.width <= 390, `Save picture is at x ${phoneButton?.x}, width ${phoneButton?.width}`);
       await phonePage.keyboard.press("Escape");
       assert(await phonePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "sideways scroll on a phone");
+      await phonePage.locator(".fg-play__sheetchip").tap();
+      await phonePage.locator(".fg-play__saved").first().waitFor({ state: "visible", timeout: 5000 });
       const line = await phonePage.locator(".fg-play__saved").first().boundingBox();
       assert(line.x + line.width <= 390, "a saved line reaches past the window");
       if (shotsDir) await phonePage.screenshot({ path: path.join(shotsDir, "save_picture_390.png") });
@@ -1940,7 +1961,7 @@ f.run()
 
   // A context with a counter of the "update-ready" and "ready" messages the editor page receives (it survives reloads).
   async function trackedContext() {
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const ctx = await newContext({ viewport: { width: 1280, height: 900 } });
     await ctx.addInitScript(() => {
       window.__messages = { ready: 0, "update-ready": 0, forgotten: 0 };
       window.addEventListener("message", (e) => { if (e.data?.type in window.__messages) window.__messages[e.data.type] += 1; });
@@ -2557,7 +2578,7 @@ print("written")
   const unshare = (href) => inflateRawSync(Buffer.from(new URL(href).hash.slice(1).replace(/^code=/, "").replaceAll("-", "+").replaceAll("_", "/"), "base64")).toString("utf8");
   const openInPlay = (page) => page.getByRole("link", { name: /Open in Play/ });
   const embedPage = async (width, height, query = EMBED, hash = "") => {
-    const where = await browser.newContext({ viewport: { width, height } });
+    const where = await newContext({ viewport: { width, height } });
     return { page: await openEditor(query, hash, where), where };
   };
   const waitFor = (page, test, arg, timeout = 10000) => page.waitForFunction(test, arg, { timeout });
@@ -2624,7 +2645,7 @@ print("written")
   });
 
   await check(78, "embed: nothing is remembered, and Ctrl+S does nothing", async () => {
-    const where = await browser.newContext({ viewport: { width: 1000, height: 600 } });
+    const where = await newContext({ viewport: { width: 1000, height: 600 } });
     const page = await openEditor(EMBED, "", where);
     const state = () => page.evaluate(async () => ({ keys: Object.keys(localStorage), databases: (await indexedDB.databases()).map((d) => d.name) }));
     const before = await state();
@@ -3077,7 +3098,7 @@ print("written")
     overrides[FAKE] = bytes;
     let release;
     gates[FAKE] = new Promise((resolve) => { release = resolve; });
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const ctx = await newContext({ viewport: { width: 1280, height: 900 } });
     try {
       const page = await openEditor("", "", ctx);
       await clearDrafts(page);
@@ -3408,7 +3429,7 @@ print("written")
     const hash = link.slice(link.indexOf("#"));
     const parts = new URLSearchParams(hash.slice(1));
     assert(parts.getAll("file").length === 2 && parts.getAll("file")[0].startsWith("helpers.py:") && parts.getAll("file")[1].startsWith("levels.py:"), `the link has the files ${parts.getAll("file").map((part) => part.slice(0, 12))}`);
-    const stranger = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const stranger = await newContext({ viewport: { width: 1280, height: 900 } });
     try {
       const other = await openEditor("", hash, stranger);
       assert((await status(other)).startsWith("Shared sketch: press Run"), `status "${await status(other)}"`);
@@ -3532,7 +3553,7 @@ print("written")
     assert(copied.startsWith("funground camera check") && copied.includes("THIS DEVICE") && copied.includes("Settings now:") && copied.includes("THE HAND MODEL"), `the clipboard holds "${copied.slice(0, 200)}"`);
     await page.close();
     // On a phone 360 px wide the page does not scroll sideways, with long report lines in (the maintainer's phone gave 651 px on 347).
-    const phone = await browser.newContext({ viewport: { width: 360, height: 740 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
+    const phone = await newContext({ viewport: { width: 360, height: 740 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
     try {
       const small = await phone.newPage();
       watch(small);
@@ -3569,7 +3590,7 @@ print("written")
   await check(101, "on a phone held sideways (844 x 390) the picture is fitted to the window's height as well, and still fits the width in portrait (S-311)", async () => {
     const seen = [];
     for (const [width, height] of [[844, 390], [390, 844]]) {
-      const phoneContext = await browser.newContext({ viewport: { width, height }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
+      const phoneContext = await newContext({ viewport: { width, height }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
       try {
         const page = await phoneContext.newPage();
         watch(page);
@@ -3596,7 +3617,7 @@ print("written")
   // their own: the real fake camera's track with focus capabilities (or none) put on it, and a record of every constraint applied.
   // The init script runs in every frame of the context and does nothing outside the preview's origin.
   async function focusContext({ offer, facing = null, viewport = { width: 1280, height: 900 }, phone = false }) {
-    const where = await browser.newContext({ viewport, ...(phone ? { isMobile: true, hasTouch: true, deviceScaleFactor: 3 } : {}) });
+    const where = await newContext({ viewport, ...(phone ? { isMobile: true, hasTouch: true, deviceScaleFactor: 3 } : {}) });
     await where.addInitScript(({ offer: offered, facing: facingMode }) => {
       if (location.hostname !== "127.0.0.1") return;
       window.focusCalls = [];
@@ -3859,7 +3880,7 @@ print("written")
 
   // ---- Play on a phone (BF-15, BF-D-049): a screen whose narrow side is under 600px is a phone
   const SIZES = [{ width: 390, height: 844 }, { width: 360, height: 720 }];
-  const phoneContext = (viewport) => browser.newContext({ viewport, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  const phoneContext = (viewport) => newContext({ viewport, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   const openPhone = async (where) => {
     const page = await where.newPage();
     watch(page);
@@ -4044,7 +4065,7 @@ print("written")
   });
 
   await check(113, "on a laptop the toolbar is as it was (no More, no Read mode, no strip); Code | Blocks is a switch and Blocks shows the blocks (BF-15)", async () => {
-    const where = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const where = await newContext({ viewport: { width: 1280, height: 800 } });
     try {
       const page = await openPhone(where);
       await clearDrafts(page);
@@ -4075,6 +4096,514 @@ print("written")
     } finally {
       await where.close();
     }
+  });
+
+  // ---- Play on a phone, part two (BF-15 round 3, BF-D-050): one still screen, a canvas that folds, Output as a sheet, Clear for the messages,
+  // Auto-run on opening, one line of tabs, Undo and Redo for the blocks. The checks that need the learner's own Auto-run (on from the first load)
+  // make their contexts with { autoRunOnOpen: true }; the others begin from an idle page (see newContext).
+  const longSketch = (lines) => BLANK_TEXT_FOR_TEST + Array.from({ length: lines }, (_, i) => `# line ${i + 1} of a long sketch, long enough to need scrolling`).join("\n") + "\n";
+  const PRINT_SKETCH = "import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n    print(\"hello from the sheet\")\n\n\ndef draw():\n    f.background(\"gold\")\n\n\nf.run()\n";
+  const geometry = (page) => page.evaluate(() => {
+    const box = (selector) => {
+      const e = document.querySelector(selector);
+      if (!e) return null;
+      const r = e.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height, width: r.width };
+    };
+    return { inner: { width: innerWidth, height: innerHeight }, scrolling: { height: document.scrollingElement.scrollHeight, width: document.scrollingElement.scrollWidth },
+      play: box(".fg-play"), bar: box(".fg-play__bar"), picture: box(".fg-play__picture"), caption: box(".fg-play__caption"), tab: box(".fg-play__tab"),
+      editor: box(".fg-play__editor"), code: box(".fg-play__code"), blocks: box(".fg-play__blocks"), hint: box(".fg-play__readhint"), sheet: box(".fg-console") };
+  });
+  const canvasChip = (page) => page.locator(".fg-play__canvaschip");
+  const sheetChip = (page) => page.locator(".fg-play__sheetchip");
+  const showsBlocks = (page) => page.waitForFunction(() => [...document.querySelectorAll(".fg-play__view")].some((b) => b.textContent === "Blocks"
+    && b.getAttribute("aria-pressed") === "true"), null, { timeout: 90000 })
+    .catch(async (e) => { throw new Error(`${e.message}; the status says "${await status(page)}"`); });
+  const hasRun = (page, timeout = 40000) => page.waitForFunction(() => /^(Starting|Running|Finished)/.test(document.querySelector(".play-status").textContent), null, { timeout })
+    .catch(async (e) => { throw new Error(`${e.message}; the status says "${await status(page)}"`); });
+  const historyCountOf = async (page) => Number((await page.getByRole("button", { name: "This visit's messages" }).innerText()).replace(/\D/g, ""));
+
+  await check(114, "on a phone the screen holds still: it never scrolls, the editor ends at the screen's foot and the Read mode hint is there whatever the sketch's length (BF-D-050)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        await clearDrafts(page);
+        await typeCode(page, longSketch(150));
+        await page.locator(".fg-play__readhint").waitFor({ state: "visible" });
+        const g = await geometry(page);
+        assert(g.scrolling.height <= g.inner.height + 1 && g.scrolling.width <= g.inner.width, `the page is ${g.scrolling.width} x ${g.scrolling.height} on a ${g.inner.width} x ${g.inner.height} screen`);
+        assert(Math.abs(g.play.top) < 1 && Math.abs(g.play.bottom - g.inner.height) < 1.5, `Play is ${Math.round(g.play.top)} to ${Math.round(g.play.bottom)} on a screen ${g.inner.height} tall`);
+        assert(Math.abs(g.editor.bottom - g.inner.height) < 1.5, `the editor ends at ${Math.round(g.editor.bottom)}, the screen at ${g.inner.height}`);
+        assert(g.hint.bottom <= g.inner.height && g.hint.bottom >= g.inner.height - 12 && g.hint.top > g.tab.bottom, `the hint is ${Math.round(g.hint.top)} to ${Math.round(g.hint.bottom)} on a screen ${g.inner.height} tall`);
+        assert(g.bar.top < g.picture.top && g.picture.bottom <= g.caption.top + 1 && g.caption.bottom <= g.tab.top + 1 && g.tab.bottom <= g.code.top + 1,
+          `the order from the top is not bar, canvas, thin line, tabs, code: ${JSON.stringify({ bar: g.bar.top, picture: g.picture.top, caption: g.caption.top, tab: g.tab.top, code: g.code.top })}`);
+        assert(g.code.height > 150, `the code has ${Math.round(g.code.height)}px`);
+        const inside = await page.evaluate(() => { const s = document.querySelector(".cm-scroller"); return { whole: s.scrollHeight, shown: s.clientHeight }; });
+        assert(inside.whole > inside.shown + 200, `the code does not scroll inside its box: ${inside.whole} in ${inside.shown}`);
+        // a push at the page does not move it
+        await page.evaluate(() => window.scrollTo(0, 500));
+        assert((await page.evaluate(() => window.scrollY)) === 0, "the page scrolled");
+        assert(!(await page.locator(".fg-play__fab").isVisible()), "the floating Run shows on a phone");
+        await noSidewaysScroll(page, size.width, "the still screen");
+        await shot(page, `phone_${size.width}x${size.height}_1_unfolded.png`);
+
+        // Edit starts from this layout: the editing screen is the whole of the visual viewport, with the strip and its thumbnail
+        await page.getByRole("button", { name: "Edit", exact: true }).tap();
+        const editing = await geometry(page);
+        assert(await page.evaluate(() => document.querySelector(".fg-play").classList.contains("fg-editing")), "Edit did not start editing");
+        assert(Math.abs(editing.play.height - editing.inner.height) < 2 && editing.play.top === 0, `the editing screen is ${editing.play.top} to ${editing.play.bottom}`);
+        assert(await page.locator(".fg-play__frame").isVisible() && await page.getByRole("button", { name: "Done", exact: true }).isVisible(), "the strip or its thumbnail is missing");
+        await page.getByRole("button", { name: "Done", exact: true }).tap();
+        const back = await geometry(page);
+        assert(Math.abs(back.editor.bottom - back.inner.height) < 1.5 && back.hint.height > 0, "Done did not bring the still screen back");
+        seen.push(`${size.width}x${size.height}: page ${g.scrolling.height}px, code ${Math.round(g.code.height)}px, hint at ${Math.round(g.hint.bottom)}`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(115, "the canvas folds: ▴ Canvas folds it and gives the room to the code, ▾ Canvas brings it back, Run unfolds it, the fold is kept while the page is open, and the zoom is in the thin line (BF-D-050)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        await clearDrafts(page);
+        const chip = canvasChip(page);
+        assert((await chip.innerText()) === "▴ Canvas" && (await chip.getAttribute("aria-expanded")) === "true", `the chip says "${await chip.innerText()}"`);
+        const open = await geometry(page);
+        assert(open.picture.height > 100 && open.caption.height <= 64, `the canvas is ${Math.round(open.picture.height)}px and the thin line ${Math.round(open.caption.height)}px`);
+        // the zoom is in the thin line, with targets of 40 px
+        for (const name of ["Zoom out", "Zoom in"]) {
+          const button = await page.getByRole("button", { name, exact: true }).boundingBox();
+          assert(button && button.width >= 40 && button.height >= 40 && button.y >= open.caption.top - 1 && button.y + button.height <= open.caption.bottom + 1, `${name} is not a 40 px target in the thin line: ${JSON.stringify(button)}`);
+        }
+        const fit = await page.locator(".fg-play__zoomfit").boundingBox();
+        assert(fit.height >= 40, "Fit is not a 40 px target");
+        const sheetBox = await sheetChip(page).boundingBox();
+        assert(sheetBox.height >= 36 && sheetBox.y >= open.caption.top - 1, "the Output chip is not in the thin line");
+        await page.getByRole("button", { name: "Zoom in", exact: true }).tap();
+        assert((await page.locator(".fg-play__zoomfit").getAttribute("aria-pressed")) === "false", "Zoom in did not leave Fit");
+        await page.locator(".fg-play__zoomfit").tap();
+        assert((await page.locator(".fg-play__zoomfit").getAttribute("aria-pressed")) === "true", "Fit did not come back");
+        await noSidewaysScroll(page, size.width, "the thin line");
+
+        await chip.tap();
+        const folded = await geometry(page);
+        assert((await chip.innerText()) === "▾ Canvas" && (await chip.getAttribute("aria-expanded")) === "false", `the folded chip says "${await chip.innerText()}"`);
+        assert(!(await page.locator(".fg-play__picture").isVisible()), "the canvas shows folded");
+        assert(folded.editor.height >= open.editor.height + open.picture.height - 4, `the editor went from ${Math.round(open.editor.height)} to ${Math.round(folded.editor.height)}px with a canvas of ${Math.round(open.picture.height)}px`);
+        assert(Math.abs(folded.editor.bottom - folded.inner.height) < 1.5 && folded.scrolling.height <= folded.inner.height + 1, "the folded screen does not hold still");
+        assert(/\d+ × \d+/.test(await page.locator(".fg-play__size").innerText()), "the folded line does not say the canvas's size");
+        assert(!(await page.getByRole("button", { name: "Zoom in", exact: true }).isVisible()), "the zoom shows with the canvas folded");
+        assert(await sheetChip(page).isVisible(), "the Output chip is gone when folded");
+        await shot(page, `phone_${size.width}x${size.height}_2_folded.png`);
+
+        // the fold is kept while the page is open: another example opens folded
+        const other = await page.evaluate(() => [...document.querySelectorAll(".fg-play__choose option")].find((o) => o.value !== document.querySelector(".fg-play__choose").value && o.value.includes("_")).value);
+        await page.locator(".fg-play__choose").selectOption(other);
+        await page.waitForFunction((id) => document.querySelector(".fg-play__choose").value === id, other);
+        assert((await chip.innerText()) === "▾ Canvas", "another example unfolded the canvas");
+        // Run (the bar's) unfolds it
+        await page.getByRole("button", { name: "Run", exact: true }).tap();
+        assert((await chip.innerText()) === "▴ Canvas" && (await page.locator(".fg-play__picture").isVisible()), "Run did not unfold the canvas");
+        await page.getByRole("button", { name: "Stop", exact: true }).tap();
+        // the editing strip's Run unfolds it too, and a folded canvas is still the strip's thumbnail
+        await chip.tap();
+        await page.getByRole("button", { name: "Edit", exact: true }).tap();
+        const strip = await page.locator(".fg-play__frame").boundingBox();
+        assert(strip && strip.y < 60 && strip.width > 40, `the thumbnail is missing while editing with a folded canvas: ${JSON.stringify(strip)}`);
+        await page.getByRole("button", { name: "▶ Run", exact: true }).tap();
+        await page.getByRole("button", { name: "Done", exact: true }).tap();
+        assert((await chip.innerText()) === "▴ Canvas", "the editing strip's Run did not unfold the canvas");
+        seen.push(`${size.width}x${size.height}: editor ${Math.round(open.editor.height)} to ${Math.round(folded.editor.height)}px`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(116, "in the Blocks view on a phone the canvas starts folded; Code brings back what it was (BF-D-050)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        await clearDrafts(page);
+        const chip = canvasChip(page);
+        assert((await chip.innerText()) === "▴ Canvas", "the canvas does not start unfolded in Code");
+        await page.getByRole("button", { name: "Blocks", exact: true }).tap();
+        await showsBlocks(page);
+        assert((await chip.innerText()) === "▾ Canvas" && !(await page.locator(".fg-play__picture").isVisible()), "the canvas is not folded in Blocks");
+        await sleep(500);
+        const g = await geometry(page);
+        assert(g.blocks.height > 250 && Math.abs(g.blocks.bottom - g.inner.height) < 1.5, `the blocks are ${Math.round(g.blocks.top)} to ${Math.round(g.blocks.bottom)} on a screen ${g.inner.height} tall`);
+        assert(g.scrolling.height <= g.inner.height + 1, "the page scrolls in Blocks");
+        await shot(page, `phone_${size.width}x${size.height}_4_blocks_folded.png`);
+        await page.getByRole("button", { name: "Code", exact: true }).tap();
+        assert((await chip.innerText()) === "▴ Canvas" && (await page.locator(".fg-play__picture").isVisible()), "Code did not bring the canvas back");
+        // folded before the blocks: folded after
+        await chip.tap();
+        await page.getByRole("button", { name: "Blocks", exact: true }).tap();
+        await showsBlocks(page);
+        await page.getByRole("button", { name: "Code", exact: true }).tap();
+        assert((await chip.innerText()) === "▾ Canvas", "Code unfolded a canvas that was folded before the blocks");
+        // Run in the blocks unfolds it, and the view stays blocks
+        await page.getByRole("button", { name: "Blocks", exact: true }).tap();
+        await showsBlocks(page);
+        await page.getByRole("button", { name: "Run", exact: true }).tap();
+        assert((await chip.innerText()) === "▴ Canvas", "Run did not unfold the canvas in Blocks");
+        seen.push(`${size.width}x${size.height}: blocks ${Math.round(g.blocks.height)}px tall`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(117, "on a phone Output is a sheet: the chip counts what was printed and opens it from the foot, Esc, Close and a tap outside close it, Clear empties it; an error stays in the message line (BF-D-050)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        await clearDrafts(page);
+        await typeCode(page, PRINT_SKETCH);
+        await page.getByRole("button", { name: "Run", exact: true }).tap();
+        await page.waitForFunction(() => document.querySelector(".fg-play__sheetcount")?.textContent === "1" && !document.querySelector(".fg-play__sheetcount").hidden, null, { timeout: 40000 });
+        const before = await geometry(page);
+        assert(!(await page.locator(".fg-console").isVisible()), "Output shows above the canvas before it is opened");
+        await shot(page, `phone_${size.width}x${size.height}_3a_output_chip_with_count.png`);
+        await sheetChip(page).tap();
+        const sheet = page.locator(".fg-console");
+        await sheet.waitFor({ state: "visible" });
+        const open = await geometry(page);
+        assert(Math.abs(open.sheet.bottom - open.inner.height) < 1.5, `the sheet ends at ${Math.round(open.sheet.bottom)} on a screen ${open.inner.height} tall`);
+        assert(open.sheet.height > open.inner.height * 0.4 && open.sheet.height < open.inner.height * 0.6, `the sheet is ${Math.round(open.sheet.height)}px of ${open.inner.height}`);
+        assert(Math.abs(open.picture.top - before.picture.top) < 1 && Math.abs(open.picture.height - before.picture.height) < 1, "the sheet moved the canvas");
+        assert((await sheet.innerText()).includes("hello from the sheet"), `the sheet says "${await sheet.innerText()}"`);
+        assert(await page.locator(".fg-play__sheetcount").isHidden(), "the count stays after the sheet was opened");
+        assert(open.scrolling.height <= open.inner.height + 1, "the page scrolls with the sheet open");
+        for (const name of ["Clear", "Close"]) {
+          const button = await sheet.getByRole("button", { name, exact: true }).boundingBox();
+          assert(button && button.height >= 36 && button.x + button.width <= size.width, `${name} is not a target on the screen: ${JSON.stringify(button)}`);
+        }
+        await shot(page, `phone_${size.width}x${size.height}_3_output_sheet.png`);
+        await page.keyboard.press("Escape");
+        assert(!(await sheet.isVisible()), "Esc did not close the sheet");
+        assert(await page.evaluate(() => document.activeElement.classList.contains("fg-play__sheetchip")), "the focus did not go back to the chip");
+        await sheetChip(page).tap();
+        await sheet.waitFor({ state: "visible" });
+        await page.locator(".fg-play__tab").tap({ position: { x: 4, y: 4 } });
+        assert(!(await sheet.isVisible()), "a tap outside did not close the sheet");
+        await sheetChip(page).tap();
+        await sheet.getByRole("button", { name: "Close", exact: true }).tap();
+        assert(!(await sheet.isVisible()), "Close did not close the sheet");
+        // a line printed while the sheet is closed counts again; Clear empties the sheet
+        await page.getByRole("button", { name: "Run", exact: true }).tap();
+        await page.waitForFunction(() => document.querySelector(".fg-play__sheetcount")?.textContent === "1" && !document.querySelector(".fg-play__sheetcount").hidden, null, { timeout: 40000 });
+        await sheetChip(page).tap();
+        await sheet.getByRole("button", { name: "Clear", exact: true }).tap();
+        assert((await page.locator(".fg-console__body").evaluate((e) => e.children.length)) === 0, "Clear left lines in the sheet");
+        await page.keyboard.press("Escape");
+        // an error is in the message line, with Go to line, and no sheet is opened for it
+        await typeCode(page, SKETCH_WITH("f.circl(10, 10, 10)"));
+        await page.locator(".fg-msg--error").waitFor({ timeout: 40000 });
+        const line = await page.locator(".fg-msg--error").boundingBox();
+        assert(line.x >= 0 && line.x + line.width <= size.width, "the error line is off the screen");
+        assert(await page.locator(".fg-msg--error").getByRole("button", { name: /^Go to line/ }).isVisible(), "the error has no Go to line");
+        assert(!(await sheet.isVisible()), "the sheet opened for an error");
+        await noSidewaysScroll(page, size.width, "the error line");
+        seen.push(`${size.width}x${size.height}: sheet ${Math.round(open.sheet.height)}px`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(118, "the message list ends with \"N messages this visit\" and a Clear that empties it and the count; another example starts the count again (BF-D-050)", async () => {
+    // the laptop
+    {
+      const page = await openEditor();
+      await clearDrafts(page);
+      await page.locator(".fg-play__auto input").uncheck();
+      await page.reload();
+      await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      await page.locator(".fg-play__auto input").uncheck();
+      await runButton(page).click();
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 30000 });
+      await page.getByRole("button", { name: "Stop", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Stopped.", null, { timeout: 30000 });
+      const count = await historyCountOf(page);
+      assert(count >= 3, `the count is ${count}`);
+      const more = page.getByRole("button", { name: "This visit's messages" });
+      await more.click();
+      const list = page.locator(".fg-msg__list");
+      assert((await list.locator(".fg-msg__foot span").innerText()) === `${count} messages this visit`, `the footer says "${await list.locator(".fg-msg__foot span").innerText()}"`);
+      await list.getByRole("button", { name: "Clear", exact: true }).click();
+      assert((await list.locator(".fg-msg__item").count()) === 0, "Clear left messages in the list");
+      assert((await more.innerText()) === "0 ▾", `the count says "${await more.innerText()}"`);
+      assert((await list.locator(".fg-msg__foot span").innerText()) === "No messages this visit" && await list.getByRole("button", { name: "Clear", exact: true }).isDisabled(), "the footer of an empty list is wrong");
+      assert((await status(page)) === "Stopped.", "Clear emptied the line on screen");
+      await more.click();
+      await runButton(page).click();
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 30000 });
+      assert((await historyCountOf(page)) >= 1, "a new message did not count after Clear");
+      await page.getByRole("button", { name: "Stop", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Stopped.", null, { timeout: 30000 });
+      // another example: the count starts again, with the one line the opening says
+      const other = await page.evaluate(() => [...document.querySelectorAll(".fg-play__choose option")].find((o) => o.value !== document.querySelector(".fg-play__choose").value && o.value.includes("_")).value);
+      await page.locator(".fg-play__choose").selectOption(other);
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Ready. Press Run.", null, { timeout: 30000 });
+      assert((await historyCountOf(page)) === 1, `after another example the count is ${await historyCountOf(page)}`);
+      assert((await visitMessages(page)).join("|") === "Ready. Press Run.", `the list holds ${await visitMessages(page)}`);
+      await page.close();
+    }
+    // a phone: the list with Clear fits the screen
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        await page.getByRole("button", { name: "Run", exact: true }).tap();
+        await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 40000 });
+        await page.getByRole("button", { name: "This visit's messages" }).tap();
+        const list = page.locator(".fg-msg__list");
+        await list.waitFor({ state: "visible" });
+        const clear = await list.getByRole("button", { name: "Clear", exact: true }).boundingBox();
+        const box = await list.boundingBox();
+        assert(clear && clear.x + clear.width <= size.width && clear.y + clear.height <= size.height && box.x >= 0 && box.x + box.width <= size.width, `the list is ${JSON.stringify(box)}, Clear ${JSON.stringify(clear)}`);
+        await noSidewaysScroll(page, size.width, "the message list");
+        await shot(page, `phone_${size.width}x${size.height}_5_messages.png`);
+        await list.getByRole("button", { name: "Clear", exact: true }).tap();
+        assert((await page.getByRole("button", { name: "This visit's messages" }).innerText()) === "0 ▾", "Clear did not reset the count on a phone");
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return "laptop and phone";
+  });
+
+  await check(119, "Auto-run on opening: with Auto-run on, a sketch the learner opens (the first load, the list, the arrows) runs by itself; with it off, nothing does; a shared link and a lesson's example wait for Run (BF-D-050)", async () => {
+    const where = await newContext({ viewport: { width: 1280, height: 900 }, autoRunOnOpen: true, permissions: ["clipboard-read", "clipboard-write"] });
+    try {
+      // the first load, Auto-run on: the starter runs without a press
+      const page = await openEditor("", "", where);
+      await hasRun(page);
+      await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque);
+      // the list: stop it, then another example opens and runs
+      const ids = await page.evaluate(() => [...document.querySelectorAll(".fg-play__choose option")].map((o) => o.value).filter((v) => v.includes("_") && !v.startsWith("course-")));
+      await page.getByRole("button", { name: "Stop", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Stopped.", null, { timeout: 30000 });
+      await page.locator(".fg-play__choose").selectOption(ids[1]);
+      await hasRun(page);
+      await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque);
+      // the arrows: Next opens the next example and runs it
+      await page.getByRole("button", { name: "Stop", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Stopped.", null, { timeout: 30000 });
+      await page.getByRole("button", { name: /^Next/ }).click();
+      await hasRun(page);
+      assert(await page.locator(".fg-play__choose").inputValue() === ids[2], "Next did not open the next example");
+      // a running sketch is stopped first, as open() does: choosing another while one runs ends with the new one running
+      await page.locator(".fg-play__choose").selectOption(ids[0]);
+      await page.waitForFunction((id) => document.querySelector(".fg-play__choose").value === id && /^(Starting|Running|Finished)/.test(document.querySelector(".play-status").textContent), ids[0], { timeout: 40000 });
+      // Auto-run off: an example opens and waits
+      await page.locator(".fg-play__auto input").uncheck();
+      await page.getByRole("button", { name: "Stop", exact: true }).click().catch(() => {});
+      await page.locator(".fg-play__choose").selectOption(ids[1]);
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Ready. Press Run.", null, { timeout: 30000 });
+      await sleep(3000);
+      assert((await status(page)) === "Ready. Press Run.", `with Auto-run off the status is "${await status(page)}"`);
+      // Auto-run on again, and a shared link: it opens and waits (someone else's code)
+      await page.locator(".fg-play__auto input").check();
+      await page.getByRole("button", { name: "Share" }).click();
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Link copied"));
+      const link = await page.locator(".play-link").inputValue();
+      const shared = await openEditor("", link.slice(link.indexOf("#")), where);
+      await sleep(3000);
+      assert((await status(shared)).startsWith("Shared sketch: press Run"), `the shared sketch's status is "${await status(shared)}"`);
+      assert(!(await picture(frameOf(shared, PREVIEW))).opaque, "the shared sketch ran by itself");
+      await shared.close();
+      // a lesson's example: the learner predicts before the first Run
+      const lesson = await openEditor("&example=course-01_positions", "", where);
+      await sleep(3000);
+      assert((await status(lesson)) === "Ready. Press Run.", `the lesson's status is "${await status(lesson)}"`);
+      assert(!(await picture(frameOf(lesson, PREVIEW))).opaque, "a lesson's example ran by itself");
+      await lesson.close();
+      // a link to an example (the gallery pages link that way) runs
+      const linked = await openEditor(`&example=${FIRST_SKETCH}`, "", where);
+      await hasRun(linked);
+      await linked.close();
+      await page.close();
+      return "first load, list, Next: run; off, shared, lesson: wait; a link to an example: runs";
+    } finally {
+      await where.close();
+    }
+  });
+
+  await check(120, "on a phone the tab row is one line with a long file name: the name is cut short with an ellipsis, then Code | Blocks, then File (BF-D-050)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        await where.addInitScript(([list, last]) => { localStorage.setItem("funground.play.sketches", list); localStorage.setItem("funground.play.last", last); },
+          [JSON.stringify([{ id: "longname", name: "A very long name for my sketch that goes on and on", code: BLANK_TEXT_FOR_TEST, created: 1, updated: 1 }]), JSON.stringify("my:longname")]);
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        const t = await page.evaluate(() => {
+          const box = (selector) => { const e = document.querySelector(selector); const r = e.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, height: r.height, scroll: e.scrollWidth, client: e.clientWidth }; };
+          return { name: box(".fg-play__name"), views: box(".fg-play__views"), file: box(".fg-play__filebtn"), tab: box(".fg-play__tab"), text: document.querySelector(".fg-play__name").textContent,
+            overflow: getComputedStyle(document.querySelector(".fg-play__name")).textOverflow };
+        });
+        assert(t.text.startsWith("A very long name"), `the sketch is called "${t.text}"`);
+        assert(t.tab.height <= 56, `the tab row is ${Math.round(t.tab.height)}px tall: it wraps`);
+        const middle = (b) => (b.top + b.bottom) / 2;
+        assert(Math.abs(middle(t.name) - middle(t.views)) <= 4 && Math.abs(middle(t.views) - middle(t.file)) <= 4, `the name, the switch and File are not on one line: ${JSON.stringify([t.name.top, t.views.top, t.file.top])}`);
+        assert(t.name.right <= t.views.left && t.views.right <= t.file.left && t.file.right <= size.width, "the order is not name, Code | Blocks, File inside the screen");
+        assert(t.name.scroll > t.name.client && t.overflow === "ellipsis", `the name is not cut short with an ellipsis: ${t.name.scroll} in ${t.name.client}, ${t.overflow}`);
+        await noSidewaysScroll(page, size.width, "the tab row");
+        // the File menu opens inside the screen from the right end, with Python on blocks in it
+        await page.locator(".fg-play__filebtn").tap();
+        const menu = await page.locator(".fg-play__menu").boundingBox();
+        assert(menu.x >= 0 && menu.x + menu.width <= size.width, `the File menu is at ${Math.round(menu.x)} to ${Math.round(menu.x + menu.width)}`);
+        await page.keyboard.press("Escape");
+        seen.push(`${size.width}: tab row ${Math.round(t.tab.height)}px, name ${t.name.client} of ${t.name.scroll}px`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(121, "Python on blocks starts off on a phone and on on a laptop; what the learner chose is kept, on or off, and wins (BF-D-050)", async () => {
+    const lines = (page) => page.locator(".fg-play__lines input").evaluate((e) => e.checked);
+    const saved = (page) => page.evaluate(() => localStorage.getItem("funground.play.blocklines"));
+    const choose = (page, on) => page.locator(".fg-play__lines input").evaluate((e, value) => { e.checked = value; e.dispatchEvent(new Event("change")); }, on);
+    const where = await phoneContext(SIZES[1]);
+    const desk = await newContext({ viewport: { width: 1280, height: 800 } });
+    try {
+      const phonePage = await openPhone(where);
+      await clearDrafts(phonePage);
+      await phonePage.reload();
+      await phonePage.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      assert((await lines(phonePage)) === false, "Python on blocks is on at first on a phone");
+      await choose(phonePage, true);
+      assert((await saved(phonePage)) === "true", `a choice of on is saved as ${await saved(phonePage)}`);
+      await phonePage.reload();
+      await phonePage.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      assert((await lines(phonePage)) === true, "a saved choice of on did not win on a phone");
+      await choose(phonePage, false);
+      assert((await saved(phonePage)) === "false", `a choice of off is saved as ${await saved(phonePage)}`);
+      const deskPage = await openPhone(desk);
+      await clearDrafts(deskPage);
+      await deskPage.reload();
+      await deskPage.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      assert((await lines(deskPage)) === true, "Python on blocks is off at first on a laptop");
+      await deskPage.evaluate(() => localStorage.setItem("funground.play.blocklines", "false"));      // what an older Play saved for "off"
+      await deskPage.reload();
+      await deskPage.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      assert((await lines(deskPage)) === false, "a saved choice of off did not win on a laptop");
+      await phonePage.close();
+      await deskPage.close();
+      return "phone off, laptop on; saved on and off win";
+    } finally {
+      await where.close();
+      await desk.close();
+    }
+  });
+
+  // Undo and Redo for the blocks (BF-D-050). The editor must have undo() and redo() (the bundle blockly-fun is building for this); until
+  // the vendored bundle has them, check 122 tests the wiring with stand-ins, and check 123 (the real undo) is skipped.
+  const bundleHasUndo = (page) => page.evaluate(() => { const e = document.querySelector(".fg-play__blocks").blocksEditor; return typeof e?.undo === "function" && typeof e?.redo === "function"; });
+
+  await check(122, "Blocks: Undo blocks and Redo blocks show beside Code | Blocks only while the blocks show, at every size, and call the editor's undo and redo; the tab row stays one line (BF-D-050)", async () => {
+    const notes = [];
+    const contexts = [["laptop", () => newContext({ viewport: { width: 1280, height: 800 } }), 1280], ["phone", () => phoneContext(SIZES[1]), 360]];
+    for (const [name, make, width] of contexts) {
+      const where = await make();
+      try {
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        await clearDrafts(page);
+        const undo = page.getByRole("button", { name: "Undo blocks", exact: true });
+        const redo = page.getByRole("button", { name: "Redo blocks", exact: true });
+        assert(!(await undo.isVisible()) && !(await redo.isVisible()), `${name}: Undo blocks shows in the Code view`);
+        const tap = (locator) => (name === "phone" ? locator.tap() : locator.click());
+        await tap(page.getByRole("button", { name: "Blocks", exact: true }));
+        await showsBlocks(page);
+        let real = await bundleHasUndo(page);
+        const calls = [];
+        if (!real) {
+          // the vendored bundle is older than this feature: stand-ins record the calls (the buttons ask the editor each time they are shown)
+          await page.evaluate(() => {
+            const e = document.querySelector(".fg-play__blocks").blocksEditor;
+            window.__calls = [];
+            e.undo = () => window.__calls.push("undo");
+            e.redo = () => window.__calls.push("redo");
+          });
+          await tap(page.getByRole("button", { name: "Code", exact: true }));
+          await tap(page.getByRole("button", { name: "Blocks", exact: true }));
+          await showsBlocks(page);
+          notes.push(`${name}: STAND-INS (the vendored bundle has no undo)`);
+        } else {
+          notes.push(`${name}: the bundle's own undo`);
+        }
+        assert(await undo.isVisible() && await redo.isVisible(), `${name}: Undo blocks and Redo blocks are not shown with the blocks`);
+        const boxes = [await undo.boundingBox(), await redo.boundingBox(), await page.locator(".fg-play__views").boundingBox()];
+        const t = await page.locator(".fg-play__tab").boundingBox();
+        assert(boxes[0].x + boxes[0].width <= boxes[2].x + 1 && boxes[1].x + boxes[1].width <= boxes[2].x + 1, `${name}: the buttons are not before Code | Blocks`);
+        assert(Math.abs(boxes[0].y - boxes[2].y) < 12 && t.height <= 60 && t.x + t.width <= width, `${name}: the tab row is ${Math.round(t.height)}px tall`);
+        if (name === "phone") assert(boxes[0].height >= 36 && boxes[0].width >= 40, `the buttons are ${boxes[0].width} x ${boxes[0].height}`);
+        await noSidewaysScroll(page, width, `${name}: blocks tab row`);
+        if (!real) {
+          await tap(undo);
+          await tap(redo);
+          assert((await page.evaluate(() => window.__calls)).join() === "undo,redo", `the editor was called with ${await page.evaluate(() => window.__calls)}`);
+        }
+        await tap(page.getByRole("button", { name: "Code", exact: true }));
+        assert(!(await undo.isVisible()), `${name}: Undo blocks stays in the Code view`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return notes.join("; ");
+  });
+
+  await check(123, "Blocks: Undo blocks takes back a change to a block and Redo blocks brings it back (BF-D-050)", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await typeCode(page, "import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    f.circle(100, 50, 40)\n\n\nf.run()\n");
+    await page.getByRole("button", { name: "Blocks", exact: true }).click();
+    await showsBlocks(page);
+    if (!(await bundleHasUndo(page))) {
+      await page.close();
+      throw new Skip("the vendored blockly-fun bundle has no editor.undo() yet; the new bundle (BF-D-050) is being built, and this check runs once it is vendored");
+    }
+    await page.evaluate(() => document.querySelector(".fg-play__blocks").blocksEditor.workspace.getBlocksByType("bf_circle")[0].getInputTargetBlock("D").setFieldValue("77", "NUM"));
+    await page.waitForFunction(() => [...document.querySelectorAll(".cm-line")].some((l) => l.textContent.includes("f.circle(100, 50, 77)")), null, { timeout: 5000 });
+    await page.getByRole("button", { name: "Undo blocks", exact: true }).click();
+    await page.waitForFunction(() => [...document.querySelectorAll(".cm-line")].some((l) => l.textContent.includes("f.circle(100, 50, 40)")), null, { timeout: 5000 });
+    await page.getByRole("button", { name: "Redo blocks", exact: true }).click();
+    await page.waitForFunction(() => [...document.querySelectorAll(".cm-line")].some((l) => l.textContent.includes("f.circle(100, 50, 77)")), null, { timeout: 5000 });
+    await page.close();
+    return "undo and redo of a value change";
   });
 } finally {
   await browser.close();

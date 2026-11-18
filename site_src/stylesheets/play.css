@@ -30,8 +30,17 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-play__blocks[hidden] { display: none; }
 .fg-play__lines { margin-left: auto; font-size: .8em; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
 .fg-play__lines[hidden] { display: none; }
-.fg-play__lines:not([hidden]) + .fg-play__views { margin-left: .6rem; }
 .fg-play__views { margin-left: auto; display: inline-flex; border: 1.5px solid var(--dot); border-radius: 6px; overflow: hidden; }
+/* Undo and Redo of the blocks (BF-D-050): beside the switch while the blocks show. Whichever of the lines option, these and the switch
+   comes first takes the free room (margin-left: auto); the ones after it keep close. */
+.fg-play__blockhistory { margin-left: auto; display: inline-flex; gap: 4px; }
+.fg-play__lines:not([hidden]) ~ .fg-play__blockhistory { margin-left: .6rem; }
+.fg-play__blockhistory:not([hidden]) + .fg-play__views { margin-left: .4rem; }
+.fg-play__blockbtn { font: 700 14px/1 var(--font-body); min-width: 32px; padding: 3px 8px; color: var(--ink); background: var(--paper-raised); border: 1.5px solid var(--dot);
+  border-radius: 6px; cursor: pointer; }
+.fg-play__blockbtn:hover:not(:disabled) { background: var(--gold); color: #191970; }
+.fg-play__blockbtn:disabled { opacity: 0.4; cursor: default; }
+.fg-play__blockbtn:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .fg-play__view { font: inherit; font-size: .8em; padding: .1rem .6rem; border: 0; background: transparent; color: inherit; cursor: pointer; }
 .fg-play__view[aria-pressed="true"] { background: var(--dot); color: var(--ink); }
 .fg-play__view:disabled { opacity: .5; cursor: wait; }
@@ -130,6 +139,9 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-msg__item .fg-msg__text { overflow-wrap: anywhere; }
 .fg-msg__item time { font: 400 11.5px/1.4 var(--font-mono); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
 .fg-msg__item .fg-msg__acts { grid-column: 2 / 4; flex-wrap: wrap; }
+.fg-msg__foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 2px; border-top: 1px solid var(--dot);
+  font: 400 12px/1.3 var(--font-body); color: var(--ink-muted); }
+.fg-msg__foot .fg-play__minebtn:disabled { opacity: 0.45; cursor: default; }
 .fg-msg__dot { width: 9px; height: 9px; border-radius: 50%; background: var(--teal); border: 1.5px solid var(--ink); box-sizing: border-box; }
 .fg-msg__dot--running { background: var(--turquoise); }
 .fg-msg__dot--loading, .fg-msg__dot--warn { background: var(--gold); }
@@ -216,7 +228,7 @@ html.fg-focus .fg-play__guides, html.fg-focus .fg-play__share, html.fg-focus .fg
 html.fg-focus .fg-play__bar > .fg-iconbtn, html.fg-focus .fg-play__link, html.fg-focus .fg-play__help, html.fg-focus .fg-play__notice,
 html.fg-focus .fg-play__tab, html.fg-focus .fg-play__ftabs, html.fg-focus .fg-play__fileform, html.fg-focus .fg-lesson, html.fg-focus .fg-play__files,
 html.fg-focus .fg-console { display: none !important; }
-html.fg-focus .fg-play__views { margin-left: var(--space-2); }
+html.fg-focus .fg-play__views, html.fg-focus .fg-play__blockhistory { margin-left: var(--space-2); }
 html.fg-focus .fg-play__leavefocus { margin-left: auto; }
 .fg-play__focushint { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 2; max-width: 90%; padding: 4px 10px;
   font: 700 13px/1.3 var(--font-body); color: var(--ink); background: var(--paper-raised); border: 1.5px solid var(--ink); border-radius: var(--radius-sm);
@@ -379,14 +391,64 @@ html.fg-embed .fg-msg { order: 0; flex: 1 1 6rem; }
 /* The camera's focus control is under the picture: the bar's Focus opens it. Save picture is in More. */
 .fg-play.fg-phone .fg-play__camfocus:not(.is-open) { display: none; }
 .fg-play.fg-phone .fg-play__tools > .fg-play__zoom:has(.fg-play__savepicture) { display: none; }
-/* The tab row: the name, Code | Blocks and File on one line. */
-.fg-play.fg-phone .fg-play__tab { flex-wrap: wrap; gap: var(--space-2); padding: 6px 8px; }
-.fg-play.fg-phone .fg-play__name { flex: 1 1 auto; max-width: none; min-width: 0; }
+/* The tab row, on one line (BF-D-050): the name (cut short with an ellipsis), Undo and Redo while the blocks show, Code | Blocks, then File.
+   "Python on blocks" is in the File menu on a phone (play.js), so it takes no room here. */
+.fg-play.fg-phone .fg-play__tab { flex-wrap: nowrap; gap: 6px; padding: 6px 8px; }
+.fg-play.fg-phone .fg-play__name, .fg-play.fg-phone .fg-play__nameinput { order: 1; flex: 1 1 0; width: auto; max-width: none; min-width: 0; text-align: left; }
+.fg-play.fg-phone .fg-play__blockhistory { order: 2; margin-left: 0; flex: none; }
+.fg-play.fg-phone .fg-play__views { order: 3; margin-left: 0; flex: none; }
+.fg-play.fg-phone .fg-play__filemenu { order: 4; flex: none; }
 .fg-play.fg-phone .fg-play__linecount { display: none; }
-.fg-play.fg-phone .fg-play__views { margin-left: 0; }
 .fg-play.fg-phone .fg-play__view { padding: 6px 12px; min-height: 36px; }
+.fg-play.fg-phone .fg-play__blockbtn { min-height: 36px; min-width: 40px; font-size: 18px; }
 .fg-play.fg-phone .fg-play__filebtn { min-height: 36px; }
-.fg-play.fg-phone .fg-play__lines { margin-left: 0; }
+.fg-play.fg-phone .fg-play__menu { left: auto; right: 0; }
+.fg-play.fg-phone .fg-play__menu .fg-play__lines { margin: 0; padding: 8px 10px; min-height: 44px; font-size: 13px; font-weight: 700; justify-content: space-between; flex-direction: row-reverse; }
+.fg-play.fg-phone .fg-play__menu .fg-play__lines input { width: 20px; height: 20px; accent-color: var(--ink); }
+
+/* The screen holds still (BF-D-050): Play is exactly the screen's height and the page does not scroll. From the top: the example row and
+   the bar, the canvas (it folds), the thin line under it (the Canvas chip, the zoom, the Output chip), the tab row, and the code or the
+   blocks, which take what is left and scroll inside their own box. The site's own header goes, as it does in focus mode. */
+html:has(.fg-play.fg-phone) { overflow: hidden; }
+body:has(.fg-play.fg-phone) .md-header { display: none; }
+.fg-play.fg-phone { position: fixed; top: 0; left: 0; width: 100%; height: 100vh; height: 100dvh; box-sizing: border-box; overflow: hidden; background: var(--paper); }
+.fg-play.fg-phone .fg-play__work { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+.fg-play.fg-phone .fg-play__divider { display: none; }
+.fg-play.fg-phone .fg-play__stage { order: -1; flex: none; }
+.fg-play.fg-phone .fg-play__editor { flex: 1 1 0; height: auto; min-height: 0; }
+.fg-play.fg-phone .fg-play__code { min-height: 0; }
+.fg-play.fg-phone .fg-play__blocks { min-height: 0; }
+.fg-play.fg-phone .fg-play__fab { display: none !important; }          /* Run is always in the bar */
+.fg-play.fg-phone .fg-lesson, .fg-play.fg-phone .fg-play__files { max-height: 30dvh; overflow: auto; }
+/* Help over the screen, as a sheet that scrolls, since the page cannot. */
+.fg-play.fg-phone .fg-play__help { position: absolute; top: 56px; left: 8px; right: 8px; max-width: none; max-height: calc(100% - 64px); overflow: auto; margin: 0; z-index: 30; }
+/* The canvas folds: ▴ Canvas in the thin line folds it away, ▾ Canvas brings it back. */
+.fg-play.fg-phone .fg-play__picture { padding: 4px 8px 0; }
+.fg-play.fg-phone .fg-play__stage.is-folded .fg-play__picture { display: none; }
+.fg-play.fg-phone .fg-play__caption { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px; padding: 4px 8px; border-bottom: var(--outline-width) solid var(--ink); }
+.fg-play.fg-phone .fg-play__tools { display: contents; }
+.fg-play.fg-phone .fg-play__about { display: none; }
+.fg-play__chip { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 2px 12px; font: 700 13px/1 var(--font-body); color: var(--ink);
+  background: var(--paper-raised); border: 1.5px solid var(--ink); border-radius: 20px; cursor: pointer; white-space: nowrap; }
+.fg-play__chip { -webkit-tap-highlight-color: transparent; }
+.fg-play__chip:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.fg-play__sheetcount { padding: 2px 6px; font: 700 11px/1.2 var(--font-body); color: #fff; background: var(--tomato); border-radius: 9px; }
+.fg-play.fg-phone .fg-play__canvaschip { order: 1; }
+.fg-play.fg-phone .fg-play__zoomgroup, .fg-play.fg-phone .fg-play__size { order: 2; margin: 0 auto; }
+.fg-play.fg-phone .fg-play__size { flex: 1 1 0; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.fg-play.fg-phone .fg-play__stage:not(.is-folded) .fg-play__size, .fg-play.fg-phone .fg-play__stage.is-folded .fg-play__zoomgroup { display: none; }
+.fg-play.fg-phone .fg-play__sheetchip { order: 3; margin-left: auto; }
+.fg-play.fg-phone .fg-play__camfocus { order: 4; flex: 1 1 100%; }
+.fg-play.fg-phone .fg-play__zoombtn { min-width: 40px; min-height: 40px; }
+/* Output is a sheet from the foot of the screen, about half its height; the chip opens it. */
+.fg-play.fg-phone .fg-console { display: none; }
+.fg-play.fg-phone .fg-console.is-open { position: absolute; left: 0; right: 0; bottom: 0; height: 50%; z-index: 6; display: flex; flex-direction: column;
+  border: 0; border-top: var(--outline-width) solid var(--ink); border-radius: 14px 14px 0 0; box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.25); }
+.fg-play.fg-phone .fg-console__head { flex: none; padding: 8px 12px; }
+.fg-play.fg-phone .fg-console__head .fg-play__minebtn, .fg-play.fg-phone .fg-play__clear { min-height: 40px; }
+.fg-play.fg-phone .fg-play__clear { padding: 4px 12px; color: var(--ink); background: var(--paper-raised); border: 1.5px solid var(--ink); border-radius: var(--radius-sm); }
+.fg-play.fg-phone .fg-console__body { flex: 1 1 0; max-height: none; min-height: 0; }
+.fg-play.fg-phone .fg-console__body:empty::before { content: "Nothing printed yet."; color: var(--ink-muted); }
 
 /* More: a list under the button, as the File menu is. */
 .fg-play__moremenu { position: absolute; top: calc(100% - 2px); right: 8px; z-index: 8; display: flex; flex-direction: column; width: 220px;
@@ -422,7 +484,8 @@ html.fg-editing { overflow: hidden; }
 /* The picture, small, at the left of the strip. It only looks: a touch on it does nothing. */
 .fg-play.fg-editing .fg-play__stage { position: absolute; left: 8px; top: 4px; width: 76px; z-index: 2; pointer-events: none; }
 .fg-play.fg-editing .fg-console, .fg-play.fg-editing .fg-play__caption, .fg-play.fg-editing .fg-play__focushint,
-.fg-play.fg-editing .fg-play__still-tag, .fg-play.fg-editing .fg-play__still-note { display: none; }
+.fg-play.fg-editing .fg-play__still-tag, .fg-play.fg-editing .fg-play__still-note { display: none !important; }
+.fg-play.fg-phone.fg-editing .fg-play__stage.is-folded .fg-play__picture { display: grid; }
 .fg-play.fg-editing .fg-play__picture { padding: 0; }
 /* The symbols: 28px wide and 40px tall keys; the first eleven fill a 360px row and the rest are a swipe away. */
 .fg-play.fg-editing > .fg-play__symbols { display: flex; order: 99; flex: none; gap: 3px; padding: 5px 4px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
@@ -436,5 +499,5 @@ html.fg-editing { overflow: hidden; }
 /* Help lines only a phone needs (BF-15). */
 .fg-phone-only { display: none; }
 .fg-play.fg-phone .fg-phone-only { display: list-item; }
-/* The floating Run sits at the right: the Read mode hint stops short of it. */
-.fg-play.fg-phone .fg-play__readhint { right: 80px; }
+/* The Read mode hint is pinned to the foot of the screen, over the code: the editor ends there, whatever the sketch's length (BF-D-050). */
+.fg-play.fg-phone .fg-play__readhint { bottom: max(8px, env(safe-area-inset-bottom, 0px)); }
