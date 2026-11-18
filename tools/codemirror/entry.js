@@ -4,7 +4,7 @@
 // the page loads one file from its own site and nothing from a CDN. play.js sees only createEditor() below.
 import { Annotation, Compartment, EditorState, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, drawSelection, highlightActiveLine, keymap, lineNumbers } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentLess, indentMore, indentWithTab, redo, undo } from "@codemirror/commands";
 import { HighlightStyle, bracketMatching, indentOnInput, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { python } from "@codemirror/lang-python";
@@ -97,11 +97,13 @@ const darkColours = [syntaxHighlighting(codeColours), nightTheme];
  * @param {object} [options.completions]  the parsed completions.json; it may come later, through setCompletions()
  * @returns {{setCompletions: (data: object) => void, getText: () => string, setText: (text: string) => void, setDark: (dark: boolean) => void,
  *            markError: (line: number, name?: string) => void, clearError: () => void, goToLine: (line: number) => void,
- *            focus: () => void}}
+ *            focus: () => void, blur: () => void, setEditable: (editable: boolean) => void, insert: (text: string) => void,
+ *            undo: () => void, redo: () => void, indentMore: () => void, indentLess: () => void, revealCursor: () => void}}
  */
 export function createEditor({ parent, text = "", dark = false, onChange, completions }) {
   let suggestions = completions ? prepare(completions) : null;     // null: no funground suggestions yet
   const colours = new Compartment();
+  const editable = new Compartment();       // Read mode on a phone (BF-15): touches scroll and select, and open no keyboard
   const view = new EditorView({
     parent,
     state: EditorState.create({
@@ -111,6 +113,7 @@ export function createEditor({ parent, text = "", dark = false, onChange, comple
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         python(), errorMark, numberNudging, pageTheme, completionExtensions(() => suggestions),
         colours.of(dark ? darkColours : lightColours),
+        editable.of([]),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !update.transactions.some((t) => t.annotation(fromPage))) onChange?.();
         }),
@@ -148,5 +151,18 @@ export function createEditor({ parent, text = "", dark = false, onChange, comple
       view.focus();
     },
     focus: () => view.focus(),
+    blur: () => view.contentDOM.blur(),
+    // Read mode (BF-15): not editable means read-only and not content-editable, so a touch types nothing and no keyboard opens.
+    // The page's own changes (setText) still work.
+    setEditable: (on) => view.dispatch({ effects: editable.reconfigure(on ? [] : [EditorState.readOnly.of(true), EditorView.editable.of(false)]) }),
+    // The symbol row and the Undo and Redo buttons of a phone (BF-15). A symbol is typed as a key is: one undo step.
+    insert(text) {
+      view.dispatch(view.state.replaceSelection(text), { scrollIntoView: true, userEvent: "input.type" });
+    },
+    revealCursor: () => view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main, { y: "nearest" }) }),
+    undo: () => undo(view),
+    redo: () => redo(view),
+    indentMore: () => indentMore(view),
+    indentLess: () => indentLess(view),
   };
 }
