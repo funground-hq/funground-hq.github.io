@@ -60,6 +60,11 @@ export function createBlocksView({ box, getText, setText, send, say, onClose, ca
     },
   };
 
+  // Spike branch only (BF-D-053): ?phone=a is spike A (Blockly held in a list), ?phone=b spike B (our own rows); &look=code
+  // starts spike B in its Code look. Without the word a phone gets round 4's layout as before.
+  const SPIKE = new URLSearchParams(location.search).get("phone");
+  const PHONE_LAYOUT = SPIKE === "a" ? "phone-a" : SPIKE === "b" ? "phone-b" : "phone";
+
   async function load() {
     if (editor) return;
     bf = await import(new URL("blockly-fun.js", VENDOR).href);
@@ -71,7 +76,7 @@ export function createBlocksView({ box, getText, setText, send, say, onClose, ca
       catalogue: names,
       helpBase: referenceUrl,
       pythonLine: pythonLine(),
-      layout: phone() ? "phone" : "wide",         // BF-15: a bundle that does not know the option ignores it
+      layout: phone() ? PHONE_LAYOUT : "wide",         // BF-15: a bundle that does not know the option ignores it
       onChange(text) {
         onHistory();
         if (!active || converting || text === getText()) return;
@@ -79,6 +84,7 @@ export function createBlocksView({ box, getText, setText, send, say, onClose, ca
         setText(text);
       },
     });    box.blocksEditor = editor;    // for tools/test_editor.mjs (check 84): the workspace, without a global
+    if (PHONE_LAYOUT === "phone-b" && typeof editor.look === "function" && new URLSearchParams(location.search).get("look") === "code") editor.look("code");
   }
 
   /** Reads the editor's text as blocks. False (and the reason said) when it cannot. */
@@ -180,7 +186,7 @@ export function createBlocksView({ box, getText, setText, send, say, onClose, ca
     /** The screen became a phone, or stopped being one (BF-15). A bundle without a layout method is left as it is. */
     setPhone(on) {
       if (!editor) return;
-      const wanted = on ? "phone" : "wide";
+      const wanted = on ? PHONE_LAYOUT : "wide";
       // switching saves the program and draws the workspace again: onChange comes once with the same Python, which read() and onChange ignore
       if (typeof editor.layout === "function" && editor.layout() !== wanted) editor.layout(wanted);
       editor.resize();
