@@ -879,11 +879,29 @@ help.before(notice);
 notice.querySelector("button").addEventListener("click", () => { notice.hidden = true; });
 
 // "Remove Play from this browser" (S-210): the preview deletes what it kept (Python, funground and the fonts) and says so.
-// Sketches are not touched: they are kept by this page, not by the preview.
-const forgetButton = element("button", { class: "fg-btn", type: "button" }, "Remove Play from this browser");
+// Sketches are not touched: they are kept by this page, not by the preview. It is rarely wanted, so it is a quiet link at
+// the foot of the help that asks first (the maintainer pressed a big yellow button without meaning to, 20 Nov 2026).
+const forgetButton = element("button", { class: "fg-play__forgetlink", type: "button" }, "Remove Play from this browser");
+const forgetYes = element("button", { class: "fg-play__minebtn", type: "button" }, "Remove");
+const forgetNo = element("button", { class: "fg-play__minebtn", type: "button" }, "Cancel");
+const forgetAsk = element("span", { class: "fg-play__forgetask", hidden: "" },
+  "This deletes Python, funground and the fonts kept here for working offline; Play downloads them again next time. Your sketches and My files stay. ",
+  forgetYes, " ", forgetNo);
 const forgetNote = element("span", { class: "fg-play__forgetnote", role: "status" });
-help.append(element("p", { class: "fg-play__forget" }, forgetButton, " ", forgetNote));
+help.append(element("p", { class: "fg-play__forget" }, forgetButton, forgetAsk, " ", forgetNote));
 forgetButton.addEventListener("click", () => {
+  forgetNote.textContent = "";
+  forgetButton.hidden = true;
+  forgetAsk.hidden = false;
+  forgetNo.focus();
+});
+forgetNo.addEventListener("click", () => {
+  forgetAsk.hidden = true;
+  forgetButton.hidden = false;
+});
+forgetYes.addEventListener("click", () => {
+  forgetAsk.hidden = true;
+  forgetButton.hidden = false;
   forgetNote.textContent = "Removing...";
   tell({ type: "forget" });
   setTimeout(() => { if (forgetNote.textContent === "Removing...") forgetNote.textContent = "The preview did not answer. Try again in a moment."; }, 5000);
@@ -1816,11 +1834,14 @@ function showFiles() {
   }
   filesList.replaceChildren(...kept.map((file) => {
     const download = element("button", { class: "fg-play__minebtn", type: "button", title: `Save ${file.name} on this computer` }, "Download");
+    const rename = element("button", { class: "fg-play__minebtn", type: "button", title: `Give ${file.name} another name, the one a sketch opens it by` }, "Rename");
     const remove = element("button", { class: "fg-play__minebtn", type: "button", title: `Delete ${file.name} (you can undo for a few seconds)` }, "Delete");
+    const shown = element("span", { class: "fg-play__filename" }, file.name);
     download.addEventListener("click", () => downloadKept(file.name));
+    rename.addEventListener("click", () => startFileRename(file.name, shown));
     remove.addEventListener("click", () => deleteKept(file.name));
     return element("li", { class: "fg-play__file" },
-      element("span", { class: "fg-play__filename" }, file.name), element("span", { class: "fg-play__filesize" }, fileSize(file.size)), download, remove);
+      shown, element("span", { class: "fg-play__filesize" }, fileSize(file.size)), download, rename, remove);
   }));
 }
 
@@ -1901,6 +1922,57 @@ async function deleteKept(name) {
     sayFile(`"${name}" is back.`);
   } };
   sayFile(`Deleted "${name}". `, undo);
+}
+
+// Rename (S-319, D-162): the name in the row becomes a box, with the part before the dot selected. Enter or leaving the
+// box keeps the new name, Esc keeps the old one. A name typed without a dot keeps the old ending (my_photo -> my_photo.jpg).
+// A sketch opens the file by its new name, so a phone's IMG_20261120_154233.jpg can become my_photo.jpg.
+function startFileRename(name, shown) {
+  const box = element("input", { class: "fg-play__nameinput", type: "text", maxlength: "80", "aria-label": `New name for ${name}`,
+    autocapitalize: "off", autocorrect: "off", spellcheck: "false" });
+  box.value = name;
+  shown.replaceWith(box);
+  box.focus();
+  box.setSelectionRange(0, name.includes(".") ? name.lastIndexOf(".") : name.length);
+  let done = false;
+  const finish = (keep) => {
+    if (done) return;
+    done = true;
+    box.replaceWith(shown);
+    if (keep) renameKept(name, box.value.trim());
+  };
+  box.addEventListener("keydown", (event) => {
+    event.stopPropagation();                // Esc and Enter here are for the name, not for Stop or Run
+    if (event.key === "Enter") finish(true);
+    else if (event.key === "Escape") finish(false);
+  });
+  box.addEventListener("blur", () => finish(true));
+}
+
+async function renameKept(name, typed) {
+  const ending = name.includes(".") ? name.slice(name.lastIndexOf(".")) : "";
+  const wanted = typed && !typed.includes(".") ? typed + ending : typed;
+  if (!wanted || wanted === name) return;
+  if (/[\/\\]/.test(wanted)) {
+    sayFile(`A file's name cannot have / or \\ in it, so "${name}" kept its name.`);
+    return;
+  }
+  if (kept.some((file) => file.name === wanted)) {
+    sayFile(`There is already a file called "${wanted}". Delete or rename that one first.`);
+    return;
+  }
+  let renamed;
+  try {
+    renamed = await myFiles.rename(name, wanted);
+  } catch {
+    renamed = false;
+  }
+  await loadFiles();
+  if (!renamed) {
+    sayFile(`This browser would not rename "${name}".`);
+    return;
+  }
+  sayFile(`Renamed "${name}" to "${wanted}". Sketches open it as "${wanted}".`);
 }
 
 // The kept files as { name: Uint8Array }, ready to send with a run. With none, the store is not asked.

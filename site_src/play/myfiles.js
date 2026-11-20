@@ -73,6 +73,21 @@ export const restore = (record) => inStore("readwrite", (store) => { store.put(r
 
 export const remove = (name) => inStore("readwrite", (store) => { store.delete(name); });
 
+// Gives a kept file another name, in one transaction: the record under the new name, then the old one gone. It rejects
+// (and nothing changes) if a file already has the new name: add() refuses an existing key, so nothing is replaced.
+// Resolves true when renamed, false when there was no file of the old name.
+export const rename = (from, to) => inStore("readwrite", (store, done) => {
+  done(false);
+  store.get(from).onsuccess = (event) => {
+    const record = event.target.result;
+    if (!record) return;
+    store.add({ ...record, name: to }).onsuccess = () => {
+      store.delete(from);
+      done(true);
+    };
+  };
+});
+
 // Every kept file as { name: Uint8Array }, for a run.
 export function allBytes() {
   return inStore("readonly", (store, done) => {
