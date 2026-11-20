@@ -244,10 +244,12 @@ const pythonViewButton = element("button", { class: "fg-play__view", type: "butt
 const blocksViewButton = element("button", { class: "fg-play__view", type: "button", "aria-pressed": "false",
   title: "Show the sketch as blocks that make the same Python" }, "Blocks");
 const viewSwitch = element("span", { class: "fg-play__views", role: "group", "aria-label": "View" }, pythonViewButton, blocksViewButton);
-// The line of Python under each block: on at first, remembered when turned off. Shown only with the blocks.
+// The Python with the blocks: on a laptop the line of Python under each block ("Python on blocks"); on a phone the rows written as
+// Python ("Show code", in the File menu: BF-16, the maintainer's phone pass of 20 Nov). Remembered when changed. Shown only with the blocks.
 const linesOption = element("input", { type: "checkbox" });
+const linesWords = element("span", {}, " Python on blocks");
 const linesLabel = element("label", { class: "fg-play__lines", hidden: "", title: "Show the line of Python each block makes" },
-  linesOption, " Python on blocks");
+  linesOption, linesWords);
 const blocksBox = element("div", { class: "fg-play__blocks", hidden: "" });
 // My sketches (S-213): the actions on the sketch that is open. New and Open are always there; the rest depend on the sketch.
 const mineButton = (text, title) => element("button", { class: "fg-play__minebtn", type: "button", title }, text);
@@ -2529,8 +2531,10 @@ blockRedo.addEventListener("click", () => {
   showBlocksHistory();
 });
 
-// "Python on blocks" is in the File menu on a phone, where the tab row has no room for it, and in the tab row elsewhere.
+// On a phone the option is "Show code", in the File menu (the tab row has no room for it); elsewhere "Python on blocks", in the tab row.
 function placeLinesOption() {
+  linesWords.textContent = isPhone ? " Show code" : " Python on blocks";
+  linesLabel.title = isPhone ? "Show each row of blocks as its line of Python" : "Show the line of Python each block makes";
   if (isPhone) fileMenuItems.append(linesLabel);
   else tab.insertBefore(linesLabel, blockHistory);
 }

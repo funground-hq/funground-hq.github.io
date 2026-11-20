@@ -4477,7 +4477,7 @@ print("written")
         assert(t.name.right <= t.views.left && t.views.right <= t.file.left && t.file.right <= size.width, "the order is not name, Code | Blocks, File inside the screen");
         assert(t.name.scroll > t.name.client && t.overflow === "ellipsis", `the name is not cut short with an ellipsis: ${t.name.scroll} in ${t.name.client}, ${t.overflow}`);
         await noSidewaysScroll(page, size.width, "the tab row");
-        // the File menu opens inside the screen from the right end, with Python on blocks in it
+        // the File menu opens inside the screen from the right end, with Show code in it
         await page.locator(".fg-play__filebtn").tap();
         const menu = await page.locator(".fg-play__menu").boundingBox();
         assert(menu.x >= 0 && menu.x + menu.width <= size.width, `the File menu is at ${Math.round(menu.x)} to ${Math.round(menu.x + menu.width)}`);
@@ -4491,7 +4491,7 @@ print("written")
     return seen.join("; ");
   });
 
-  await check(121, "Python on blocks starts off on a phone and on on a laptop; what the learner chose is kept, on or off, and wins (BF-D-050)", async () => {
+  await check(121, "Show code (phone) starts off and Python on blocks (laptop) on; what the learner chose is kept, on or off, and wins (BF-D-050)", async () => {
     const lines = (page) => page.locator(".fg-play__lines input").evaluate((e) => e.checked);
     const saved = (page) => page.evaluate(() => localStorage.getItem("funground.play.blocklines"));
     const choose = (page, on) => page.locator(".fg-play__lines input").evaluate((e, value) => { e.checked = value; e.dispatchEvent(new Event("change")); }, on);
@@ -4606,7 +4606,7 @@ print("written")
     return "undo and redo of a value change";
   });
 
-  await check(124, "Blocks on a phone are the list of rows (BF-16, BF-D-053 c): a row per statement and no Blockly page, Blocks | Python switches the look, a run's error outlines the row of its line", async () => {
+  await check(124, "Blocks on a phone are the list of rows (BF-16, BF-D-053 c): a row per statement and no Blockly page, no switch over the rows, Show code in the File menu writes them as Python, a run's error outlines the row of its line", async () => {
     const seen = [];
     for (const size of SIZES) {
       const where = await phoneContext(size);
@@ -4621,9 +4621,15 @@ print("written")
         assert(rows >= 3, `only ${rows} rows`);
         assert((await page.locator(".fg-play__blocks .blocklySvg").count()) === 0, "a Blockly page is drawn on a phone");
         await noSidewaysScroll(page, size.width, "the rows");
-        await page.locator(".fg-play__blocks .bfl-top").getByRole("button", { name: "Python", exact: true }).tap();
+        assert((await page.locator(".fg-play__blocks .bfl-top, .fg-play__blocks .bfp-switch").count()) === 0, "the rows have a switch over them");
+        const top = await page.evaluate(() => document.querySelector(".fg-play__blocks .bfl-row").getBoundingClientRect().top - document.querySelector(".fg-play__blocks").getBoundingClientRect().top);
+        assert(top < 20, `the first row starts ${Math.round(top)}px into the blocks' box`);
+        await page.locator(".fg-play__filebtn").tap();
+        await page.getByLabel("Show code").check();
         await page.waitForFunction(() => document.querySelector(".fg-play__blocks .bfl-list")?.textContent.includes("f.circle("), null, { timeout: 5000 });
-        await page.locator(".fg-play__blocks .bfl-top").getByRole("button", { name: "Blocks", exact: true }).tap();
+        await page.getByLabel("Show code").uncheck();
+        await page.waitForFunction(() => !document.querySelector(".fg-play__blocks .bfl-list")?.classList.contains("bfl-code"), null, { timeout: 5000 });
+        await page.keyboard.press("Escape");
         await page.getByRole("button", { name: "Run", exact: true }).tap();
         await page.waitForSelector(".fg-play__blocks .bfl-error", { timeout: 60000 });
         const marked = await page.locator(".fg-play__blocks .bfl-error").innerText();

@@ -78,7 +78,19 @@ export function createBlocksView({ box, getText, setText, send, say, onClose, ca
         written = text;
         setText(text);
       },
-    });    box.blocksEditor = editor;    // for tools/test_editor.mjs (check 84): the workspace, without a global
+    });
+    box.blocksEditor = editor;    // for tools/test_editor.mjs (check 84): the workspace, without a global
+    showPython(pythonLine());
+  }
+
+  /**
+   * The Python with the blocks: in the wide layout the line under each block; on a phone (BF-16) the rows' look, "code" or "blocks". A
+   * bundle with no looks (editor.look() gives null, or there is no such method) has only the line.
+   */
+  function showPython(on) {
+    if (!editor) return;
+    if (typeof editor.look === "function" && editor.look() !== null) editor.look(on ? "code" : "blocks");
+    else if (editor.settings().pythonLine !== on) editor.settings({ pythonLine: on });
   }
 
   /** Reads the editor's text as blocks. False (and the reason said) when it cannot. */
@@ -162,10 +174,8 @@ export function createBlocksView({ box, getText, setText, send, say, onClose, ca
 
   return {
     show, hide, changed, answer,
-    /** The line of Python under each block, on or off: the blocks are drawn again, the Python stays the same. */
-    setPythonLine(on) {
-      if (editor && editor.settings().pythonLine !== on) editor.settings({ pythonLine: on });
-    },
+    /** The Python with the blocks, on or off (showPython): the blocks are drawn again, the Python stays the same. */
+    setPythonLine: showPython,
     resize: () => editor?.resize(),
     /**
      * A run's error on line `line` of the Python (BF-16): on a phone the row that wrote the line gets a red outline and a tap shows
@@ -191,6 +201,7 @@ export function createBlocksView({ box, getText, setText, send, say, onClose, ca
       const wanted = on ? "phone" : "wide";
       // switching saves the program and draws the workspace again: onChange comes once with the same Python, which read() and onChange ignore
       if (typeof editor.layout === "function" && editor.layout() !== wanted) editor.layout(wanted);
+      showPython(pythonLine());
       editor.resize();
     },
     get active() { return active; },
