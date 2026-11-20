@@ -2359,6 +2359,43 @@ print("written")
     return "rewritten, shown and kept again";
   });
 
+  await check(125, "My files: Rename gives a phone's photo the name a sketch opens (S-319, D-162); Esc keeps the old name; a taken name is refused", async () => {
+    const page = await freshFilesEditor();
+    const input = page.locator(".fg-play__files input[type=file]");
+    await input.setInputFiles({ name: "IMG_20261120_154233.png", mimeType: "image/png", buffer: solidPng(8, [255, 0, 0]) });
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 1);
+    await input.setInputFiles({ name: "other.png", mimeType: "image/png", buffer: solidPng(8, [0, 0, 255]) });
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 2);
+    const photoRow = () => page.locator(".fg-play__file").filter({ hasText: "IMG_20261120_154233.png" });
+    const box = page.locator(".fg-play__file .fg-play__nameinput");
+    // Esc: nothing changes.
+    await photoRow().getByRole("button", { name: "Rename" }).click();
+    await box.waitFor();
+    assert(await box.evaluate((b) => b.value.slice(b.selectionStart, b.selectionEnd)) === "IMG_20261120_154233", "the part before the dot is not selected");
+    await box.press("Escape");
+    assert((await filesRows(page).allInnerTexts()).join() === "IMG_20261120_154233.png,other.png", "Esc changed the list");
+    // A taken name is refused, with one plain line.
+    await photoRow().getByRole("button", { name: "Rename" }).click();
+    await box.fill("other");
+    await box.press("Enter");
+    await filesNoteHas(page, 'There is already a file called "other.png"');
+    assert((await filesRows(page).count()) === 2, "a refused rename changed the list");
+    // A name without a dot keeps the ending; a sketch opens the file by its new name; it stays over a reload.
+    await photoRow().getByRole("button", { name: "Rename" }).click();
+    await box.fill("my_photo");
+    await box.press("Enter");
+    await filesNoteHas(page, 'Renamed "IMG_20261120_154233.png" to "my_photo.png"');
+    assert((await filesRows(page).allInnerTexts()).join() === "my_photo.png,other.png", `the list is ${await filesRows(page).allInnerTexts()}`);
+    await typeCode(page, DRAWS_DOT.replace("dot.png", "my_photo.png"));
+    const { picture: drawn } = await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque && p.width >= 100 && p.centre[0] > 200 && p.centre[1] < 60 && p.centre[2] < 60);
+    assert((await page.locator(".play-output .stderr").count()) === 0, "the sketch printed an error");
+    await page.reload();
+    await filesSummary(page).click();
+    await page.waitForFunction(() => [...document.querySelectorAll(".fg-play__file .fg-play__filename")].map((n) => n.textContent).join() === "my_photo.png,other.png");
+    await page.close();
+    return `renamed, opened by the sketch (centre ${drawn.centre}), still renamed after a reload`;
+  });
+
   // ---- the Extend step and Keep through f.keep (S-226, D-113 b)
   const POSITIONS_EXTEND = COURSE.experiments.find((e) => e.stage === "extend" && e.after === "01_positions.py");
   const runAndFinish = async (page) => {
