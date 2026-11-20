@@ -10,4 +10,8 @@ To rebuild after changing `entry.js` or a version in `package.json`:
     npm install
     npm run build
 
+`npm run build` runs `build.mjs`. Beside the bundle it writes `codemirror.LICENSES.txt`: the MIT text of every package
+esbuild put into the bundle, taken from esbuild's own list, so it cannot drift (S-327). The bundle's first line points
+to it. Commit both files.
+
 `node_modules/` is not committed. `playwright-core` is here only for `../test_editor.mjs`.

@@ -69,6 +69,7 @@ extra:
 not_in_nav: |
   /gallery/*/*.md
   /about.md
+  /notices.md
   /changelog.md
 
 # Five tabs (D-099): Learn holds Get started and the Guide; About and the Changelog are linked from the footer.
