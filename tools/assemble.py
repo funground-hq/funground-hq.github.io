@@ -240,7 +240,9 @@ def read_examples(funground: Path, areas: dict[str, str]) -> list[Example]:
         area = path.parent.name
         rank = list(areas).index(area) if area in areas else len(areas)
         return rank, area, path.name
-    paths = sorted((funground / "examples" / "gallery").glob("*/*.py"), key=order)
+    # The numbered files, as funground's gallery lists them: an unnumbered file beside them (models/puppet.py) is a
+    # helper some of them import, not an example of its own (S-321).
+    paths = sorted((funground / "examples" / "gallery").glob("*/[0-9][0-9]_*.py"), key=order)
     return [read_example(path) for path in paths]
 
 
