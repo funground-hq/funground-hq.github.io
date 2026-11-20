@@ -2011,6 +2011,7 @@ function clearOutput() {
   showSheetChip();
   renderMessages();
   for (const { editor: each } of fileEditors.values()) each.clearError();
+  blocks.clearErrors();
 }
 clearButton.addEventListener("click", clearOutput);
 
@@ -2127,6 +2128,7 @@ function showError(text) {
   const place = errorPlaceOf(text);
   const about = describeError(text);
   if (place) editorOf(place.file).editor.markError(place.line, about.name ?? undefined);      // in its own file's editor, shown or not
+  if (place?.file === MAIN) blocks.markError(place.line, about.plain);                         // and its row on a phone's blocks (BF-16)
   const actions = [];
   if (place) {
     actions.push({ label: `Go to line ${place.line}${place.file === MAIN ? "" : ` in ${place.file}`}`, run: () => {

@@ -4605,6 +4605,38 @@ print("written")
     await page.close();
     return "undo and redo of a value change";
   });
+
+  await check(124, "Blocks on a phone are the list of rows (BF-16, BF-D-053 c): a row per statement and no Blockly page, Blocks | Python switches the look, a run's error outlines the row of its line", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await clearDrafts(page);
+        await typeCode(page, "import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    f.circle(100, 50, nope)\n\n\nf.run()\n");
+        await page.getByRole("button", { name: "Blocks", exact: true }).tap();
+        await showsBlocks(page);
+        await page.waitForSelector(".fg-play__blocks .bfl-row", { timeout: 30000 });
+        const rows = await page.locator(".fg-play__blocks .bfl-row").count();
+        assert(rows >= 3, `only ${rows} rows`);
+        assert((await page.locator(".fg-play__blocks .blocklySvg").count()) === 0, "a Blockly page is drawn on a phone");
+        await noSidewaysScroll(page, size.width, "the rows");
+        await page.locator(".fg-play__blocks .bfl-top").getByRole("button", { name: "Python", exact: true }).tap();
+        await page.waitForFunction(() => document.querySelector(".fg-play__blocks .bfl-list")?.textContent.includes("f.circle("), null, { timeout: 5000 });
+        await page.locator(".fg-play__blocks .bfl-top").getByRole("button", { name: "Blocks", exact: true }).tap();
+        await page.getByRole("button", { name: "Run", exact: true }).tap();
+        await page.waitForSelector(".fg-play__blocks .bfl-error", { timeout: 60000 });
+        const marked = await page.locator(".fg-play__blocks .bfl-error").innerText();
+        assert(/circle/.test(marked), `the error outlines "${marked}", not the circle's row`);
+        await shot(page, `phone_${size.width}x${size.height}_9_blocks_error.png`);
+        seen.push(`${size.width}x${size.height}: ${rows} rows, error on "${marked.trim().slice(0, 30)}"`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
 } finally {
   await browser.close();
   for (const server of [editorServer, previewServer, strangerServer]) server.close();
