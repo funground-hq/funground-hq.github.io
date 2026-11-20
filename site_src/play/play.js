@@ -581,11 +581,29 @@ help.before(notice);
 notice.querySelector("button").addEventListener("click", () => { notice.hidden = true; });
 
 // "Remove Play from this browser" (S-210): the preview deletes what it kept (Python, funground and the fonts) and says so.
-// Sketches are not touched: they are kept by this page, not by the preview.
-const forgetButton = element("button", { class: "fg-btn", type: "button" }, "Remove Play from this browser");
+// Sketches are not touched: they are kept by this page, not by the preview. It is rarely wanted, so it is a quiet link at
+// the foot of the help that asks first (the maintainer pressed a big yellow button without meaning to, 20 Nov 2026).
+const forgetButton = element("button", { class: "fg-play__forgetlink", type: "button" }, "Remove Play from this browser");
+const forgetYes = element("button", { class: "fg-play__minebtn", type: "button" }, "Remove");
+const forgetNo = element("button", { class: "fg-play__minebtn", type: "button" }, "Cancel");
+const forgetAsk = element("span", { class: "fg-play__forgetask", hidden: "" },
+  "This deletes Python, funground and the fonts kept here for working offline; Play downloads them again next time. Your sketches and My files stay. ",
+  forgetYes, " ", forgetNo);
 const forgetNote = element("span", { class: "fg-play__forgetnote", role: "status" });
-help.append(element("p", { class: "fg-play__forget" }, forgetButton, " ", forgetNote));
+help.append(element("p", { class: "fg-play__forget" }, forgetButton, forgetAsk, " ", forgetNote));
 forgetButton.addEventListener("click", () => {
+  forgetNote.textContent = "";
+  forgetButton.hidden = true;
+  forgetAsk.hidden = false;
+  forgetNo.focus();
+});
+forgetNo.addEventListener("click", () => {
+  forgetAsk.hidden = true;
+  forgetButton.hidden = false;
+});
+forgetYes.addEventListener("click", () => {
+  forgetAsk.hidden = true;
+  forgetButton.hidden = false;
   forgetNote.textContent = "Removing...";
   tell({ type: "forget" });
   setTimeout(() => { if (forgetNote.textContent === "Removing...") forgetNote.textContent = "The preview did not answer. Try again in a moment."; }, 5000);

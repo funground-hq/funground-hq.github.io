@@ -181,6 +181,10 @@ body:has(.fg-play) .md-main { overflow: hidden; }
 .fg-play__minebtn { font: 700 12px/1 var(--font-body); color: var(--ink); background: var(--paper-raised); border: 1.5px solid var(--ink); border-radius: var(--radius-sm); padding: 5px 9px; cursor: pointer; white-space: nowrap; }
 .fg-play__minebtn:hover { background: var(--gold); color: #191970; }
 .fg-play__minebtn:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.fg-play__forget { margin-top: var(--space-3); font-size: 12px; color: var(--ink-muted); }
+.fg-play__forgetlink { font: inherit; color: inherit; background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
+.fg-play__forgetlink:hover { color: var(--ink); }
+.fg-play__forgetlink:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .fg-play__minenote { padding: 6px var(--space-4); font: 400 13px/1.4 var(--font-body); color: var(--ink); border-bottom: 1.5px solid var(--dot); }
 .fg-play__minenote:empty { display: none; }
 .fg-play__minenote--warn { background: var(--gold); color: #191970; font-weight: 700; }

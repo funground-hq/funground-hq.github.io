@@ -1915,7 +1915,7 @@ f.run()
     return "a new cache replaced the old; only extra.bin was downloaded";
   });
 
-  await check(53, "Service worker: Remove Play from this browser empties the caches and unregisters", async () => {
+  await check(53, "Service worker: Remove Play from this browser asks first, then empties the caches and unregisters", async () => {
     const ctx = await trackedContext();
     const page = await openEditor("", "", ctx);
     const frame = frameOf(page, PREVIEW);
@@ -1923,6 +1923,12 @@ f.run()
     assert(await frame.evaluate(async () => Boolean(await navigator.serviceWorker.getRegistration())), "no service worker registered");
     if (!(await page.getByRole("button", { name: "Remove Play from this browser" }).isVisible())) await page.getByRole("button", { name: "Help" }).click();     // a first visit opens the help by itself
     await page.getByRole("button", { name: "Remove Play from this browser" }).click();
+    // It asks first: Cancel leaves everything; Remove removes.
+    await page.locator(".fg-play__forgetask").getByRole("button", { name: "Cancel" }).click();
+    assert(CACHING ? (await cacheNames(frame)).length >= 2 : true, "Cancel removed the caches");
+    assert(await page.getByRole("button", { name: "Remove Play from this browser" }).isVisible(), "after Cancel the link is gone");
+    await page.getByRole("button", { name: "Remove Play from this browser" }).click();
+    await page.locator(".fg-play__forgetask").getByRole("button", { name: "Remove", exact: true }).click();
     await page.waitForFunction(() => document.querySelector(".fg-play__forgetnote")?.textContent.startsWith("Done"), null, { timeout: 10000 });
     assert((await cacheNames(frame)).length === 0, `caches left: ${await cacheNames(frame)}`);
     assert(await frame.evaluate(async () => !(await navigator.serviceWorker.getRegistration())), "the service worker is still registered");
