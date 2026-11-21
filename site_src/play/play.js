@@ -53,7 +53,7 @@ const SANDBOX = "allow-scripts allow-same-origin";
 const LOCAL_HOSTS = ["localhost", "127.0.0.1"];
 const AUTO_RUN_MS = 400;
 // My files (S-221): what Add file takes (the kinds funground reads: pictures, sounds, text), and the most one file may be.
-const ADD_KINDS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "wav", "mp3", "ogg", "json", "txt", "csv"];
+const ADD_KINDS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "wav", "mp3", "ogg", "json", "txt", "csv"];
 const ADD_ACCEPT = ADD_KINDS.map((kind) => `.${kind}`).join(",");
 const MAX_KEPT = 25 * 1024 * 1024;
 
@@ -1013,12 +1013,19 @@ function writeAddress() {
   history.replaceState(null, "", address);
 }
 
+// An example's files: its data (pictures, sounds) as bytes, and the Python files it imports (such as puppet.py) as text, so
+// each opens as a tab of its own and can be changed like the main file (S-242).
 async function fetchExample(example) {
   const source = new URL(example.source, runtime);
   const text = await (await fetch(source)).text();
   const data = {};
-  for (const name of example.files) data[name] = new Uint8Array(await (await fetch(new URL(name, source))).arrayBuffer());
-  return { text, data };
+  const helpers = [];
+  for (const name of example.files) {
+    const response = await fetch(new URL(name, source));
+    if (validFile({ name, code: "" })) helpers.push({ name, code: await response.text() });
+    else data[name] = new Uint8Array(await response.arrayBuffer());
+  }
+  return { text, data, helpers };
 }
 
 // The starter sketch is a file of its own, so it can be tried on a computer unchanged. If it cannot be fetched, the
@@ -1069,14 +1076,19 @@ async function open(wanted, autorun = false) {
   let skippedFiles = 0;
   original = key === STARTER ? await starterText() : BLANK_TEXT;
   if (isMine()) original = ownSketch().code;
+  let helpers = [];
   if (current) {
     const fetched = await fetchExample(current);
     original = fetched.text;
     files = fetched.data;
+    helpers = fetched.helpers;
   }
+  originalFiles = helpers;
   if (key === SHARED) {
     original = await decodeCode(sharedBase);
     ({ files: originalFiles, skipped: skippedFiles } = await readSharedFiles(sharedFileParts()));
+    // A link made before examples had tabs carries none of the example's files: they still come with it.
+    originalFiles.push(...helpers.filter((helper) => !originalFiles.some((file) => file.name === helper.name)));
   }
   const missing = embed && key === BLANK;      // an embed of an example that is not there: an empty editor and a sentence
   if (missing) original = "";
@@ -1088,7 +1100,7 @@ async function open(wanted, autorun = false) {
   const draft = isMine() ? null : recall(draftName());
   const useDraft = draft && typeof draft.text === "string" && (key !== SHARED || draft.base === sharedBase);
   mainCode = useDraft ? draft.text : original;
-  if (key === SHARED) sharedFiles = (useDraft && Array.isArray(draft.files) ? draft.files.filter(validFile) : null) ?? copyFiles(originalFiles);
+  if (!isMine()) sharedFiles = (useDraft && Array.isArray(draft.files) ? draft.files.filter(validFile) : null) ?? copyFiles(originalFiles);
   replaceText(mainCode);
   showReset();
   showLineCount();
@@ -1523,12 +1535,13 @@ openFileInput.addEventListener("change", async () => {
 //
 // A sketch of the learner's has its main file (`code`) and may have others (`files`: [{ name, code }], absent when there are none).
 // The model is always up to date: edited() writes what the learner types into it. The editor on show holds the open file's text;
-// `mainCode` is the main file's while another file is open. A shared link may carry files too (`sharedFiles`); they are not stored.
+// `mainCode` is the main file's while another file is open. An example or a shared link may have files too (`sharedFiles`): they
+// are kept only in the draft, as the main file's changes are.
 
 const MAX_FILES = 10;                 // in one sketch, the main file counted
 let mainCode = "";
 let sharedFiles = [];
-let originalFiles = [];               // the files the shared link had, for Reset
+let originalFiles = [];               // the files the example or the shared link had, for Reset
 
 const filesOf = () => ownSketch()?.files ?? sharedFiles;
 const fileNamed = (name) => filesOf().find((file) => file.name === name);

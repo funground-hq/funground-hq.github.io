@@ -53,6 +53,7 @@ const debug = process.argv.includes("--debug");
 const phoneDir = process.argv.includes("--phone") ? process.argv[process.argv.indexOf("--phone") + 1] : null;
 const shotsDir = process.argv.includes("--shots") ? process.argv[process.argv.indexOf("--shots") + 1] : null;
 const argumentAfter = (flag) => (process.argv.includes(flag) ? process.argv[process.argv.indexOf(flag) + 1] : null);
+// --runner <folder>: another built runner, such as a preview's whose runtime has examples main has not yet.
 // The checks of part `n` of `m`: the numbers 1 to the last check's, cut into m equal ranges. The last number is read
 // from this file, so a new check joins the last part without anything to update here.
 function partOf(text) {
@@ -4685,6 +4686,36 @@ print("written")
       }
     }
     return seen.join("; ");
+  });
+  await check(126, "An example's helper file opens as a tab: the example runs with it, an edit of it is a draft that survives a reload, and Reset brings it back (S-242)", async () => {
+    const EXAMPLE = "models-17_replay_on_any_drawing";      // imports puppet.py; needs no model
+    const index = JSON.parse(readFileSync(path.join(RUNNER, "runtime", "examples", "index.json"), "utf8"));
+    const listed = index.find((example) => example.id === EXAMPLE);
+    if (!listed?.files?.includes("puppet.py")) throw new Skip(`the runtime has no ${EXAMPLE} with puppet.py (give --runner a newer one)`);
+    const page = await freshEditor(`&example=${EXAMPLE}`);
+    await noAutoRun(page);
+    const tabs = await fileTabNames(page);
+    assert(tabs.length === 2 && tabs[1] === "puppet.py", `the example has the tabs ${tabs}`);
+    assert((await page.getByRole("button", { name: "Delete puppet.py" }).count()) === 0, "an example's file can be deleted");
+    assert(!(await page.getByRole("button", { name: "Reset" }).isVisible()), "Reset is shown before any edit");
+    await fileTab(page, "puppet.py").click();
+    const helper = await editorText(page);
+    assert(helper.startsWith('"""A cut-out puppet'), `puppet.py shows ${JSON.stringify(helper.slice(0, 40))}`);
+    await runButton(page).click();
+    await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque);
+    assert((await page.locator(".fg-play__error").count()) === 0 || !(await page.locator(".fg-play__error").isVisible()), "the example stopped with an error");
+    await typeCode(page, "X = 1\n");
+    await sleep(300);
+    await reloadEditor(page);
+    await fileTab(page, "puppet.py").click();
+    assert((await editorText(page)) === "X = 1\n", `after a reload puppet.py shows ${JSON.stringify((await editorText(page)).slice(0, 40))}`);
+    await page.getByRole("button", { name: "Reset" }).click();
+    await fileTab(page, "puppet.py").click();
+    const back = await editorText(page);        // the editor draws only the lines in view, so the opening is compared
+    assert(back.slice(0, 500) === helper.slice(0, 500) && !back.startsWith("X = 1"),
+      `Reset did not bring puppet.py back: it shows ${JSON.stringify(back.slice(0, 40))}`);
+    await page.close();
+    return "puppet.py as a tab";
   });
 } finally {
   await browser.close();
