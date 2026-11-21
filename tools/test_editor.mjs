@@ -3432,7 +3432,7 @@ print("written")
     await page.close();
     return "copy kept first";
   });
-  await check(125, "An example's helper file opens as a tab: the example runs with it, an edit of it is a draft that survives a reload, and Reset brings it back (S-242)", async () => {
+  await check(126, "An example's helper file opens as a tab: the example runs with it, an edit of it is a draft that survives a reload, and Reset brings it back (S-242)", async () => {
     const EXAMPLE = "models-17_replay_on_any_drawing";      // imports puppet.py; needs no model
     const index = JSON.parse(readFileSync(path.join(RUNNER, "runtime", "examples", "index.json"), "utf8"));
     const listed = index.find((example) => example.id === EXAMPLE);
