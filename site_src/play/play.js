@@ -160,7 +160,7 @@ def setup():
 
 
 def draw():
-    f.background("white")
+    f.background("skyblue")
 
 
 f.run()
