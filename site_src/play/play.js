@@ -2296,6 +2296,7 @@ let drawn = false;            // a sketch is running or has drawn, and has not b
 let focusOnStart = false;     // the run came from the Run button: give the sketch the keys once it starts
 let errorPlace = null;
 let startedThisRun = false;
+let restartLine = null;       // the status while a new Python loads (restarting), until restarted
 
 const handlers = {
   checked(message) {                             // the answer to the blocks' check (blocks.js)
@@ -2320,7 +2321,6 @@ const handlers = {
     showSheetChip();
   },
   camera: showCameraFocus,
-  // The last sketch did not stop within a second, so the preview is loading a new Python: say why the run waits.
   // The sketch saved a file (f.save): a line with a Download link. A reply to "Save picture" downloads at once instead.
   file(message) {
     if (typeof message.name !== "string" || !(message.bytes instanceof ArrayBuffer)) return;
@@ -2341,8 +2341,16 @@ const handlers = {
   forgotten() {
     forgetNote.textContent = "Done. Python and funground were removed from this browser. Your sketches are still here. They download again the next time you open Play.";
   },
-  restarting() {
-    setStatus("Starting Python again: the last sketch did not stop in time. This takes a few seconds...", "loading");
+  // A new Python is loading: the last sketch did not stop in time, or its Python stopped working (S-333). The line goes back to
+  // Ready once the new one has loaded, unless something else (a new run) has taken the status meanwhile.
+  restarting(message) {
+    const why = message.reason === "failed" ? "Python stopped working in the last sketch" : "the last sketch did not stop in time";
+    restartLine = `Starting Python again: ${why}. This takes a few seconds...`;
+    setStatus(restartLine, "loading");
+  },
+  restarted() {
+    if (status.textContent === restartLine) setStatus("Ready. Press Run.", "ready");
+    restartLine = null;
   },
   model: showModel,
   error(message) {
@@ -2384,7 +2392,10 @@ const handlers = {
     runGoing = false;
     clearModel();
     if (message.reason !== "ended") drawn = false;          // stopped or failed: its picture is gone ("ended" is a script that has drawn)
-    if (message.reason === "error") {
+    if (restartLine !== null && status.textContent === restartLine) {
+      // A sketch whose Python failed (S-333) finishes after "restarting": the wait for the new Python is the news, and the
+      // error is already in the output.
+    } else if (message.reason === "error") {
       setStatus(errorPlace === null ? "Your sketch stopped with an error." : `Your sketch stopped with an error on ${placeText(errorPlace)}.`, "error");
     } else if (message.reason === "ended") {
       setStatus(`Finished in ${((performance.now() - startedAt) / 1000).toFixed(1)} s.`, "ready");

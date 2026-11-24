@@ -593,6 +593,39 @@ try {
     await page.close();
     return `the next run started ${((Date.now() - restarted) / 1000).toFixed(1)} s after the notice`;
   });
+
+  await check(127, "Stop on a sketch that cannot stop in time: once Python has started again, the status says Ready, not Starting Python again", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await page.getByLabel("Auto-run", { exact: true }).uncheck();
+    await typeCode(page, "import time\nimport funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    time.sleep(3)\n\n\nf.run()\n");
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 30000 });
+    await sleep(500);
+    await page.getByRole("button", { name: "Stop", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Starting Python again"), null, { timeout: 10000 });
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Ready. Press Run.", null, { timeout: 90000 })
+      .catch(async () => { throw new Error(`the status stayed "${await page.locator(".play-status").textContent()}"`); });
+    await page.close();
+  });
+
+  await check(128, "a sketch whose Python fails fatally (S-333): the status says Python starts again and why, then Ready, and the next run works", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await page.getByLabel("Auto-run", { exact: true }).uncheck();
+    // A call through a null function pointer is a wasm trap: Pyodide cannot be used after it.
+    await typeCode(page, "import ctypes\nctypes.CFUNCTYPE(None)(0)()\n");
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Starting Python again: Python stopped working"), null, { timeout: 30000 })
+      .catch(async () => { throw new Error(`the status was "${await page.locator(".play-status").textContent()}"`); });
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Ready. Press Run.", null, { timeout: 90000 })
+      .catch(async () => { throw new Error(`the status stayed "${await page.locator(".play-status").textContent()}"`); });
+    await typeCode(page, "print('alive', 6 * 7)\n");
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".play-output")?.textContent.includes("alive 42"), null, { timeout: 60000 })
+      .catch(async () => { throw new Error(`the next run printed "${await page.locator(".play-output").textContent()}"`); });
+    await page.close();
+  });
   // ---- suggestions (S-196)
   await check(13, "after f. the popup lists funground names, with a signature and a Reference link", async () => {
     const page = await openEditor();
