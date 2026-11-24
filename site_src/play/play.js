@@ -1431,6 +1431,7 @@ let drawn = false;            // a sketch is running or has drawn, and has not b
 let focusOnStart = false;     // the run came from the Run button: give the sketch the keys once it starts
 let errorLine = null;
 let startedThisRun = false;
+let restartLine = null;       // the status while a new Python loads (restarting), until restarted
 
 const handlers = {
   checked(message) {                             // the answer to the blocks' check (blocks.js)
@@ -1446,7 +1447,6 @@ const handlers = {
       status.classList.contains("fg-status--error") ? "error" : "ready");
   },
   output: (message) => addOutput(message.text, message.stream),
-  // The last sketch did not stop within a second, so the preview is loading a new Python: say why the run waits.
   // The sketch saved a file (f.save): a line with a Download link. A reply to "Save picture" downloads at once instead.
   file(message) {
     if (typeof message.name !== "string" || !(message.bytes instanceof ArrayBuffer)) return;
@@ -1467,8 +1467,16 @@ const handlers = {
   forgotten() {
     forgetNote.textContent = "Done. Python and funground were removed from this browser. Your sketches are still here. They download again the next time you open Play.";
   },
-  restarting() {
-    setStatus("Starting Python again: the last sketch did not stop in time. This takes a few seconds...", "loading");
+  // A new Python is loading: the last sketch did not stop in time, or its Python stopped working (S-333). The line goes back to
+  // Ready once the new one has loaded, unless something else (a new run) has taken the status meanwhile.
+  restarting(message) {
+    const why = message.reason === "failed" ? "Python stopped working in the last sketch" : "the last sketch did not stop in time";
+    restartLine = `Starting Python again: ${why}. This takes a few seconds...`;
+    setStatus(restartLine, "loading");
+  },
+  restarted() {
+    if (status.textContent === restartLine) setStatus("Ready. Press Run.", "ready");
+    restartLine = null;
   },
   model: showModel,
   error(message) {
