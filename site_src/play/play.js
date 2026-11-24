@@ -1542,6 +1542,7 @@ async function runSketch() {
   clearModel();
   modelLines.clear();                // a new run gets new model lines; the last run's stay in the output as they ended
   setStatus("Starting...", "running");
+  stopButton.disabled = false;   // from Run, not "started": a sketch can loop before it starts (while True at the top, or in setup())
   tell({ type: "run", source: editor.getText(), filename: ranFilename, files: withKept });
 }
 

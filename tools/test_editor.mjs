@@ -498,6 +498,22 @@ try {
     await page.close();
     return `the next run started ${((Date.now() - restarted) / 1000).toFixed(1)} s after the notice`;
   });
+  await check(129, "a sketch that loops before it starts (while True at the top): Stop works while it says Starting, and the next run works", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await page.getByLabel("Auto-run", { exact: true }).uncheck();
+    await typeCode(page, "print('busy')\nwhile True:\n    pass\n");
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".play-output")?.textContent.includes("busy"), null, { timeout: 60000 });
+    const stop = page.getByRole("button", { name: "Stop", exact: true });
+    assert(await stop.isEnabled(), `Stop is disabled while the status says "${await page.locator(".play-status").textContent()}"`);
+    await stop.click();
+    await typeCode(page, "print('next', 6 * 7)\n");
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".play-output")?.textContent.includes("next 42"), null, { timeout: 90000 })
+      .catch(async () => { throw new Error(`the next run printed "${await page.locator(".play-output").textContent()}"`); });
+    await page.close();
+  });
   // ---- suggestions (S-196)
   await check(13, "after f. the popup lists funground names, with a signature and a Reference link", async () => {
     const page = await openEditor();
