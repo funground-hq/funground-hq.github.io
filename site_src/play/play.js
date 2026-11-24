@@ -2435,6 +2435,7 @@ async function runSketch() {
   runGoing = true;
   clearModel();
   setStatus("Starting...", "running");
+  stopButton.disabled = false;   // from Run, not "started": a sketch can loop before it starts (while True at the top, or in setup())
   tell({ type: "run", source: mainText(), filename: ranFilename, files: withKept });
 }
 
