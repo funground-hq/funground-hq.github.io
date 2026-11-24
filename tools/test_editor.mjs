@@ -521,7 +521,8 @@ try {
     // A call through a null function pointer is a wasm trap: Pyodide cannot be used after it.
     await typeCode(page, "import ctypes\nctypes.CFUNCTYPE(None)(0)()\n");
     await runButton(page).click();
-    await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Starting Python again: Python stopped working"), null, { timeout: 30000 });
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Starting Python again: Python stopped working"), null, { timeout: 30000 })
+      .catch(async () => { throw new Error(`the status was "${await page.locator(".play-status").textContent()}"`); });
     await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Ready. Press Run.", null, { timeout: 90000 })
       .catch(async () => { throw new Error(`the status stayed "${await page.locator(".play-status").textContent()}"`); });
     await typeCode(page, "print('alive', 6 * 7)\n");

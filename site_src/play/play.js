@@ -1516,7 +1516,10 @@ const handlers = {
     runGoing = false;
     clearModel();
     if (message.reason !== "ended") drawn = false;          // stopped or failed: its picture is gone ("ended" is a script that has drawn)
-    if (message.reason === "error") {
+    if (restartLine !== null && status.textContent === restartLine) {
+      // A sketch whose Python failed (S-333) finishes after "restarting": the wait for the new Python is the news, and the
+      // error is already in the output.
+    } else if (message.reason === "error") {
       setStatus(errorLine === null ? "Your sketch stopped with an error: the message is above the picture."
         : `Your sketch stopped with an error on line ${errorLine}: the message is above the picture.`, "error");
     } else if (message.reason === "ended") {
