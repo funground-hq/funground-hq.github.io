@@ -2,6 +2,8 @@
 //
 //   node tools/test_editor.mjs [--same-origin] [--only 3,4 | --part 1/2]
 //
+// Play's own zip module (S-242) has a separate test that needs no browser: node tools/test_zip.mjs
+//
 // It assembles the site with the browser runner, serves the editor on one local origin (http://localhost:PORT) and the
 // preview (the funground-run.github.io repository) on another (http://127.0.0.1:PORT), and drives the editor like a
 // learner: Run, typing, an error, Share, a draft, Stop. MkDocs is not needed: the editor page is a small page with the
@@ -14,12 +16,18 @@
 // --shots <dir>  save pictures of the suggestions popup (checks 13 to 15), the hint, night and the toolbar (check 33), the guides (check 34), the first visit (check 35) and the blocks view (check 84) in that folder
 // --serve         assemble and serve Play as the checks see it, print its address, and wait (to try it by hand)
 // --debug         print what every page and frame writes to the console, and every failed request
+// --runner <dir>  use this funground-web runner/ folder (with its runtime/ built) instead of the one in RUNNER below, to test a
+//                 runner change that is on another branch or in another worktree. The FUNGROUND_RUNNER environment variable does the same
+// --preview <dir> use this funground-run.github.io folder as the preview instead of PREVIEW_REPO, to test a preview change that is on
+//                 another branch or in another worktree. The FUNGROUND_PREVIEW environment variable does the same
+// --phone <dir>   S-311 (PHONE_ONLY=landscape or portrait in the environment does just one): open Play on a phone (390 x 844 portrait, then 844 x 390 landscape, touch, 3x) with Chrome's fake camera,
+//                 run the follow-your-finger example, and save pictures in <dir>; no checks are run
 //
 // Needs `npm install` in tools/codemirror (playwright-core), Chrome, and a built funground-web runner/runtime.
 // Everything it makes goes in a temporary folder.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -32,16 +40,20 @@ const { chromium } = await import("./codemirror/node_modules/playwright-core/ind
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE = path.resolve(HERE, "..");
-const PREVIEW_REPO = "C:/Projects/funground-run.github.io";
+const PREVIEW_REPO = process.argv.includes("--preview") ? process.argv[process.argv.indexOf("--preview") + 1]
+  : process.env.FUNGROUND_PREVIEW ?? "C:/Projects/funground-run.github.io";
 const FUNGROUND = "C:/Projects/playground";      // a checkout with funground/completions.json (S-196)
-const RUNNER = "C:/Projects/funground-web/runner";
+const RUNNER = process.argv.includes("--runner") ? process.argv[process.argv.indexOf("--runner") + 1]
+  : process.env.FUNGROUND_RUNNER ?? "C:/Projects/funground-web/runner";
 const PYTHON = "C:/Projects/playground/.venv/Scripts/python.exe";
 const CHROME = "C:/Users/samirj/AppData/Local/Google/Chrome/Application/chrome.exe";
 
 const scriptsOnly = process.argv.includes("--scripts-only");
 const debug = process.argv.includes("--debug");
+const phoneDir = process.argv.includes("--phone") ? process.argv[process.argv.indexOf("--phone") + 1] : null;
 const shotsDir = process.argv.includes("--shots") ? process.argv[process.argv.indexOf("--shots") + 1] : null;
 const argumentAfter = (flag) => (process.argv.includes(flag) ? process.argv[process.argv.indexOf(flag) + 1] : null);
+// --runner <folder>: another built runner, such as a preview's whose runtime has examples main has not yet.
 // The checks of part `n` of `m`: the numbers 1 to the last check's, cut into m equal ranges. The last number is read
 // from this file, so a new check joins the last part without anything to update here.
 function partOf(text) {
@@ -116,9 +128,9 @@ const listen = (server) => new Promise((resolve) => server.listen(0, "127.0.0.1"
 // The heading is there because MkDocs gives "# Play" the id "play": the editor's container must not share it (SITE-C-01).
 const EDITOR_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Play</title>
 <link rel="stylesheet" href="../stylesheets/funground.css"><link rel="stylesheet" href="../stylesheets/play.css"></head>
-<body data-md-color-scheme="default"><h1 id="play">Play</h1>
+<body data-md-color-scheme="default"><article class="md-content__inner"><h1 id="play">Play</h1>
 <div class="fg-play-help"><p>Help text.</p><ul><li>Share copies a link.</li><li class="fg-keys-only">Keys: Ctrl+Enter runs.</li><li class="fg-keys-only">Drag the bar.</li></ul></div>
-<div id="funground-play" class="play"></div>
+<div id="funground-play" class="play"></div></article>
 <script>if (new URLSearchParams(location.search).get("embed") === "1") document.documentElement.classList.add("fg-embed");</script>
 <script type="module" src="play.js"></script></body></html>`;
 
@@ -154,6 +166,24 @@ function assert(condition, message) {
 
 const FIRST_SKETCH = "session1-01_first_sketch";
 const status = (page) => page.locator(".play-status").innerText();
+// The message area's list of this visit's messages, newest first: it opens the list, reads it and closes it again.
+const visitMessages = async (page) => {
+  const more = page.getByRole("button", { name: "This visit's messages" });
+  await more.click();
+  const texts = await page.locator(".fg-msg__item .fg-msg__text").allInnerTexts();
+  await more.click();
+  return texts;
+};
+// Waits until one of this visit's messages includes `text`.
+async function waitForVisitMessage(page, text, timeout = 10000) {
+  const until = Date.now() + timeout;
+  for (;;) {
+    const texts = await visitMessages(page);
+    if (texts.some((line) => line.includes(text))) return texts;
+    assert(Date.now() < until, `no message says "${text}"; the visit's messages are ${JSON.stringify(texts)}`);
+    await sleep(200);
+  }
+}
 const runButton = (page) => page.getByRole("button", { name: "Run", exact: true });
 
 async function editorText(page) {
@@ -167,9 +197,14 @@ const BLANK_TEXT_FOR_TEST = "import funground as f\n\n\ndef setup():\n    f.size
 const CAMERA_SKETCH = "import funground as f\nfrom funground import camera\n\ncam = camera.open()\n\n\ndef setup():\n    f.size(160, 120)\n    cam.start(160, 120)\n\n\ndef draw():\n    f.background(\"black\")\n    f.image(cam, 0, 0)\n\n\nf.run()\n";
 
 async function typeCode(page, text) {
+  // On a phone the code starts in Read mode (BF-15): Edit first, and Done after, as a learner does.
+  const edit = page.locator(".fg-play__readhint button");
+  const reading = await edit.isVisible();
+  if (reading) await edit.click();
   await page.locator(".cm-content").click();
   await page.keyboard.press("Control+A");
   await page.keyboard.insertText(text);
+  if (reading) await page.getByRole("button", { name: "Done", exact: true }).click();
 }
 
 // What the sketch has drawn: the preview's canvas, read from inside its frame.
@@ -212,7 +247,13 @@ if (scriptsOnly) {
   writeFileSync(file, readFileSync(file, "utf8").replace('"allow-scripts allow-same-origin";', '"allow-scripts";'));
 }
 
-const editorServer = fileServer(path.join(docs), { "/play/": EDITOR_PAGE });
+// The camera check page (S-311): the markup of site_src/play/camera-check/index.md without MkDocs, as for Play above.
+const cameraCheckMarkup = readFileSync(path.join(SITE, "site_src", "play", "camera-check", "index.md"), "utf8").replace(/\r\n/g, "\n")
+  .replace(/^---\n[\s\S]*?\n---\n/, "").replace(/^# (.*)$/m, "<h1>$1</h1>");
+const CAMERA_CHECK_PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Camera check</title>
+<link rel="stylesheet" href="../../stylesheets/funground.css"><link rel="stylesheet" href="../../stylesheets/play.css"></head>
+<body data-md-color-scheme="default"><article class="md-content__inner md-typeset">${cameraCheckMarkup}</article></body></html>`;
+const editorServer = fileServer(path.join(docs), { "/play/": EDITOR_PAGE, "/play/camera-check/": CAMERA_CHECK_PAGE });
 const previewServer = fileServer(PREVIEW_REPO);
 const strangerServer = http.createServer();
 const EDITOR = `http://localhost:${await listen(editorServer)}`;
@@ -236,8 +277,62 @@ if (process.argv.includes("--serve")) {
 // Chrome's fake camera stands in for any real one (check 55); the visitor's camera is never opened.
 const browser = await chromium.launch({ executablePath: CHROME, headless: true,
   args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
+
+// --phone <dir> (S-311): Play on a phone, as Chrome's device emulation shows it. No checks run. Without MkDocs the page has no
+// site header or menu, so what is seen is Play's own layout (play.css, play.js) and nothing around it.
+if (phoneDir) {
+  mkdirSync(phoneDir, { recursive: true });
+  for (const [name, viewport] of [["portrait", { width: 390, height: 844 }], ["landscape", { width: 844, height: 390 }]].filter(([name]) => !process.env.PHONE_ONLY || name === process.env.PHONE_ONLY)) {
+    const phone = await browser.newContext({ viewport, isMobile: true, hasTouch: true, deviceScaleFactor: 3, permissions: ["camera"] });
+    const page = await phone.newPage();
+    page.on("pageerror", (error) => console.log(`  page error: ${error.message}`));
+    if (debug) page.on("console", (message) => console.log(`  console ${message.type()}: ${message.text()}`));
+    await page.goto(`${EDITOR}/play/?preview=${PREVIEW}&example=models-02_follow_your_finger`);
+    await runButton(page).waitFor();
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 180000 });
+    await page.screenshot({ path: path.join(phoneDir, `${name}_1_open.png`) });
+    await page.screenshot({ path: path.join(phoneDir, `${name}_1_open_whole_page.png`), fullPage: true });
+    await runButton(page).tap();
+    await sleep(25000);              // the models library and the hand model download on the first run
+    await page.screenshot({ path: path.join(phoneDir, `${name}_2_running.png`) });
+    const metrics = await page.evaluate(() => {
+      const box = (selector) => { const r = document.querySelector(selector)?.getBoundingClientRect(); return r ? [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)] : null; };
+      return { window: [innerWidth, innerHeight], scrollWidth: document.documentElement.scrollWidth, scrollHeight: document.documentElement.scrollHeight,
+        bar: box(".fg-play__bar"), picture: box(".fg-play__picture"), frame: box(".fg-play__frame"), preview: box(".play-preview"), caption: box(".fg-play__caption"),
+        run: box(".fg-btn--run"), fab: box(".fg-play__fab"), status: box(".play-status"), editor: box(".fg-play__editor"), console: box(".fg-console") };
+    });
+    console.log(name, JSON.stringify(metrics));
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await sleep(500);
+    await page.screenshot({ path: path.join(phoneDir, `${name}_3_scrolled_down.png`) });
+    await phone.close();
+  }
+  await browser.close();
+  for (const server of [editorServer, previewServer, strangerServer]) server.close();
+  rmSync(scratch, { recursive: true, force: true });
+  process.exit(0);
+}
 console.log(`editor ${EDITOR}; preview ${PREVIEW}; iframe sandbox: allow-scripts${scriptsOnly ? "" : " allow-same-origin"}`);
-const context = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"], viewport: { width: 1280, height: 900 } });
+
+// A sketch the learner opens runs by itself once Python is ready, when Auto-run is on (BF-D-050), and Auto-run is on at first. Most checks
+// are about something else and begin from an idle page, so in a context made by newContext Auto-run is off while Python loads and goes
+// back on once the Run button can be pressed: typing then runs the sketch again, as it always did. A context made with
+// { autoRunOnOpen: true } is the learner's own: nothing is held (checks 114 onward use it).
+const HOLD_AUTO_RUN = `if (window.top === window) {
+  let held = false, done = false;
+  new MutationObserver((changes, watcher) => {
+    const box = document.querySelector(".fg-play__auto input"), run = document.querySelector(".fg-btn--run");
+    if (!box || !run || done) return;
+    if (!held) { held = true; box.checked = false; }
+    if (!run.disabled) { box.checked = true; done = true; watcher.disconnect(); }
+  }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
+}`;
+async function newContext({ autoRunOnOpen = false, ...options } = {}) {
+  const made = await browser.newContext(options);
+  if (!autoRunOnOpen) await made.addInitScript(HOLD_AUTO_RUN);
+  return made;
+}
+const context = await newContext({ permissions: ["clipboard-read", "clipboard-write"], viewport: { width: 1280, height: 900 } });
 const problems = [];
 
 function watch(page) {
@@ -484,7 +579,7 @@ try {
   await check(12, "a sketch that cannot stop in time: the status says Python starts again, then the next run works", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    await page.getByLabel("Auto-run", { exact: true }).uncheck();
+    await page.locator(".fg-play__bar > .fg-play__auto").getByLabel("Auto-run", { exact: true }).uncheck();
     // Every frame takes three seconds, so 'stop' cannot be answered within the runner's one second.
     await typeCode(page, "import time\nimport funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    time.sleep(3)\n\n\nf.run()\n");
     await runButton(page).click();
@@ -497,6 +592,55 @@ try {
     await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 90000 });
     await page.close();
     return `the next run started ${((Date.now() - restarted) / 1000).toFixed(1)} s after the notice`;
+  });
+
+  await check(127, "Stop on a sketch that cannot stop in time: once Python has started again, the status says Ready, not Starting Python again", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await page.locator(".fg-play__bar > .fg-play__auto").getByLabel("Auto-run", { exact: true }).uncheck();
+    await typeCode(page, "import time\nimport funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    time.sleep(3)\n\n\nf.run()\n");
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 30000 });
+    await sleep(500);
+    await page.getByRole("button", { name: "Stop", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Starting Python again"), null, { timeout: 10000 });
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Ready. Press Run.", null, { timeout: 90000 })
+      .catch(async () => { throw new Error(`the status stayed "${await page.locator(".play-status").textContent()}"`); });
+    await page.close();
+  });
+
+  await check(128, "a sketch whose Python fails fatally (S-333): the status says Python starts again and why, then Ready, and the next run works", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await page.locator(".fg-play__bar > .fg-play__auto").getByLabel("Auto-run", { exact: true }).uncheck();
+    // A call through a null function pointer is a wasm trap: Pyodide cannot be used after it.
+    await typeCode(page, "import ctypes\nctypes.CFUNCTYPE(None)(0)()\n");
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Starting Python again: Python stopped working"), null, { timeout: 30000 })
+      .catch(async () => { throw new Error(`the status was "${await page.locator(".play-status").textContent()}"`); });
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Ready. Press Run.", null, { timeout: 90000 })
+      .catch(async () => { throw new Error(`the status stayed "${await page.locator(".play-status").textContent()}"`); });
+    await typeCode(page, "print('alive', 6 * 7)\n");
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".play-output")?.textContent.includes("alive 42"), null, { timeout: 60000 })
+      .catch(async () => { throw new Error(`the next run printed "${await page.locator(".play-output").textContent()}"`); });
+    await page.close();
+  });
+  await check(129, "a sketch that loops before it starts (while True at the top): Stop works while it says Starting, and the next run works", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await page.locator(".fg-play__bar > .fg-play__auto").getByLabel("Auto-run", { exact: true }).uncheck();
+    await typeCode(page, "print('busy')\nwhile True:\n    pass\n");
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".play-output")?.textContent.includes("busy"), null, { timeout: 60000 });
+    const stop = page.getByRole("button", { name: "Stop", exact: true });
+    assert(await stop.isEnabled(), `Stop is disabled while the status says "${await page.locator(".play-status").textContent()}"`);
+    await stop.click();
+    await typeCode(page, "print('next', 6 * 7)\n");
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".play-output")?.textContent.includes("next 42"), null, { timeout: 90000 })
+      .catch(async () => { throw new Error(`the next run printed "${await page.locator(".play-output").textContent()}"`); });
+    await page.close();
   });
   // ---- suggestions (S-196)
   await check(13, "after f. the popup lists funground names, with a signature and a Reference link", async () => {
@@ -715,7 +859,7 @@ try {
   await check(27, "f.circl(...) marks the line, underlines circl and links the errors page; editing the line clears both", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    await page.getByLabel("Auto-run", { exact: true }).uncheck();
+    await page.locator(".fg-play__bar > .fg-play__auto").getByLabel("Auto-run", { exact: true }).uncheck();
     await typeCode(page, SKETCH_WITH("f.circl(10, 10, 10)"));
     await runButton(page).click();
     await page.locator(".cm-error-name").waitFor({ timeout: 20000 });
@@ -724,9 +868,9 @@ try {
     assert(JSON.stringify(await underlined(page)) === '["circl"]', `underlined: ${JSON.stringify(await underlined(page))}`);
     const wavy = await page.locator(".cm-error-name").evaluate((e) => getComputedStyle(e).textDecorationLine + " " + getComputedStyle(e).textDecorationStyle);
     assert(wavy === "underline wavy", `the underline is ${wavy}`);
-    const line = await page.locator(".fg-play__error").innerText();
+    const line = await page.locator(".fg-msg--error .play-status").innerText();
     assert(line.includes("has no attribute 'circl'"), `the message was "${line}"`);
-    const link = page.locator(".fg-play__what-link");
+    const link = page.locator(".fg-msg [data-action='What this means']");
     assert((await link.innerText()) === "What this means", "no link text");
     assert((await link.getAttribute("href")) === "../guide/errors/#nameerror-or-attributeerror-on-an-f-name", `href ${await link.getAttribute("href")}`);
     // Editing another line leaves the marks; editing that line clears them.
@@ -742,16 +886,16 @@ try {
   await check(28, "a NameError underlines the bare name, a TypeError links its section and underlines nothing", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    await page.getByLabel("Auto-run", { exact: true }).uncheck();
+    await page.locator(".fg-play__bar > .fg-play__auto").getByLabel("Auto-run", { exact: true }).uncheck();
     await typeCode(page, SKETCH_WITH("circl(10, 10, 10)"));
     await runButton(page).click();
     await page.locator(".cm-error-name").waitFor({ timeout: 20000 });
     assert(JSON.stringify(await underlined(page)) === '["circl"]', `underlined: ${JSON.stringify(await underlined(page))}`);
-    assert((await page.locator(".fg-play__error").innerText()).includes("name 'circl' is not defined"), "message");
-    assert((await page.locator(".fg-play__what-link").getAttribute("href")).endsWith("#nameerror-or-attributeerror-on-an-f-name"), "anchor");
+    assert((await page.locator(".fg-msg--error .play-status").innerText()).includes("name 'circl' is not defined"), "message");
+    assert((await page.locator(".fg-msg [data-action='What this means']").getAttribute("href")).endsWith("#nameerror-or-attributeerror-on-an-f-name"), "anchor");
     await typeCode(page, SKETCH_WITH("f.circle(10)"));
     await runButton(page).click();
-    await page.waitForFunction(() => document.querySelector(".fg-play__what-link")?.getAttribute("href").endsWith("#typeerror-missing-arguments"), null, { timeout: 20000 })
+    await page.waitForFunction(() => document.querySelector(".fg-msg [data-action='What this means']")?.getAttribute("href").endsWith("#typeerror-missing-arguments"), null, { timeout: 20000 })
       .catch(async () => { throw new Error(`output: ${await page.locator(".play-output").innerText()}`); });
     assert(await page.locator(".cm-error-line").count() === 1 && await page.locator(".cm-error-name").count() === 0, "a name was underlined");
     await page.close();
@@ -833,7 +977,7 @@ try {
     await typeCode(page, `${await editorText(page)}\n# edit\n`);              // the most buttons: Reset shows
     const measure = () => page.evaluate(() => {
       const bar = document.querySelector(".fg-play__bar").getBoundingClientRect();
-      const kids = [...document.querySelectorAll(".fg-play__bar button:not([hidden]), .fg-play__bar select, .fg-play__bar .fg-status")].map((e) => e.getBoundingClientRect());
+      const kids = [...document.querySelectorAll(".fg-play__bar button:not([hidden]), .fg-play__bar select, .fg-play__bar .fg-status")].map((e) => e.getBoundingClientRect()).filter((r) => r.width > 0);
       return { height: Math.round(bar.height), centres: Math.round(Math.max(...kids.map((r) => r.top + r.height / 2)) - Math.min(...kids.map((r) => r.top + r.height / 2))), right: Math.max(...kids.map((r) => r.right)),
                scrollWidth: document.documentElement.scrollWidth };
     });
@@ -981,14 +1125,14 @@ try {
     await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.startsWith("Running"), null, { timeout: 60000 });
     await page.waitForFunction(() => /640 × 400/.test(document.querySelector(".fg-play__caption").textContent), null, { timeout: 20000 });
     await typeCode(page, SKETCH_WITH("pass").replace("f.size(200, 100)", "f.size(200, 100)\n    f.circl(1, 2, 3)"));
-    await page.locator(".fg-play__error").waitFor({ timeout: 20000 });
-    const caption = await page.locator(".fg-play__caption").innerText();
+    await page.locator(".fg-msg--error").waitFor({ timeout: 20000 });
+    const caption =await page.locator(".fg-play__caption").innerText();
     assert(!/640|400/.test(caption) && !/× /.test(caption), `the caption says "${caption}"`);
     await typeCode(page, SKETCH_WITH("f.background('gold')"));
     await page.waitForFunction(() => /200 × 100/.test(document.querySelector(".fg-play__caption").textContent), null, { timeout: 20000 });
     // An error after setup has run keeps the size: the sketch did start.
     await typeCode(page, SKETCH_WITH("f.circl(1, 2, 3)"));
-    await page.locator(".fg-play__error").waitFor({ timeout: 20000 });
+    await page.locator(".fg-msg--error").waitFor({ timeout: 20000 });
     assert(/200 × 100/.test(await page.locator(".fg-play__caption").innerText()), "the size went after an error in draw()");
     await page.close();
   });
@@ -1018,8 +1162,8 @@ try {
     return `editor ${m.editor.width} x ${m.editor.height}, picture ${m.preview.width} x ${m.preview.height}`;
   });
 
-  await check(38, "at 390 x 844 on a phone: stacked, a tall editor you can type in, a wide picture, a floating Run, no sideways scroll", async () => {
-    const phoneContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  await check(38, "at 390 x 844 on a phone: stacked, an editor you can type in, a wide picture, Run in the bar, a page that does not scroll (BF-D-050)", async () => {
+    const phoneContext = await newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     try {
       const page = await phoneContext.newPage();
       watch(page);
@@ -1037,38 +1181,42 @@ try {
       assert(m.editor.height >= 400, `the editor is ${m.editor.height}px tall`);
       assert(m.preview.width >= 360 && m.preview.width <= 390, `the picture is ${m.preview.width}px wide`);
       assert(Math.abs(m.preview.width / m.preview.height - 1.6) < 0.03, `the picture is ${m.preview.width} x ${m.preview.height}, not 640 : 400`);
-      assert(m.play.height > 844, "the page does not scroll: the box is the window's height");
+      // One still screen (BF-D-050): Play is the window's height and the page does not scroll
+      assert(Math.abs(m.play.height - 844) <= 1, `Play is ${m.play.height}px tall in a window of 844`);
+      assert(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight), "the page scrolls");
       // Typing: tap in the code (a point, not the element: a long line scrolls the editor sideways) and type.
       const toEditor = () => page.evaluate(() => scrollTo(0, document.querySelector(".cm-editor").getBoundingClientRect().top + scrollY - 60));
       await toEditor();
       await sleep(200);
+      // Read mode first (BF-15): a touch types nothing; Edit, then the cursor is in, and Done goes back
+      const readOnly = await editorText(page);
       const inView = await page.locator(".cm-content").boundingBox();
       await page.mouse.click(inView.x + 24, inView.y + 10);
+      await page.keyboard.insertText("zzz");
+      assert((await editorText(page)) === readOnly, "typing changed the code in Read mode");
+      await page.getByRole("button", { name: "Edit", exact: true }).tap();
       await page.keyboard.press("Control+Home");
       await page.keyboard.insertText("# typed on a phone\n");
       assert((await editorText(page)).startsWith("# typed on a phone"), "typing in the editor did nothing");
-      // The floating Run: hidden while the toolbar's Run is in view, shown when it is scrolled away, and it runs the sketch.
-      await page.evaluate(() => scrollTo(0, 0));
+      await page.getByRole("button", { name: "Done", exact: true }).tap();
+      // A shorter window: the screen still holds still, and Run is in the bar (no floating Run on a phone), in view, and runs the sketch.
+      await page.setViewportSize({ width: 390, height: 600 });
       await sleep(300);
-      assert(await page.locator(".fg-play__fab").isHidden(), "the floating Run shows while the toolbar's Run is in view");
-      await toEditor();
-      await page.locator(".fg-play__fab").waitFor({ state: "visible", timeout: 5000 });
-      const fab = await page.locator(".fg-play__fab").boundingBox();
-      assert(Math.round(fab.width) === 56 && Math.round(fab.height) === 56, `the floating Run is ${fab.width} x ${fab.height}`);
-      assert(fab.x + fab.width <= 390 && fab.x > 390 - 56 - 32 && fab.y + fab.height <= 844 && fab.y > 844 - 56 - 32, "the floating Run is not at the bottom right");
-      assert((await page.locator(".fg-play__fab").getAttribute("aria-label")) === "Run", "the floating Run has no name");
-      if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_390_fab.png") });
-      await page.mouse.click(fab.x + fab.width / 2, fab.y + fab.height / 2);
+      assert(await page.locator(".fg-play__fab").isHidden(), "a floating Run shows on a phone");
+      const run = await runButton(page).boundingBox();
+      assert(run && run.y >= 0 && run.y + run.height <= 600, `Run is at y ${run?.y}`);
+      await runButton(page).tap();
       const { picture: drawn } = await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque, 30000);
       assert(drawn.width >= 640, `the sketch drew ${drawn.width} wide`);
-      await sleep(1000);                                                       // the picture is brought into view
+      await sleep(500);
       assert((await measureLayout(page)).scrollWidth <= 390, "the page scrolls sideways after a run");
+      assert(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight), "the page scrolls after a run");
       const after = await page.locator(".play-preview").boundingBox();
-      assert(after.y >= 0 && after.y + after.height <= 844, `after Run the picture is at y ${Math.round(after.y)}`);
+      assert(after.y >= 0 && after.y + after.height <= 600, `after Run the picture is at y ${Math.round(after.y)}`);
       if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_390_ran.png") });
       await page.close();
       // A tablet: still one column (768 is under 900), the picture at 1:1 at most.
-      const tablet = await browser.newContext({ viewport: { width: 768, height: 1024 }, isMobile: true, hasTouch: true });
+      const tablet = await newContext({ viewport: { width: 768, height: 1024 }, isMobile: true, hasTouch: true });
       const tp = await tablet.newPage();
       await tp.goto(`${EDITOR}/play/?preview=${PREVIEW}&example=${FIRST_SKETCH}`);
       await tp.addStyleTag({ content: "body { margin: 0; }" });
@@ -1262,7 +1410,7 @@ try {
   });
 
   await check(41, "on a phone the first visit shows a one-line note, not the full help; ? opens the help without the keyboard lines; on a desktop the help opens", async () => {
-    const phoneContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    const phoneContext = await newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     try {
       const page = await phoneContext.newPage();
       watch(page);
@@ -1272,13 +1420,9 @@ try {
       await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
       await sleep(300);
       assert(!(await page.locator("#fg-play-help").isVisible()), "the full help opened on a phone");
+      // BF-15: a phone has no note on a first visit: the help holds First steps
       const note = page.locator(".fg-play__notice");
-      assert(await note.isVisible(), "no note on a first visit");
-      const box = await note.boundingBox();
-      assert(box.height < 60, `the note is ${box.height}px tall`);
-      const text = (await note.innerText()).replace(/\s+/g, " ");
-      assert(/New to funground\? First steps/.test(text) && /More help: \?/.test(text), `note says "${text}"`);
-      assert((await note.locator("a").getAttribute("href")) === "../get-started/", "the note's link");
+      assert(!(await note.isVisible()), "a note shows on a phone's first visit");
       const pic = await page.locator(".play-preview").boundingBox();
       assert(pic.y < 844, `the picture starts at y ${Math.round(pic.y)}`);
       if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "phone_first_visit.png") });
@@ -1286,14 +1430,14 @@ try {
       assert(await page.locator("#fg-play-help").isVisible(), "? did not open the help");
       assert(await page.locator("#fg-play-help").getByText("Share copies").isVisible(), "the help lacks its text");
       assert(!(await page.locator("#fg-play-help .fg-keys-only").first().isVisible()), "a keyboard line shows on a phone");
-      assert(!(await note.isVisible()), "the note stays when the help opens");
+      assert(await page.locator("#fg-play-help").getByText("First steps").isVisible(), "the help lacks First steps");
       await page.reload();                                                          // a second visit: nothing opens by itself
       await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
       assert(!(await page.locator(".fg-play__notice").isVisible()) && !(await page.locator("#fg-play-help").isVisible()), "the note or help came back");
     } finally {
       await phoneContext.close();
     }
-    const desktop = await browser.newContext({ viewport: { width: 1366, height: 768 } });
+    const desktop = await newContext({ viewport: { width: 1366, height: 768 } });
     try {
       const page = await desktop.newPage();
       await page.goto(`${EDITOR}/play/?preview=${PREVIEW}`);
@@ -1314,7 +1458,7 @@ try {
     assert(examples.every((e) => e.picture === undefined || /^\.\.\/gallery\/images\/.+\.png$/.test(e.picture)), "a picture path is odd");
     const next = examples[examples.findIndex((e) => e.id === GALLERY) + 1];
     const hold = async (viewport, extra = {}) => {
-      const held = await browser.newContext({ viewport, ...extra });
+      const held = await newContext({ viewport, ...extra });
       const MANIFEST = "/play/runner/runtime/manifest.json";
       let release;
       gates[MANIFEST] = new Promise((resolve) => { release = resolve; });
@@ -1358,6 +1502,10 @@ try {
       // Python comes: the status over the picture changes, the picture stays until Run.
       desktop.release();
       await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      // With Auto-run on, an example chosen next would run by itself (BF-D-050, check 119): it is off for the rest of this page, as
+      // for a learner who turned it off. (The context turns it back on once Python is ready: see HOLD_AUTO_RUN.)
+      await page.waitForFunction(() => document.querySelector(".fg-play__auto input").checked);
+      await page.locator(".fg-play__auto input").uncheck();
       assert(await stillShown(page), "the picture went when Python was ready");
       const ready = (await page.locator(".fg-play__still-note").innerText()).trim();
       assert(ready.startsWith("Ready. Press Run"), `the status over the picture is "${ready}"`);
@@ -1366,8 +1514,7 @@ try {
       // Switching examples before Run shows the new example's picture (Next, with the mouse).
       await clickMouse(page, page.locator(".fg-play__step").nth(1));
       await page.waitForFunction((id) => document.querySelector(".fg-play__still-image")?.getAttribute("src")?.endsWith(`${id}.png`), next.id);
-      assert(await stillShown(page), "no picture after Next");
-      await page.locator(".fg-play__choose").selectOption(GALLERY);
+      assert(await stillShown(page), "no picture after Next");      await page.locator(".fg-play__choose").selectOption(GALLERY);
       await page.waitForFunction((id) => document.querySelector(".fg-play__still-image")?.getAttribute("src")?.endsWith(`${id}.png`), GALLERY);
 
       // Typing makes the code differ from the picture: the picture goes.
@@ -1585,7 +1732,7 @@ f.run()
     await page.close();
 
     // A phone: the button is inside the window, nothing scrolls sideways, and a saved file's line fits.
-    const phoneContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    const phoneContext = await newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     try {
       const phonePage = await phoneContext.newPage();
       watch(phonePage);
@@ -1593,11 +1740,17 @@ f.run()
       await phonePage.addStyleTag({ content: "body { margin: 0; }" });
       await phonePage.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
       await typeCode(phonePage, SAVING_SKETCH);
-      await phonePage.locator(".fg-play__saved").nth(1).waitFor({ timeout: 20000 });
+      // the lines are in the Output sheet, closed until its chip is tapped (BF-D-050)
+      await phonePage.locator(".fg-play__saved").nth(1).waitFor({ state: "attached", timeout: 20000 });
       await phonePage.waitForFunction(() => !document.querySelector(".fg-play__savepicture").disabled);
-      const phoneButton = await phonePage.locator(".fg-play__savepicture").boundingBox();
-      assert(phoneButton.x >= 0 && phoneButton.x + phoneButton.width <= 390, `Save picture is at x ${phoneButton.x}, width ${phoneButton.width}`);
+      // BF-15: on a phone Save picture is in the More list, and works the button under the picture
+      await phonePage.getByRole("button", { name: "More", exact: true }).tap();
+      const phoneButton = await phonePage.locator(".fg-play__moremenu").getByRole("button", { name: "Save picture", exact: true }).boundingBox();
+      assert(phoneButton && phoneButton.x >= 0 && phoneButton.x + phoneButton.width <= 390, `Save picture is at x ${phoneButton?.x}, width ${phoneButton?.width}`);
+      await phonePage.keyboard.press("Escape");
       assert(await phonePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "sideways scroll on a phone");
+      await phonePage.locator(".fg-play__sheetchip").tap();
+      await phonePage.locator(".fg-play__saved").first().waitFor({ state: "visible", timeout: 5000 });
       const line = await phonePage.locator(".fg-play__saved").first().boundingBox();
       assert(line.x + line.width <= 390, "a saved line reaches past the window");
       if (shotsDir) await phonePage.screenshot({ path: path.join(shotsDir, "save_picture_390.png") });
@@ -1612,7 +1765,24 @@ f.run()
     assert(b, "the button is not on the page");
     await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
   };
-  const mineButton = (page, name) => page.locator(".fg-play__mine").getByRole("button", { name, exact: true });
+  // The actions on a sketch are in the File menu (BF-D-045). chooseFile opens it and clicks an item, as a learner does.
+  const mineButton = (page, name) => page.locator(".fg-play__menu").getByRole("button", { name, exact: true });
+  const fileMenuOpen = (page) => page.locator(".fg-play__menu").isVisible();
+  async function openFileMenu(page) {
+    if (!(await fileMenuOpen(page))) await clickAt(page, page.locator(".fg-play__filebtn"));
+    await page.locator(".fg-play__menu").waitFor({ timeout: 5000 });
+  }
+  async function chooseFile(page, name) {
+    await openFileMenu(page);
+    await clickAt(page, mineButton(page, name));
+  }
+  // Whether an item shows for the open sketch (the menu is opened to look, then closed).
+  async function fileItemShown(page, name) {
+    await openFileMenu(page);
+    const shown = await mineButton(page, name).isVisible();
+    await page.keyboard.press("Escape");
+    return shown;
+  }
   const mineNames = (page) => page.locator(".fg-play__choose optgroup[label='My sketches'] option").allInnerTexts();
   const tabName = (page) => page.locator(".fg-play__name").innerText();
   const tabIs = (page, name) => page.waitForFunction((n) => document.querySelector(".fg-play__name")?.textContent === n, name);
@@ -1632,8 +1802,8 @@ f.run()
   await check(45, "My sketches: New sketch makes Sketch 1 from the starter; typing is kept over a reload; the newest is first; Rename by the name or the button", async () => {
     const page = await freshEditor();
     assert((await mineNames(page)).length === 0, "My sketches shows before there is one");
-    assert(!(await mineButton(page, "Rename").isVisible()), "Rename shows for the starter sketch");
-    await clickAt(page, mineButton(page, "New sketch"));
+    assert(!(await fileItemShown(page, "Rename")), "Rename shows for the starter sketch");
+    await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 1");
     assert((await editorText(page)).length > 100, "Sketch 1 is not the starter");
     assert((await page.locator(".fg-play__choose").inputValue()).startsWith("my:"), "the picker does not show the new sketch");
@@ -1643,7 +1813,7 @@ f.run()
     assert((await tabName(page)) === "Sketch 1", `after a reload the tab says "${await tabName(page)}"`);
     assert((await editorText(page)).startsWith("# my own sketch"), "the code did not come back");
     assert((await mineNames(page)).join() === "Sketch 1", `the group lists ${await mineNames(page)}`);
-    await clickAt(page, mineButton(page, "New sketch"));
+    await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 2");
     assert((await mineNames(page)).join() === "Sketch 2,Sketch 1", `newest first: ${await mineNames(page)}`);
     // Rename by clicking the name.
@@ -1655,11 +1825,11 @@ f.run()
     assert((await tabName(page)) === "Bouncing ball", `renamed to "${await tabName(page)}"`);
     assert((await mineNames(page)).join() === "Bouncing ball,Sketch 1", `the group lists ${await mineNames(page)}`);
     // Rename with the button; Esc leaves the name alone; a name that is taken gets a number.
-    await clickAt(page, mineButton(page, "Rename"));
+    await chooseFile(page, "Rename");
     await page.keyboard.type("Nope");
     await page.keyboard.press("Escape");
     assert((await tabName(page)) === "Bouncing ball", "Esc changed the name");
-    await clickAt(page, mineButton(page, "Rename"));
+    await chooseFile(page, "Rename");
     await page.keyboard.press("Control+A");
     await page.keyboard.type("Sketch 1");
     await page.keyboard.press("Enter");
@@ -1675,10 +1845,10 @@ f.run()
 
   await check(46, "My sketches: Duplicate copies the code; Delete names the sketch and Undo brings it back; a deleted one stays gone after a reload", async () => {
     const page = await freshEditor();
-    await clickAt(page, mineButton(page, "New sketch"));
+    await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 1");
     await typeCode(page, "# original\n");
-    await clickAt(page, mineButton(page, "Duplicate"));
+    await chooseFile(page, "Duplicate");
     await tabIs(page, "Sketch 1 copy");
     assert((await editorText(page)) === "# original\n", "the copy has other code");
     assert((await mineNames(page)).join() === "Sketch 1 copy,Sketch 1", `the group lists ${await mineNames(page)}`);
@@ -1686,16 +1856,16 @@ f.run()
     await page.locator(".fg-play__choose").selectOption({ label: "Sketch 1" });
     await tabIs(page, "Sketch 1");
     assert((await editorText(page)) === "# original\n", "changing the copy changed the first sketch");
-    await clickAt(page, mineButton(page, "Delete"));
-    await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes('Deleted "Sketch 1"'));
+    await chooseFile(page, "Delete");
+    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.includes('Deleted "Sketch 1"'));
     assert((await mineNames(page)).join() === "Sketch 1 copy", `after Delete the group lists ${await mineNames(page)}`);
-    await clickAt(page, page.locator(".fg-play__minenote").getByRole("button", { name: "Undo" }));
+    await clickAt(page, page.locator(".fg-msg").getByRole("button", { name: "Undo" }));
     await tabIs(page, "Sketch 1");
     assert((await mineNames(page)).join() === "Sketch 1 copy,Sketch 1", `after Undo the group lists ${await mineNames(page)}`);
     assert((await editorText(page)) === "# original\n", "Undo gave back other code");
-    await clickAt(page, mineButton(page, "Delete"));
+    await chooseFile(page, "Delete");
     await tabIs(page, "Sketch 1 copy");
-    await clickAt(page, mineButton(page, "Delete"));
+    await chooseFile(page, "Delete");
     await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "starter");
     assert((await mineNames(page)).length === 0, "the group is still there");
     await reloadEditor(page);
@@ -1706,20 +1876,20 @@ f.run()
 
   await check(47, "My sketches: Download .py is named after the sketch and holds its code; Open .py makes a new sketch; a big file and a binary file are refused", async () => {
     const page = await freshEditor();
-    await clickAt(page, mineButton(page, "New sketch"));
+    await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 1");
     await typeCode(page, "# for the file\nx = 1\n");
     await clickAt(page, page.locator(".fg-play__name"));
     await page.keyboard.press("Control+A");
     await page.keyboard.type("Bouncing ball!");
     await page.keyboard.press("Enter");
-    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), clickAt(page, mineButton(page, "Download .py"))]);
+    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), chooseFile(page, "Download .py")]);
     assert(download.suggestedFilename() === "bouncing-ball.py", `named ${download.suggestedFilename()}`);
     const saved = readFileSync(await download.path(), "utf8");
     assert(saved === "# for the file\nx = 1\n", `the file holds ${JSON.stringify(saved)}`);
     const file = path.join(scratch, "falling_stars.py");
     writeFileSync(file, "# stars\r\nimport funground as f\r\n");
-    const input = page.locator(".fg-play__mine input[type=file]");
+    const input = page.locator(".fg-play__filemenu input[type=file]");
     assert((await input.getAttribute("accept")).includes(".py"), "the file input does not ask for .py");
     await input.setInputFiles(file);
     await tabIs(page, "falling_stars");
@@ -1728,16 +1898,16 @@ f.run()
     const big = path.join(scratch, "big.py");
     writeFileSync(big, "x = 1\n".repeat(40000));
     await input.setInputFiles(big);
-    await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes("bigger than 200 KB"));
+    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.includes("bigger than 200 KB"));
     await input.setInputFiles({ name: "picture.py", mimeType: "text/plain", buffer: Buffer.from([0xff, 0xfe, 0x00, 0x01, 0x89, 0x50]) });
-    await page.waitForFunction(() => document.querySelector(".fg-play__minenote")?.textContent.includes("not a text file"));
+    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.includes("not a text file"));
     assert((await mineNames(page)).length === 2, `a refused file was added: ${await mineNames(page)}`);
     assert((await tabName(page)) === "falling_stars", "a refused file changed the open sketch");
     await input.setInputFiles(file);
     await tabIs(page, "falling_stars 2");
     await page.locator(".fg-play__choose").selectOption(FIRST_SKETCH);
     await page.waitForFunction((id) => document.querySelector(".fg-play__choose").value === id, FIRST_SKETCH);
-    const [exampleDownload] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), clickAt(page, mineButton(page, "Download .py"))]);
+    const [exampleDownload] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), chooseFile(page, "Download .py")]);
     assert(exampleDownload.suggestedFilename().endsWith(".py"), `the example downloaded as ${exampleDownload.suggestedFilename()}`);
     await page.close();
     return "bouncing-ball.py; falling_stars opened; two refusals";
@@ -1748,12 +1918,12 @@ f.run()
     const title = await page.locator(".fg-play__choose option:checked").innerText();
     const original = await editorText(page);
     await typeCode(page, original.replace("tomato", "orchid"));
-    await clickAt(page, mineButton(page, "Keep as my sketch"));
+    await chooseFile(page, "Keep as my sketch");
     await tabIs(page, title);
     assert((await mineNames(page)).join() === title, `the group lists ${await mineNames(page)}`);
     assert((await editorText(page)).includes("orchid"), "the kept sketch lacks the edit");
     assert(!(await page.getByRole("button", { name: "Reset" }).isVisible()), "Reset shows for my own sketch");
-    assert(!(await mineButton(page, "Keep as my sketch").isVisible()), "Keep shows for my own sketch");
+    assert(!(await fileItemShown(page, "Keep as my sketch")), "Keep shows for my own sketch");
     await page.getByRole("button", { name: "Share" }).click();
     await page.waitForFunction(() => document.querySelector(".play-link")?.value.includes("#code="));
     await page.locator(".fg-play__choose").selectOption(FIRST_SKETCH);
@@ -1768,7 +1938,7 @@ f.run()
     assert((await editorText(page)).includes("orchid"), "the kept sketch lost its edit after Reset");
     await page.locator(".fg-play__choose").selectOption("starter");
     await page.waitForFunction(() => document.querySelector(".fg-play__choose").value === "starter");
-    await clickAt(page, mineButton(page, "Keep as my sketch"));
+    await chooseFile(page, "Keep as my sketch");
     await tabIs(page, "Starter sketch");
     await page.close();
   });
@@ -1779,44 +1949,46 @@ f.run()
     await page.addInitScript(() => { localStorage.clear(); Storage.prototype.setItem = function () { throw new DOMException("blocked", "QuotaExceededError"); }; });
     await page.goto(`${EDITOR}/play/?preview=${PREVIEW}`);
     await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
-    const warning = page.locator(".fg-play__minenote--warn");
-    assert(!(await warning.isVisible()), "the warning shows before anything was kept");
-    await clickAt(page, mineButton(page, "New sketch"));
+    // The warning is said like a status and stays in the visit's list, in gold; the note about the new sketch is on screen over it.
+    const warnings = async () => (await visitMessages(page)).filter((line) => line.startsWith("This browser is not keeping sketches"));
+    assert((await warnings()).length === 0, "the warning shows before anything was kept");
+    await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 1");
-    assert(await warning.isVisible(), "no warning after a sketch could not be stored");
-    assert((await warning.innerText()) === "This browser is not keeping sketches: download yours with Download .py", `it says "${await warning.innerText()}"`);
+    const said = await warnings();
+    assert(said.length === 1, "no warning after a sketch could not be stored");
+    assert(said[0] === "This browser is not keeping sketches: download yours with Download .py", `it says "${said[0]}"`);
     await typeCode(page, "# still typing\n");
     await sleep(600);
     assert((await editorText(page)) === "# still typing\n", "editing stopped");
-    await clickAt(page, mineButton(page, "New sketch"));
+    await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 2");
-    assert((await page.locator(".fg-play__minenote--warn").count()) === 1, "the warning is more than one line");
+    assert((await warnings()).length === 1, "the warning is more than one line");
     assert((await mineNames(page)).join() === "Sketch 2,Sketch 1", `in memory the group lists ${await mineNames(page)}`);
     await page.close();
   });
 
   await check(50, "My sketches: the toolbar is still one row at 1366, the actions fit at 1366 and 390 wide, and nothing scrolls sideways", async () => {
     const page = await freshEditor();
-    await clickAt(page, mineButton(page, "New sketch"));
+    await chooseFile(page, "New sketch");
     await tabIs(page, "Sketch 1");
     const measure = () => page.evaluate(() => {
       const box = (selector) => document.querySelector(selector).getBoundingClientRect();
-      const buttons = [...document.querySelectorAll(".fg-play__mine button:not([hidden])")].map((e) => e.getBoundingClientRect());
+      const buttons = [...document.querySelectorAll(".fg-play__tab > :not([hidden])")].map((e) => e.getBoundingClientRect());
       return { bar: Math.round(box(".fg-play__bar").height), right: Math.max(...buttons.map((r) => r.right)), left: Math.min(...buttons.map((r) => r.left)),
-               rows: new Set(buttons.map((r) => Math.round(r.top))).size, scrollWidth: document.documentElement.scrollWidth, code: Math.round(box(".fg-play__code").height) };
+               rows: new Set(buttons.map((r) => Math.round((r.top + r.bottom) / 40))).size, scrollWidth: document.documentElement.scrollWidth, code: Math.round(box(".fg-play__code").height) };
     });
     await page.setViewportSize({ width: 1366, height: 768 });
     await sleep(300);
     const wide = await measure();
     if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "mine_1366.png") });
     assert(wide.bar <= 56, `the toolbar is ${wide.bar}px tall`);
-    assert(wide.rows === 1 && wide.right <= 1366 && wide.left >= 0, `at 1366 the actions are in ${wide.rows} rows and reach ${Math.round(wide.right)}px`);
+    assert(wide.rows === 1 && wide.right <= 1366 && wide.left >= 0, `at 1366 the tab strip is in ${wide.rows} rows and reaches ${Math.round(wide.right)}px`);
     assert(wide.code > 450, `the code is ${wide.code}px tall`);
     await page.setViewportSize({ width: 390, height: 844 });
     await sleep(300);
     const narrow = await measure();
     if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "mine_390.png"), fullPage: true });
-    assert(narrow.scrollWidth <= 390 && narrow.right <= 390 && narrow.left >= 0, `at 390 the page is ${narrow.scrollWidth}px wide, the actions reach ${Math.round(narrow.right)}px`);
+    assert(narrow.scrollWidth <= 390 && narrow.right <= 390 && narrow.left >= 0, `at 390 the page is ${narrow.scrollWidth}px wide, the tab strip reaches ${Math.round(narrow.right)}px`);
     assert(narrow.code >= 300, `at 390 the code is ${narrow.code}px tall`);
     await page.close();
     return `1366: ${wide.rows} row, code ${wide.code}px; 390: ${narrow.rows} rows, code ${narrow.code}px`;
@@ -1839,7 +2011,7 @@ f.run()
 
   // A context with a counter of the "update-ready" and "ready" messages the editor page receives (it survives reloads).
   async function trackedContext() {
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const ctx = await newContext({ viewport: { width: 1280, height: 900 } });
     await ctx.addInitScript(() => {
       window.__messages = { ready: 0, "update-ready": 0, forgotten: 0 };
       window.addEventListener("message", (e) => { if (e.data?.type in window.__messages) window.__messages[e.data.type] += 1; });
@@ -1915,7 +2087,7 @@ f.run()
     return "a new cache replaced the old; only extra.bin was downloaded";
   });
 
-  await check(53, "Service worker: Remove Play from this browser empties the caches and unregisters", async () => {
+  await check(53, "Service worker: Remove Play from this browser asks first, then empties the caches and unregisters", async () => {
     const ctx = await trackedContext();
     const page = await openEditor("", "", ctx);
     const frame = frameOf(page, PREVIEW);
@@ -1923,6 +2095,12 @@ f.run()
     assert(await frame.evaluate(async () => Boolean(await navigator.serviceWorker.getRegistration())), "no service worker registered");
     if (!(await page.getByRole("button", { name: "Remove Play from this browser" }).isVisible())) await page.getByRole("button", { name: "Help" }).click();     // a first visit opens the help by itself
     await page.getByRole("button", { name: "Remove Play from this browser" }).click();
+    // It asks first: Cancel leaves everything; Remove removes.
+    await page.locator(".fg-play__forgetask").getByRole("button", { name: "Cancel" }).click();
+    assert(CACHING ? (await cacheNames(frame)).length >= 2 : true, "Cancel removed the caches");
+    assert(await page.getByRole("button", { name: "Remove Play from this browser" }).isVisible(), "after Cancel the link is gone");
+    await page.getByRole("button", { name: "Remove Play from this browser" }).click();
+    await page.locator(".fg-play__forgetask").getByRole("button", { name: "Remove", exact: true }).click();
     await page.waitForFunction(() => document.querySelector(".fg-play__forgetnote")?.textContent.startsWith("Done"), null, { timeout: 10000 });
     assert((await cacheNames(frame)).length === 0, `caches left: ${await cacheNames(frame)}`);
     assert(await frame.evaluate(async () => !(await navigator.serviceWorker.getRegistration())), "the service worker is still registered");
@@ -2225,8 +2403,9 @@ f.run()
   }
   const filesSummary = (page) => page.locator(".fg-play__files summary");
   const filesRows = (page) => page.locator(".fg-play__file .fg-play__filename");
-  const filesNote = (page) => page.locator(".fg-play__files .fg-play__minenote");
-  const filesNoteHas = (page, text) => page.waitForFunction((t) => document.querySelector(".fg-play__files .fg-play__minenote")?.textContent.includes(t), text, { timeout: 10000 });
+  // A note about a file is in the message area now (BF-14), not in the panel.
+  const filesNote = (page) => page.locator(".fg-msg");
+  const filesNoteHas = (page, text) => page.waitForFunction((t) => document.querySelector(".play-status")?.textContent.includes(t), text, { timeout: 10000 });
   // A page with nothing stored (drafts and kept files), ready to run, with My files open.
   async function freshFilesEditor() {
     const page = await freshEditor();
@@ -2242,7 +2421,7 @@ f.run()
     }));
     await page.reload();
     await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
-    await filesSummary(page).click();
+    await chooseFile(page, "My files");
     return page;
   }
   // Runs a sketch that saves note.txt and presses Keep on its line.
@@ -2312,12 +2491,12 @@ f.run()
     await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 1);
     await filesNoteHas(page, '"dot.png" is back');
     await page.reload();
-    await filesSummary(page).click();
+    await chooseFile(page, "My files");
     await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 1);
     await page.locator(".fg-play__file").getByRole("button", { name: "Delete" }).click();
     await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 0);
     await page.reload();
-    await filesSummary(page).click();
+    await chooseFile(page, "My files");
     assert((await page.locator(".fg-play__filesnone").count()) === 1, "a deleted file came back after a reload");
     await page.close();
   });
@@ -2328,11 +2507,11 @@ f.run()
     assert((await input.getAttribute("accept")).includes(".gif") && (await input.getAttribute("accept")).includes(".wav"), "the input does not ask for GIF and WAV");
     await input.setInputFiles({ name: "program.exe", mimeType: "application/octet-stream", buffer: Buffer.from("MZ") });
     await filesNoteHas(page, '"program.exe" was not added');
-    assert(/^"program\.exe" was not added\. My files takes pictures/.test(await filesNote(page).innerText()), "the line is not plain");
+    assert(/^"program\.exe" was not added\. My files takes pictures/.test(await page.locator(".play-status").innerText()), "the line is not plain");
     await input.setInputFiles({ name: "huge.txt", mimeType: "text/plain", buffer: Buffer.alloc(26 * 1024 * 1024, 97) });
     await filesNoteHas(page, '"huge.txt" is bigger than 25 MB');
     assert((await filesRows(page).count()) === 0, "a refused file was added");
-    assert((await filesNote(page).allInnerTexts()).length === 1, "more than one line");
+    assert((await page.locator(".play-status").allInnerTexts()).length === 1, "more than one line");
     await page.close();
   });
   await check(71, "My files: a sketch that rewrites a kept file shows a new Saved line, so the new version can be kept", async () => {
@@ -2357,6 +2536,43 @@ print("written")
     assert((await size.innerText()) === `${again.length} bytes`, `the kept copy was not replaced: My files says ${await size.innerText()}`);
     await page.close();
     return "rewritten, shown and kept again";
+  });
+
+  await check(125, "My files: Rename gives a phone's photo the name a sketch opens (S-319, D-162); Esc keeps the old name; a taken name is refused", async () => {
+    const page = await freshFilesEditor();
+    const input = page.locator(".fg-play__files input[type=file]");
+    await input.setInputFiles({ name: "IMG_20261120_154233.png", mimeType: "image/png", buffer: solidPng(8, [255, 0, 0]) });
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 1);
+    await input.setInputFiles({ name: "other.png", mimeType: "image/png", buffer: solidPng(8, [0, 0, 255]) });
+    await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 2);
+    const photoRow = () => page.locator(".fg-play__file").filter({ hasText: "IMG_20261120_154233.png" });
+    const box = page.locator(".fg-play__file .fg-play__nameinput");
+    // Esc: nothing changes.
+    await photoRow().getByRole("button", { name: "Rename" }).click();
+    await box.waitFor();
+    assert(await box.evaluate((b) => b.value.slice(b.selectionStart, b.selectionEnd)) === "IMG_20261120_154233", "the part before the dot is not selected");
+    await box.press("Escape");
+    assert((await filesRows(page).allInnerTexts()).join() === "IMG_20261120_154233.png,other.png", "Esc changed the list");
+    // A taken name is refused, with one plain line.
+    await photoRow().getByRole("button", { name: "Rename" }).click();
+    await box.fill("other");
+    await box.press("Enter");
+    await filesNoteHas(page, 'There is already a file called "other.png"');
+    assert((await filesRows(page).count()) === 2, "a refused rename changed the list");
+    // A name without a dot keeps the ending; a sketch opens the file by its new name; it stays over a reload.
+    await photoRow().getByRole("button", { name: "Rename" }).click();
+    await box.fill("my_photo");
+    await box.press("Enter");
+    await filesNoteHas(page, 'Renamed "IMG_20261120_154233.png" to "my_photo.png"');
+    assert((await filesRows(page).allInnerTexts()).join() === "my_photo.png,other.png", `the list is ${await filesRows(page).allInnerTexts()}`);
+    await typeCode(page, DRAWS_DOT.replace("dot.png", "my_photo.png"));
+    const { picture: drawn } = await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque && p.width >= 100 && p.centre[0] > 200 && p.centre[1] < 60 && p.centre[2] < 60);
+    assert((await page.locator(".play-output .stderr").count()) === 0, "the sketch printed an error");
+    await page.reload();
+    await chooseFile(page, "My files");      // My files is in the File menu (BF-D-045)
+    await page.waitForFunction(() => [...document.querySelectorAll(".fg-play__file .fg-play__filename")].map((n) => n.textContent).join() === "my_photo.png,other.png");
+    await page.close();
+    return `renamed, opened by the sketch (centre ${drawn.centre}), still renamed after a reload`;
   });
 
   // ---- the Extend step and Keep through f.keep (S-226, D-113 b)
@@ -2411,7 +2627,7 @@ print("written")
     await tabIs(page, "Lesson 1: Look, frame and compose");
     await page.waitForFunction(() => document.querySelectorAll(".fg-play__file").length === 3, null, { timeout: 30000 });
     assert((await filesRows(page).allInnerTexts()).join() === "studio/001.json,studio/001.png,studio/001.py", `My files lists ${await filesRows(page).allInnerTexts()}`);
-    const line = await page.locator(".fg-play__minenote").first().innerText();
+    const line = await page.locator(".play-status").innerText();
     assert(line.includes("My sketches") && line.includes("studio/001.png"), `the line says "${line}"`);
     assert((await page.locator(".fg-play__savedrow .fg-play__keepfile", { hasText: "Kept" }).count()) === 3, "the saved lines do not say Kept");
     assert((await page.locator(".fg-play__saved").allInnerTexts()).length === 3, "the saved lines are not shown");
@@ -2433,7 +2649,7 @@ print("written")
     await panel(page).getByRole("button", { name: "Keep this" }).click();
     await panel(page).getByRole("button", { name: "Save", exact: true }).click();
     await tabIs(page, "Lesson 1: Look, frame and compose");
-    const line = await page.locator(".fg-play__minenote").first().innerText();
+    const line = await page.locator(".play-status").innerText();
     assert(line.includes("Run the sketch, then Keep this, to keep its picture too."), `the line says "${line}"`);
     assert((await filesRows(page).count()) === 0, "a file was kept");
     // Stopped is not running either: run it, stop the page's run by opening the sketch again, then keep.
@@ -2445,7 +2661,7 @@ print("written")
     await panel(page).getByRole("button", { name: "Keep this" }).click();
     await panel(page).getByRole("button", { name: "Save", exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll(".fg-play__choose optgroup[label='My sketches'] option").length === 2);
-    assert((await page.locator(".fg-play__minenote").first().innerText()).includes("Run the sketch, then Keep this"), "the picture of a sketch that was stopped was kept");
+    assert((await page.locator(".play-status").innerText()).includes("Run the sketch, then Keep this"), "the picture of a sketch that was stopped was kept");
     assert((await filesRows(page).count()) === 0, "a file was kept for a sketch that was not running");
     await page.close();
   });
@@ -2455,7 +2671,7 @@ print("written")
   const unshare = (href) => inflateRawSync(Buffer.from(new URL(href).hash.slice(1).replace(/^code=/, "").replaceAll("-", "+").replaceAll("_", "/"), "base64")).toString("utf8");
   const openInPlay = (page) => page.getByRole("link", { name: /Open in Play/ });
   const embedPage = async (width, height, query = EMBED, hash = "") => {
-    const where = await browser.newContext({ viewport: { width, height } });
+    const where = await newContext({ viewport: { width, height } });
     return { page: await openEditor(query, hash, where), where };
   };
   const waitFor = (page, test, arg, timeout = 10000) => page.waitForFunction(test, arg, { timeout });
@@ -2467,7 +2683,7 @@ print("written")
     });
     assert(await page.evaluate(() => document.documentElement.classList.contains("fg-embed")), "no fg-embed class");
     const hidden = { "the site header": ".md-header", "the tabs": ".md-tabs", "the footer": ".md-footer", "the page title": "h1", "the picker": ".fg-play__picker",
-      "the sketch list": ".fg-play__choose", "My sketches": ".fg-play__mine", "My files": ".fg-play__files", "the lesson": ".fg-lesson", "the help": "#fg-play-help",
+      "the sketch list": ".fg-play__choose", "the File menu": ".fg-play__filemenu", "My files": ".fg-play__files", "the word Play": ".fg-play__word", "Focus": ".fg-play__focus", "the lesson": ".fg-lesson", "the help": "#fg-play-help",
       "the help button": "[aria-label='Help']", "Guides": ".fg-play__guides", "Share": ".fg-play__share", "Reset": ".fg-play__reset", "the divider": ".fg-play__divider",
       "the floating Run": ".fg-play__fab", "the link field": ".fg-play__link", "the first-visit note": ".fg-play__notice" };
     for (const [name, selector] of Object.entries(hidden)) assert(!(await page.locator(selector).first().isVisible()), `${name} is shown`);
@@ -2522,7 +2738,7 @@ print("written")
   });
 
   await check(78, "embed: nothing is remembered, and Ctrl+S does nothing", async () => {
-    const where = await browser.newContext({ viewport: { width: 1000, height: 600 } });
+    const where = await newContext({ viewport: { width: 1000, height: 600 } });
     const page = await openEditor(EMBED, "", where);
     const state = () => page.evaluate(async () => ({ keys: Object.keys(localStorage), databases: (await indexedDB.databases()).map((d) => d.name) }));
     const before = await state();
@@ -2586,7 +2802,7 @@ print("written")
     for (const query of ["", `&example=${FIRST_SKETCH}`, `&example=${FIRST_SKETCH}&embed=0`, `&example=${FIRST_SKETCH}&embed=true`]) {
       const page = await openEditor(query);
       assert(!(await page.evaluate(() => document.documentElement.classList.contains("fg-embed"))), `embed mode is on (${query})`);
-      for (const selector of [".fg-play__choose", ".fg-play__mine", ".fg-play__files", ".fg-play__share", ".fg-play__guides", "[aria-label='Help']", ".fg-play__divider"]) {
+      for (const selector of [".fg-play__choose", ".fg-play__filemenu", ".fg-play__word", ".fg-play__focus", ".fg-play__share", ".fg-play__guides", "[aria-label='Help']", ".fg-play__divider"]) {
         assert(await page.locator(selector).first().isVisible(), `${selector} is hidden (${query})`);
       }
       assert((await page.locator(".fg-play__openplay").count()) === 0, "Open in Play was built");
@@ -2600,8 +2816,8 @@ print("written")
     await clearDrafts(page);
     await typeCode(page, 'name = input("Your name? ")\nprint("never")\n');
     await runButton(page).click();
-    await page.locator(".fg-play__error").waitFor({ timeout: 30000 });
-    const error = await page.locator(".fg-play__error").innerText();
+    await page.locator(".fg-msg--error").waitFor({ timeout: 30000 });
+    const error = await page.locator(".fg-msg--error .play-status").innerText();
     assert(error.includes("Play cannot wait for typing yet. Run this on your computer, or put the answer in the code."), `the error says "${error}"`);
     const output = await page.locator(".play-output").innerText();
     assert(output.includes("Your name? ") && !output.includes("OSError") && !output.includes("never"), `the output is "${output}"`);
@@ -2614,7 +2830,6 @@ print("written")
     await clearDrafts(page);
     const sketch = "import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    f.background('gold')\n    f.circle(100, 50, 40)\n\n\nf.run()\n";
     await typeCode(page, sketch);
-    await page.getByLabel("Blocks", { exact: true }).check();      // Blocks is optional (BF-D-031): the switch shows once it is ticked
     const started = Date.now();
     await page.getByRole("button", { name: "Blocks", exact: true }).click();
     const box = page.locator(".fg-play__blocks");
@@ -2642,7 +2857,7 @@ print("written")
     if (shotsDir) await page.screenshot({ path: path.join(shotsDir, "play_blocks.png") });
 
     // back to Python, then text that is not finished Python: refused with its line, the view stays Python
-    await page.getByRole("button", { name: "Python" }).click();
+    await page.getByRole("button", { name: "Code", exact: true }).click();
     assert(await page.locator(".fg-play__code").isVisible(), "the code did not come back");
     await typeCode(page, "x = 1\nif x > 0\n    print(x)\n");
     await page.getByRole("button", { name: "Blocks", exact: true }).click();
@@ -2652,7 +2867,7 @@ print("written")
     return `blocks shown ${ms} ms after the click (the first time: the bundle loads)`;
   });
 
-  await check(85, "Blocks is optional: a tick box, remembered, ?blocks=1 and ?blocks=0, nothing fetched while off, a running sketch is told it was stopped (BF-D-031, BF-D-026)", async () => {
+  await check(85, "Code | Blocks is a switch by the file name at every size, nothing is fetched until Blocks is pressed, a running sketch is told it was stopped (BF-15, BF-D-026)", async () => {
     const page = await openEditor();
     await clearDrafts(page);
     const reload = async (query = "") => {
@@ -2660,41 +2875,26 @@ print("written")
       await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
     };
     const bundleRequests = () => page.evaluate(() => performance.getEntriesByType("resource").filter((e) => e.name.includes("vendor/blockly-fun/")).length);
-    const tick = page.getByLabel("Blocks", { exact: true });
     const switchShown = () => page.locator(".fg-play__views").isVisible();
+    const pressed = () => page.evaluate(() => [...document.querySelectorAll(".fg-play__view")].map((b) => `${b.textContent}=${b.getAttribute("aria-pressed")}`).join(" "));
     const blocksShown = (target) => target.waitForFunction(() => [...document.querySelectorAll(".fg-play__view")].some((b) => b.textContent === "Blocks"
       && b.getAttribute("aria-pressed") === "true"), null, { timeout: 90000 });
     await reload();
-    assert(!(await tick.isChecked()) && !(await switchShown()), "Blocks is on at first");
-    assert(await bundleRequests() === 0, "the blocks bundle was fetched while Blocks is off");
+    assert(await switchShown(), "the switch is not there at first");
+    assert(await page.getByLabel("Blocks", { exact: true }).count() === 0, "the Blocks tick box is still there");
+    assert(await pressed() === "Code=true Blocks=false", `the switch says ${await pressed()}`);
+    assert(await bundleRequests() === 0, "the blocks bundle was fetched before Blocks was pressed");
 
-    // ticked: the switch shows; unticked while the blocks are open: back to Python, switch hidden
-    await tick.check();
-    assert(await switchShown(), "the switch did not show");
+    // Blocks, then Code: the code comes back
     await page.getByRole("button", { name: "Blocks", exact: true }).click();
     await blocksShown(page);
-    await tick.uncheck();
-    assert(!(await switchShown()), "the switch is still shown");
-    assert(await page.locator(".fg-play__code").isVisible() && !(await page.locator(".fg-play__blocks").isVisible()), "Play did not go back to Python");
-
-    // remembered; the address can tick or untick it
-    await tick.check();
-    await reload();
-    assert(await tick.isChecked() && await switchShown(), "the tick was not remembered");
-    await reload("&blocks=0");
-    assert(!(await tick.isChecked()) && !(await switchShown()), "?blocks=0 did not untick it");
-    await reload();
-    assert(!(await tick.isChecked()), "?blocks=0 was not remembered");
-    await reload("&blocks=1");
-    assert(await tick.isChecked() && await switchShown(), "?blocks=1 did not tick it");
-    await reload();
-    assert(await tick.isChecked(), "?blocks=1 was not remembered");
-    await tick.uncheck();
-    await reload();
-    assert(await bundleRequests() === 0, "the blocks bundle was fetched while Blocks is off");
+    assert(await pressed() === "Code=false Blocks=true", `the switch says ${await pressed()}`);
+    await page.getByRole("button", { name: "Code", exact: true }).click();
+    assert(await page.locator(".fg-play__code").isVisible() && !(await page.locator(".fg-play__blocks").isVisible()), "Play did not go back to the code");
+    assert(await pressed() === "Code=true Blocks=false", `the switch says ${await pressed()}`);
 
     // Blocks pressed while a sketch runs: it stops, and the output says why
-    await reload("&example=animation-01_bounce&blocks=1");
+    await reload("&example=animation-01_bounce");
     const frame = frameOf(page, PREVIEW);
     await runButton(page).click();
     const first = (await waitForPicture(frame, (p) => p.opaque)).picture;
@@ -2704,12 +2904,12 @@ print("written")
     await page.close();
 
     // and with nothing running there is no such line
-    const idle = await openEditor("&blocks=1");
+    const idle = await openEditor();
     await idle.getByRole("button", { name: "Blocks", exact: true }).click();
     await blocksShown(idle);
     assert(!(await idle.locator(".play-output").innerText()).includes("Stopped to show"), "the line appeared with nothing running");
     await idle.close();
-    return "tick box, memory, address, no fetch while off, stop line";
+    return "switch always there, no fetch before Blocks, Code goes back, stop line";
   });
 
   await check(86, "The blocks read funground's catalogue: the name list, its search, a name with its own block, the list of what an object has, Help, a colour grid (BF-5)", async () => {
@@ -2825,11 +3025,160 @@ print("written")
     await page.close();
     return `"circ" found ${found.length} rows; body lists ${parts.length} parts; Help ${help}`;
   });
+  // ---- Play's layout (BF-10): the header word, the File menu, focus mode
+  await check(88, "Play's header: no heading row, the word Play starts the toolbar, a hidden h1 stays for screen readers (BF-D-041)", async () => {
+    const page = await openEditor();
+    const heading = await page.evaluate(() => {
+      const h1 = document.querySelector("h1");
+      const box = h1.getBoundingClientRect();
+      return { count: document.querySelectorAll("h1").length, width: box.width, height: box.height, text: h1.textContent,
+               top: document.querySelector(".fg-play__bar").getBoundingClientRect().top - document.querySelector(".fg-play").getBoundingClientRect().top, playId: document.getElementById("play") === h1,
+               containerId: document.querySelector(".fg-play").id };
+    });
+    assert(heading.count === 1 && heading.text === "Play", "the page lost its h1");
+    assert(heading.width <= 1 && heading.height <= 1, `the h1 is shown (${heading.width} x ${heading.height})`);
+    assert(heading.top < 1, `the toolbar starts ${heading.top}px down in its box: a heading row is taking room`);
+    assert(await page.evaluate(() => document.querySelector(".fg-play").getBoundingClientRect().top - document.querySelector("article").getBoundingClientRect().top) < 1, "something is above the editor");
+    assert(heading.playId && heading.containerId === "funground-play", "the id play is not on the heading alone (SITE-C-01)");
+    const first = page.locator(".fg-play__bar > :first-child");
+    assert(await first.isVisible() && (await first.innerText()) === "Play", "the word Play is not at the start of the toolbar");
+    await page.close();
+  });
+
+  await check(89, "The File menu: one button beside the file's name; it opens, does what the old buttons did, and closes on a choice, Esc and a click outside (BF-D-045)", async () => {
+    const page = await freshEditor();
+    assert((await page.locator(".fg-play__mine").count()) === 0, "the old row of buttons is still there");
+    const button = page.locator(".fg-play__tab .fg-play__filebtn");
+    assert(await button.isVisible(), "no File button in the tab row");
+    assert((await button.getAttribute("aria-haspopup")) === "true" && (await button.getAttribute("aria-expanded")) === "false", "the button's aria is wrong");
+    assert(!(await fileMenuOpen(page)), "the menu is open at first");
+    const menu = page.locator(".fg-play__menu");
+
+    // opens; the starter sketch is not the learner's own, so it has Keep but not Rename, Duplicate or Delete
+    await button.click();
+    assert((await button.getAttribute("aria-expanded")) === "true" && await menu.isVisible(), "the menu did not open");
+    const shown = await menu.getByRole("button").evaluateAll((all) => all.filter((e) => e.offsetParent).map((e) => e.textContent));
+    assert(shown.join("|") === "New sketch|New file|Open file|Keep as my sketch|Download .py|My files", `the menu shows ${shown.join("|")}`);
+
+    // Esc closes it and gives the focus back to the button
+    await page.keyboard.press("Escape");
+    assert(!(await fileMenuOpen(page)) && (await button.getAttribute("aria-expanded")) === "false", "Esc did not close the menu");
+    assert(await page.evaluate(() => document.activeElement.classList.contains("fg-play__filebtn")), "the focus did not go back to the File button");
+
+    // a click outside closes it
+    await button.click();
+    await page.locator(".cm-content").click();
+    assert(!(await fileMenuOpen(page)), "a click outside did not close the menu");
+
+    // the keyboard: Enter opens it, the arrow keys move, a choice closes it
+    await button.focus();
+    await page.keyboard.press("Enter");
+    assert(await menu.isVisible(), "Enter did not open the menu");
+    assert((await page.evaluate(() => document.activeElement.textContent)) === "New sketch", "the first item has no focus");
+    await page.keyboard.press("ArrowDown");
+    assert((await page.evaluate(() => document.activeElement.textContent)) === "New file", "ArrowDown did not move");
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("Enter");
+    await tabIs(page, "Sketch 1");
+    assert(!(await fileMenuOpen(page)), "a choice did not close the menu");
+
+    // each item does what its button did (checks 45 and 47 look at these more closely)
+    assert(await fileItemShown(page, "Rename") && await fileItemShown(page, "Duplicate") && await fileItemShown(page, "Delete"), "a sketch of mine has no Rename, Duplicate or Delete");
+    assert(!(await fileItemShown(page, "Keep as my sketch")), "Keep shows for my own sketch");
+    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), chooseFile(page, "Download .py")]);
+    assert(download.suggestedFilename().endsWith(".py"), `the download is called ${download.suggestedFilename()}`);
+    await page.locator(".fg-play__filemenu input[type=file]").setInputFiles({ name: "wave.py", mimeType: "text/x-python", buffer: Buffer.from("print('hi')\n") });
+    await tabIs(page, "wave");
+    await chooseFile(page, "Duplicate");
+    await tabIs(page, "wave copy");
+    assert(await page.locator(".fg-play__files").isHidden(), "My files is open before it was asked for");
+    await chooseFile(page, "My files");
+    assert(await page.locator(".fg-play__files").isVisible() && await page.locator(".fg-play__files").evaluate((e) => e.open), "My files did not open its panel");
+    assert(!(await fileMenuOpen(page)), "choosing My files left the menu open");
+    await page.close();
+  });
+
+  await check(90, "Focus mode: one strip with Run, Stop, Auto-run, the switch and the message area, Leave focus at the right; the rest is hidden and comes back (BF-D-046, BF-14)", async () => {
+    const page = await freshEditor("&blocks=1");
+    await page.evaluate(() => {          // what MkDocs puts round the page
+      for (const name of ["md-header", "md-tabs"]) document.body.prepend(Object.assign(document.createElement("div"), { className: name, textContent: name }));
+    });
+    // The message area is not in this list: it stays in focus mode (BF-14).
+    const everyday = { "the example list": ".fg-play__picker", "Share": ".fg-play__share", "the help button": "[aria-label='Help']",
+      "Guides": ".fg-play__guides", "the tab row": ".fg-play__tab", "the File menu": ".fg-play__filemenu",
+      "the site header": ".md-header", "the word Play": ".fg-play__word", "Focus": ".fg-play__focus" };
+    for (const [name, selector] of Object.entries(everyday)) assert(await page.locator(selector).first().isVisible(), `${name} is hidden before focus mode`);
+    assert(!(await page.locator(".fg-play__leavefocus").isVisible()), "Leave focus shows before focus mode");
+
+    await page.getByRole("button", { name: "Focus", exact: true }).click();
+    assert(await page.evaluate(() => document.documentElement.classList.contains("fg-focus")), "no focus mode");
+    for (const [name, selector] of Object.entries(everyday)) assert(!(await page.locator(selector).first().isVisible()), `${name} shows in focus mode`);
+    assert(!(await page.locator(".md-tabs").isVisible()), "the site's tabs show in focus mode");
+    // the strip: the controls are on one row, the switch among them, Leave focus alone at the far right
+    const strip = await page.evaluate(() => {
+      const box = (e) => { const r = e.getBoundingClientRect(); return { top: Math.round((r.top + r.bottom) / 40), right: r.right }; };    // the middle, in 20px steps
+      const visible = [...document.querySelectorAll(".fg-play__bar > *")].filter((e) => e.offsetParent).map((e) => ({ text: e.classList.contains("fg-msg") ? "area" : e.textContent.trim(), ...box(e) }));
+      return { visible, work: document.querySelector(".fg-play__work").getBoundingClientRect().top,
+               bar: document.querySelector(".fg-play__bar").getBoundingClientRect().bottom, width: innerWidth };
+    });
+    const names = strip.visible.map((e) => e.text).join("|");
+    assert(/^▶ RunCtrl ↵\|Stop\|Auto-run\|CodeBlocks\|area\|Leave focus$/.test(names), `the strip holds ${names}`);
+    assert(new Set(strip.visible.map((e) => e.top)).size === 1, "the strip is more than one row");
+    // the message area is between the controls and Leave focus, which is at the far right (the switch before them is in the left half)
+    assert(strip.visible.at(-1).right > strip.width - 40 && strip.visible.at(-3).right < strip.width / 2 && strip.visible.at(-2).right < strip.visible.at(-1).right,
+      "Leave focus is not at the far right, after the message area");
+    assert(Math.abs(strip.work - strip.bar) < 2, "something sits between the strip and the code");
+
+    // Run works; the hint is on the picture until it is clicked
+    assert(!(await page.locator(".fg-play__focushint").isVisible()), "the hint shows before a run");
+    await page.locator(".cm-content").click();
+    await page.keyboard.press("Control+Enter");
+    await page.locator(".fg-play__focushint").waitFor({ timeout: 30000 });
+    assert((await page.locator(".fg-play__focushint").innerText()) === "Click the picture to give it the mouse and keys", "the hint says something else");
+    await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque && p.colours > 1);
+    await clickAt(page, page.locator(".play-preview"));
+    await page.locator(".fg-play__focushint").waitFor({ state: "hidden", timeout: 5000 });
+
+    // the switch to Blocks, from the strip
+    await page.getByRole("button", { name: "Blocks", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector(".fg-play__blocks").offsetParent !== null
+      && [...document.querySelectorAll(".fg-play__view")].some((b) => b.textContent === "Blocks" && b.getAttribute("aria-pressed") === "true"), null, { timeout: 90000 });
+    await page.getByRole("button", { name: "Code", exact: true }).click();
+
+    // Esc stops a running sketch first, and leaves focus mode only when nothing is running (run it again: the switch may have stopped it)
+    await page.locator(".cm-content").click();
+    await page.keyboard.press("Control+Enter");
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 30000 });
+    await page.getByRole("button", { name: "Run", exact: true }).focus();
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Stopped.", null, { timeout: 10000 })
+      .catch(async (e) => { throw new Error(`${e.message}; the status says "${await status(page)}"; ${await page.evaluate(() => `stop disabled ${document.querySelectorAll(".fg-play__bar .fg-btn")[1]?.disabled}, help hidden ${document.getElementById("fg-play-help").hidden}, menu hidden ${document.querySelector(".fg-play__menu").hidden}, active ${document.activeElement.outerHTML.slice(0, 60)}`)}`); });
+    assert(await page.evaluate(() => document.documentElement.classList.contains("fg-focus")), "the first Esc left focus mode with a sketch running");
+    await page.keyboard.press("Escape");
+    assert(!(await page.evaluate(() => document.documentElement.classList.contains("fg-focus"))), "Esc did not leave focus mode");
+
+    // everything is back, the switch is in the tab row again, and the status kept up while it was hidden
+    for (const [name, selector] of Object.entries(everyday)) assert(await page.locator(selector).first().isVisible(), `${name} did not come back`);
+    assert(!(await page.locator(".fg-play__leavefocus").isVisible()), "Leave focus still shows");
+    assert((await page.locator(".fg-play__tab .fg-play__views").count()) === 1, "the switch did not go back to the tab row");
+    assert((await status(page)) === "Stopped.", `the status says "${await status(page)}"`);
+
+    // the button leaves too, and a fresh page is never in focus mode
+    await page.getByRole("button", { name: "Focus", exact: true }).click();
+    await page.getByRole("button", { name: "Leave focus", exact: true }).click();
+    assert(await page.locator(".fg-play__picker").isVisible(), "Leave focus did not bring the page back");
+    await page.getByRole("button", { name: "Focus", exact: true }).click();
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+    assert(!(await page.evaluate(() => document.documentElement.classList.contains("fg-focus"))), "focus mode was remembered");
+
+    await page.close();
+  });
 
   // S-307: a model's download and start are in the status line. No real model is downloaded: the table of models.json is replaced by
   // one where "hand" is a 3 MB file of zeros on this server (held back until the check lets it go), and "pose" is a file that is not there.
   // The zeros are not an ONNX file, so the start ends in "failed" and a "ready" is sent by hand from the preview's frame.
-  await check(87, "a model's download and start show in the status line and as one changing line in the output: downloading, starting, failed, ready, and Stop clears them", async () => {
+  await check(87, "a model's download and start show in the message area (not in the output): downloading, starting, failed, ready, and Stop clears them", async () => {
     const RUNTIME = "/play/runner/runtime/";
     const FAKE = "/play/fake-models/hand.bin";
     const bytes = Buffer.alloc(3_000_000);
@@ -2842,7 +3191,7 @@ print("written")
     overrides[FAKE] = bytes;
     let release;
     gates[FAKE] = new Promise((resolve) => { release = resolve; });
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const ctx = await newContext({ viewport: { width: 1280, height: 900 } });
     try {
       const page = await openEditor("", "", ctx);
       await clearDrafts(page);
@@ -2868,29 +3217,29 @@ print("written")
 
       await typeCode(page, sketch("hand"));
       await runButton(page).click();
-      await waitForStatus('text.startsWith("Downloading the hand model: ") && text.endsWith(" of 3 MB...")');
+      await waitForStatus('text.startsWith("Downloading the hand model: ") && text.includes(" of 3 MB. Only this once")');
       const title = await page.locator(".play-status").getAttribute("title");
       assert(title === await status(page), `the title is "${title}"`);
-      // the output has the same wait as one line that changes in place, with the turning mark (data-state busy)
-      const modelLine = () => page.evaluate(() => [...document.querySelectorAll(".fg-play__modelline")].map((l) => ({ text: l.textContent, state: l.dataset.state })));
-      const busy = await modelLine();
-      assert(busy.length === 1 && busy[0].state === "busy" && busy[0].text.startsWith("Downloading the hand model: "), `the output's model line is ${JSON.stringify(busy)}`);
+      // the wait is in the message area only, with the turning ring (the loading look); the output has no model line (BF-14)
+      assert((await page.locator(".play-status").getAttribute("class")).includes("fg-status--loading"), "the area has no ring while the model downloads");
+      assert(!/Downloading the hand model|Starting the hand model/.test(await page.locator(".play-output").innerText()), "the output has a model line");
       release();
       await waitForStatus('isError && text.includes("hand")');
       const seen = await lines();
-      assert(seen.includes("Downloading the hand model: 3 of 3 MB...") || seen.some((line) => line.startsWith("Downloading the hand model")), `lines: ${seen}`);
+      assert(seen.some((line) => line.startsWith("Downloading the hand model") && line.includes(" of 3 MB")), `lines: ${seen}`);
       assert(seen.includes("Starting the hand model..."), `no start line: ${seen.join(" | ")}`);
       const failed = await status(page);
       assert(failed.startsWith("ml.hand()"), `the failed line is "${failed}"`);
-      const after = await modelLine();
-      assert(after.length === 1 && after[0].state === "failed" && after[0].text === "The hand model did not load: the reason is below.", `the output's model line is ${JSON.stringify(after)}`);
       const printed = await page.locator(".play-output").innerText();
       assert(!/Downloading the hand model, d+ MB, once/.test(printed), "the runner still printed its fixed download line");
+      assert(!/did not load|is ready/.test(printed), `the output has a model line: ${printed}`);
       // A model that is ready puts back the line the status had before: the one for a running sketch.
       await frameOf(page, PREVIEW).evaluate(() => window.parent.postMessage({ type: "model", task: "hand", word: "hand", state: "ready" }, "*"));
       await waitForStatus('text.startsWith("Running.") && !isError');
-      const ready = await modelLine();
-      assert(ready.length === 1 && ready[0].state === "done" && ready[0].text === "The hand model is ready.", `the output's model line is ${JSON.stringify(ready)}`);
+      assert(!/Downloading the hand model|Starting the hand model/.test(await page.locator(".play-output").innerText()), "the output has a model line after ready");
+      // The download is one entry in the visit's list that changed in place, not one for every step.
+      const downloads = (await visitMessages(page)).filter((line) => line.startsWith("Downloading the hand model"));
+      assert(downloads.length <= 1, `the list has ${downloads.length} download lines`);
       // Stop clears it; a late message from the old run says nothing.
       await page.getByRole("button", { name: "Stop", exact: true }).click();
       await waitForStatus('text === "Stopped."');
@@ -2911,6 +3260,1511 @@ print("written")
       delete overrides[FAKE];
       await ctx.close();
     }
+  });
+
+  // ---- several files in one sketch (S-242). The zip module has its own test, tools/test_zip.mjs, which runs in Node.
+  const fileTabNames = (page) => page.locator(".fg-play__ftabname").allInnerTexts();
+  const fileTab = (page, name) => page.getByRole("tab", { name, exact: true });
+  const tabStrip = (page) => page.locator(".fg-play__ftabs");
+  const nameHint = (page) => page.locator(".fg-play__filehint");
+  const mineNote = (page) => page.locator(".play-status");
+  // Opens the form of New file, types a name and waits for the line that says what it will be called (or why not).
+  async function askNewFile(page, typed, hintStarts) {
+    await chooseFile(page, "New file");
+    await page.locator(".fg-play__fileform input").fill(typed);
+    if (!hintStarts) return;
+    await page.waitForFunction((text) => document.querySelector(".fg-play__filehint")?.textContent.startsWith(text), hintStarts, { timeout: 5000 })
+      .catch(async () => { throw new Error(`for "${typed}" the line says "${await nameHint(page).innerText()}", not "${hintStarts}..."`); });
+  }
+  async function makeFile(page, typed, hintStarts = "It will be called") {
+    await askNewFile(page, typed, hintStarts);
+    await page.locator(".fg-play__fileform button[type=submit]").click();
+  }
+  const noAutoRun = (page) => page.locator(".fg-play__auto input").first().uncheck();
+  const storedSketches = (page) => page.evaluate(() => JSON.parse(localStorage.getItem("funground.play.sketches")));
+
+  const SKETCH_WITH_HELPERS = 'import funground as f\nimport helpers\n\nprint("from helpers: " + helpers.COLOUR)\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    f.background(helpers.COLOUR)\n\n\nf.run()\n';
+
+  await check(91, "New file makes a second tab (the strip shows only then); a sketch imports its helper and the helper another helper; the output and the picture are right (S-242)", async () => {
+    const page = await freshEditor();
+    await noAutoRun(page);
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    assert(await tabStrip(page).isHidden(), "the tab strip shows for a sketch with one file");
+    assert(!(await fileItemShown(page, "Download .zip")) && (await fileItemShown(page, "Download .py")), "the menu offers a zip for one file");
+    await typeCode(page, SKETCH_WITH_HELPERS);
+    await makeFile(page, "helpers");
+    await tabStrip(page).waitFor();
+    assert((await fileTabNames(page)).join() === "Sketch 1,helpers.py", `the tabs are ${await fileTabNames(page)}`);
+    assert((await fileTab(page, "helpers.py").getAttribute("aria-selected")) === "true", "the new file is not the open tab");
+    assert((await editorText(page)) === "", `the new file holds ${JSON.stringify(await editorText(page))}`);
+    assert((await mineNote(page).innerText()).includes("import helpers"), `the note says "${await mineNote(page).innerText()}"`);
+    await typeCode(page, "import levels\n\nCOLOUR = levels.TOP\n");
+    await makeFile(page, "Levels");                     // capitals are made small
+    await typeCode(page, 'TOP = "gold"\n');
+    assert((await fileTabNames(page)).join() === "Sketch 1,helpers.py,levels.py", `the tabs are ${await fileTabNames(page)}`);
+    assert((await page.locator(".cm-content").count()) === 1, "more than one editor is in the page");
+    assert(await page.locator(".fg-play__filebtn").isVisible() && (await fileItemShown(page, "Download .zip")), "the menu does not offer a zip for several files");
+    await fileTab(page, "Sketch 1").click();
+    assert((await editorText(page)).includes("import helpers"), "the main tab does not show the main file");
+    await runButton(page).click();                      // Run starts the main file whichever tab is open; here it is the main one
+    const frame = frameOf(page, PREVIEW);
+    await waitForPicture(frame, (p) => p.opaque && p.centre.join() === "255,215,0");
+    await page.waitForFunction(() => document.querySelector(".play-output")?.textContent.includes("from helpers: gold"));
+    // Run from a helper's tab still runs the main file: change the colour there and run from it.
+    await fileTab(page, "levels.py").click();
+    await typeCode(page, 'TOP = "tomato"\n');
+    await runButton(page).click();
+    await waitForPicture(frame, (p) => p.opaque && p.centre.join() === "255,99,71");
+    await page.waitForFunction(() => document.querySelector(".play-output")?.textContent.includes("from helpers: tomato"));
+    await page.close();
+    return "two helpers imported; Run from a helper's tab ran the main file";
+  });
+
+  await check(92, "A refused file name says why (random, main, funground, 2d, a space and a !); \"Helpers 2\" is offered as helpers_2.py; a second helpers is refused; Esc closes the form (S-242)", async () => {
+    const names = JSON.parse(readFileSync(path.join(docs, "play", "stdlib_modules.json"), "utf8"));
+    assert(["random", "math", "sys", "json"].every((name) => names.includes(name)) && names.length > 100, `stdlib_modules.json has ${names.length} names`);
+    const page = await freshEditor();
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    const refused = [["random", "comes with Python"], ["math", "comes with Python"], ["main", "the sketch's own file"], ["Main.py", "the sketch's own file"],
+      ["funground", "funground library"], ["2d", "starts with a letter"], ["_x", "starts with a letter"], ["a!b", "Use letters, digits and _ only"], ["", "Type a name"]];
+    for (const [typed, why] of refused) {
+      await askNewFile(page, typed);
+      await page.waitForFunction((text) => document.querySelector(".fg-play__filehint")?.textContent.includes(text), why, { timeout: 5000 })
+        .catch(async () => { throw new Error(`for "${typed}" the line says "${await nameHint(page).innerText()}", not "...${why}..."`); });
+      await page.locator(".fg-play__fileform button[type=submit]").click();
+      assert(await page.locator(".fg-play__fileform").isVisible(), `the form closed for "${typed}"`);
+      assert((await nameHint(page).innerText()).includes(why), `after OK the line says "${await nameHint(page).innerText()}"`);
+      assert(await tabStrip(page).isHidden(), `a file was made for "${typed}"`);
+      await page.locator(".fg-play__fileform button", { hasText: "Cancel" }).click();
+    }
+    await askNewFile(page, "Helpers 2", "It will be called helpers_2.py.");
+    await page.locator(".fg-play__fileform input").press("Enter");
+    await fileTab(page, "helpers_2.py").waitFor();
+    await chooseFile(page, "New file");
+    await page.locator(".fg-play__fileform input").fill("helpers 2");
+    await page.waitForFunction(() => document.querySelector(".fg-play__filehint")?.textContent.includes("already has a file called helpers_2.py"));
+    await page.keyboard.press("Escape");
+    assert(await page.locator(".fg-play__fileform").isHidden(), "Esc did not close the form");
+    assert((await fileTabNames(page)).join() === "Sketch 1,helpers_2.py", `the tabs are ${await fileTabNames(page)}`);
+    assert(!(await page.locator(".play-status").innerText()).includes("Stopped"), "Esc stopped the sketch");
+    await page.close();
+    return `${refused.length} names refused; helpers_2.py made`;
+  });
+
+  await check(93, "A file's tab can be renamed and deleted with Undo; a tab keeps its cursor and undo history when another tab is shown (S-242)", async () => {
+    const page = await freshEditor();
+    await noAutoRun(page);
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    await makeFile(page, "helpers");
+    await typeCode(page, "X = 1\n");
+    await page.keyboard.type("Y = 2");
+    await fileTab(page, "Sketch 1").click();
+    await typeCode(page, "import helpers\n");
+    await fileTab(page, "helpers.py").click();
+    assert((await editorText(page)) === "X = 1\nY = 2", `helpers.py shows ${JSON.stringify(await editorText(page))}`);
+    // the cursor is where it was left (the end), and the undo history is the file's own: undo takes back the last typing only
+    await page.locator(".cm-content").focus();
+    await sleep(700);                                   // typing close together is one step of undo: this is a new step
+    await page.keyboard.type("!");
+    assert((await editorText(page)) === "X = 1\nY = 2!", `the cursor was not kept: ${JSON.stringify(await editorText(page))}`);
+    await page.keyboard.press("Control+Z");
+    assert((await editorText(page)) === "X = 1\nY = 2", `undo gave ${JSON.stringify(await editorText(page))}`);
+    await fileTab(page, "Sketch 1").click();
+    await page.locator(".cm-content").focus();
+    await page.keyboard.press("Control+Z");
+    const undone = await editorText(page);
+    assert(undone !== "import helpers\n" && !undone.includes("X = 1"), `the main tab's undo gave ${JSON.stringify(undone)}`);
+
+    // rename: the form has the name without .py; the tab, the stored sketch and a line about import follow
+    await page.getByRole("button", { name: "Rename helpers.py" }).click();
+    assert((await page.locator(".fg-play__fileform input").inputValue()) === "helpers", "the form does not start with the name");
+    await page.locator(".fg-play__fileform input").fill("Utils");
+    await page.locator(".fg-play__fileform input").press("Enter");
+    await fileTab(page, "utils.py").waitFor();
+    assert((await fileTabNames(page)).join() === "Sketch 1,utils.py", `the tabs are ${await fileTabNames(page)}`);
+    assert((await mineNote(page).innerText()).includes("import helpers") && (await mineNote(page).innerText()).includes("import utils"), `the note says "${await mineNote(page).innerText()}"`);
+    assert((await storedSketches(page))[0].files.map((file) => file.name).join() === "utils.py", "the stored sketch has the old name");
+    await fileTab(page, "utils.py").click();
+    assert((await editorText(page)) === "X = 1\nY = 2", `utils.py shows ${JSON.stringify(await editorText(page))}`);
+    // a rename to a refused name keeps the form and the name
+    await page.getByRole("button", { name: "Rename utils.py" }).click();
+    await page.locator(".fg-play__fileform input").fill("random");
+    await page.locator(".fg-play__fileform input").press("Enter");
+    assert((await nameHint(page).innerText()).includes("comes with Python") && (await fileTabNames(page)).join() === "Sketch 1,utils.py", "a refused rename went through");
+    await page.keyboard.press("Escape");
+
+    // delete: at once, with Undo; with no file left the strip goes
+    await page.getByRole("button", { name: "Delete utils.py" }).click();
+    await page.waitForFunction(() => document.querySelector(".fg-play__ftabs").hidden);
+    assert(!("files" in (await storedSketches(page))[0]), "an empty files list was kept");
+    assert(/Deleted utils\.py/.test(await mineNote(page).innerText()), `the note says "${await mineNote(page).innerText()}"`);
+    await page.locator(".fg-msg").getByRole("button", { name: "Undo" }).click();      // BF-14: the buttons are beside the status, not in it
+    await fileTab(page, "utils.py").waitFor();
+    assert((await fileTabNames(page)).join() === "Sketch 1,utils.py", `the tabs are ${await fileTabNames(page)}`);
+    await fileTab(page, "utils.py").click();
+    assert((await editorText(page)) === "X = 1\nY = 2", `the file came back as ${JSON.stringify(await editorText(page))}`);
+    await page.close();
+    return "renamed, refused, deleted, undone";
+  });
+
+  await check(94, "A list written without files opens as before; a sketch with files survives a reload; a sketch holds at most 10 files (S-242)", async () => {
+    const page = await freshEditor();
+    await page.evaluate(() => {
+      localStorage.setItem("funground.play.sketches", JSON.stringify([{ id: "old1", name: "Old sketch", code: "x = 1\n", created: 1, updated: 1 }]));
+      localStorage.setItem("funground.play.last", JSON.stringify("my:old1"));
+    });
+    await reloadEditor(page);
+    await tabIs(page, "Old sketch");
+    assert((await editorText(page)) === "x = 1\n", `the old sketch shows ${JSON.stringify(await editorText(page))}`);
+    assert(await tabStrip(page).isHidden(), "the strip shows for an old sketch");
+    await makeFile(page, "extra");
+    await typeCode(page, "Y = 2\n");
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    await sleep(700);                                   // typing is written after a short pause
+    const stored = await storedSketches(page);
+    const old = stored.find((sketch) => sketch.id === "old1");
+    assert(JSON.stringify(old.files) === JSON.stringify([{ name: "extra.py", code: "Y = 2\n" }]), `the stored files are ${JSON.stringify(old.files)}`);
+    assert(!("files" in stored.find((sketch) => sketch.id !== "old1")), "a sketch with one file has a files key");
+    await page.locator(".fg-play__choose").selectOption({ label: "Old sketch" });
+    await tabIs(page, "Old sketch");
+    await reloadEditor(page);                           // a reload opens the last sketch again, with its files
+    await tabIs(page, "Old sketch");
+    assert((await fileTabNames(page)).join() === "Old sketch,extra.py", `after a reload the tabs are ${await fileTabNames(page)}`);
+    await fileTab(page, "extra.py").click();
+    assert((await editorText(page)) === "Y = 2\n", `extra.py shows ${JSON.stringify(await editorText(page))}`);
+    // an older Play would read the same list and show the main file only: the files stay in the list as objects it writes back
+    assert((await storedSketches(page)).find((sketch) => sketch.id === "old1").code === "x = 1\n", "the main code is not in `code`");
+
+    // ten files in a sketch, the main file counted: the tenth makes the eleventh refused
+    await page.evaluate(() => {
+      const files = Array.from({ length: 9 }, (_, i) => ({ name: `part${i + 1}.py`, code: `N = ${i + 1}\n` }));
+      localStorage.setItem("funground.play.sketches", JSON.stringify([{ id: "big1", name: "Big sketch", code: "x = 1\n", files, created: 1, updated: 1 }]));
+      localStorage.setItem("funground.play.last", JSON.stringify("my:big1"));
+    });
+    await reloadEditor(page);
+    await tabIs(page, "Big sketch");
+    assert((await fileTabNames(page)).length === 10, `the big sketch has ${(await fileTabNames(page)).length} tabs`);
+    await chooseFile(page, "New file");
+    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.includes("at most 10 files"));
+    assert(await page.locator(".fg-play__fileform").isHidden(), "the form opened for the eleventh file");
+    await page.close();
+    return "old list, reload, ten files";
+  });
+
+  await check(95, "Download gives a .py for one file and a .zip (folder, main.py and the files) for several; Open file takes the zip back, and a zip from elsewhere with a main.py in a folder (S-242)", async () => {
+    const page = await freshEditor();
+    await noAutoRun(page);
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    await typeCode(page, "import helpers\nprint(helpers.X)\n");
+    const [single] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), chooseFile(page, "Download .py")]);
+    assert(single.suggestedFilename() === "sketch-1.py", `one file downloaded as ${single.suggestedFilename()}`);
+    await makeFile(page, "helpers");
+    await typeCode(page, "X = 41 + 1\n");
+    const [several] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), chooseFile(page, "Download .zip")]);
+    assert(several.suggestedFilename() === "sketch-1.zip", `several files downloaded as ${several.suggestedFilename()}`);
+    const zipFile = path.join(scratch, "sketch-1.zip");
+    writeFileSync(zipFile, readFileSync(await several.path()));
+    const listing = execFileSync(PYTHON, ["-I", "-c", "import sys, zipfile\nz = zipfile.ZipFile(sys.argv[1])\nassert z.testzip() is None\nprint(chr(124).join(z.namelist()))\nprint(repr(z.read('sketch-1/helpers.py').decode()))", zipFile], { encoding: "utf8" });
+    assert(listing.trim().split(/\r?\n/)[0] === "sketch-1/main.py|sketch-1/helpers.py", `Python reads the zip as ${listing}`);
+    assert(listing.includes("'X = 41 + 1\\n'"), `helpers.py in the zip: ${listing}`);
+    assert(/Saved sketch-1\.zip/.test(await mineNote(page).innerText()), `the note says "${await mineNote(page).innerText()}"`);
+
+    // the zip comes back as a new sketch with its files, and it runs
+    const input = page.locator(".fg-play__filemenu input[type=file]");
+    assert((await input.getAttribute("accept")).includes(".zip"), "the file input does not ask for .zip");
+    await input.setInputFiles(zipFile);
+    await tabIs(page, "sketch-1");
+    assert((await fileTabNames(page)).join() === "sketch-1,helpers.py", `the opened zip has the tabs ${await fileTabNames(page)}`);
+    assert((await editorText(page)) === "import helpers\nprint(helpers.X)\n", `main shows ${JSON.stringify(await editorText(page))}`);
+    await fileTab(page, "helpers.py").click();
+    assert((await editorText(page)) === "X = 41 + 1\n", `helpers.py shows ${JSON.stringify(await editorText(page))}`);
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".play-output")?.textContent.includes("42"));
+
+    // a zip from elsewhere: main.py in a folder, a file that is not a module name, a data folder: those left out are named
+    const robot = path.join(scratch, "robot.zip");
+    execFileSync(PYTHON, ["-I", "-c", "import sys, zipfile\nwith zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED) as z:\n    z.writestr('robot/main.py', 'import util\\nprint(util.NAME)\\n')\n    z.writestr('robot/util.py', 'NAME = \"robot\"\\n')\n    z.writestr('robot/Bad Name.py', 'X = 1\\n')\n    z.writestr('robot/data/notes.txt', 'hello')\n    z.writestr('__MACOSX/robot/._main.py', 'x')\n", robot]);
+    await input.setInputFiles(robot);
+    await tabIs(page, "robot");
+    assert((await fileTabNames(page)).join() === "robot,util.py", `robot.zip has the tabs ${await fileTabNames(page)}`);
+    assert((await mineNote(page).innerText()).includes("Bad Name.py"), `the note says "${await mineNote(page).innerText()}"`);
+    // refused: not a zip, and a zip with no main.py
+    await input.setInputFiles({ name: "notes.zip", mimeType: "application/zip", buffer: Buffer.from("this is not a zip file") });
+    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.includes("not a zip file"));
+    const empty = path.join(scratch, "empty.zip");
+    execFileSync(PYTHON, ["-I", "-c", "import sys, zipfile\nwith zipfile.ZipFile(sys.argv[1], 'w') as z:\n    z.writestr('thing/other.py', 'x = 1\\n')\n", empty]);
+    await input.setInputFiles(empty);
+    await page.waitForFunction(() => document.querySelector(".play-status")?.textContent.includes("has a main.py in it"));
+    assert((await tabName(page)) === "robot", "a refused zip changed the open sketch");
+    await page.close();
+    return "sketch-1.py, sketch-1.zip, back again; robot.zip; two refusals";
+  });
+
+  await check(96, "A shared link carries every file; someone who does not have them opens the tabs, runs the sketch and can keep all of it (S-242)", async () => {
+    const page = await freshEditor();
+    await noAutoRun(page);
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    await typeCode(page, SKETCH_WITH_HELPERS);
+    await makeFile(page, "helpers");
+    await typeCode(page, 'import levels\n\nCOLOUR = levels.TOP\n');
+    await makeFile(page, "levels");
+    await typeCode(page, 'TOP = "gold"\n');
+    await fileTab(page, "Sketch 1").click();
+    await page.getByRole("button", { name: "Share" }).click();
+    await page.waitForFunction(() => document.querySelector(".play-link")?.value.includes("#code="));
+    const link = await page.locator(".play-link").inputValue();
+    const hash = link.slice(link.indexOf("#"));
+    const parts = new URLSearchParams(hash.slice(1));
+    assert(parts.getAll("file").length === 2 && parts.getAll("file")[0].startsWith("helpers.py:") && parts.getAll("file")[1].startsWith("levels.py:"), `the link has the files ${parts.getAll("file").map((part) => part.slice(0, 12))}`);
+    const stranger = await newContext({ viewport: { width: 1280, height: 900 } });
+    try {
+      const other = await openEditor("", hash, stranger);
+      assert((await status(other)).startsWith("Shared sketch: press Run"), `status "${await status(other)}"`);
+      assert((await fileTabNames(other)).join() === "Shared sketch,helpers.py,levels.py", `the shared sketch has the tabs ${await fileTabNames(other)}`);
+      assert((await other.getByRole("button", { name: "Delete helpers.py" }).count()) === 0, "a shared sketch's file can be deleted");
+      await fileTab(other, "levels.py").click();
+      assert((await editorText(other)) === 'TOP = "gold"\n', `levels.py shows ${JSON.stringify(await editorText(other))}`);
+      await runButton(other).click();
+      await waitForPicture(frameOf(other, PREVIEW), (p) => p.opaque && p.centre.join() === "255,215,0");
+      await other.waitForFunction(() => document.querySelector(".play-output")?.textContent.includes("from helpers: gold"));
+      // an edit of a helper is a draft of the shared sketch: it is still there after a reload of the same link
+      await typeCode(other, 'TOP = "tomato"\n');
+      await sleep(300);
+      await reloadEditor(other);
+      await fileTab(other, "levels.py").click();
+      assert((await editorText(other)) === 'TOP = "tomato"\n', `after a reload levels.py shows ${JSON.stringify(await editorText(other))}`);
+      // Keep keeps all the files
+      await chooseFile(other, "Keep as my sketch");
+      await tabIs(other, "Shared sketch");
+      assert((await fileTabNames(other)).join() === "Shared sketch,helpers.py,levels.py", `the kept sketch has the tabs ${await fileTabNames(other)}`);
+      assert((await storedSketches(other))[0].files.length === 2, "the kept sketch has not both files");
+      await fileTab(other, "levels.py").click();
+      assert((await editorText(other)) === 'TOP = "tomato"\n', `the kept levels.py shows ${JSON.stringify(await editorText(other))}`);
+      assert((await other.getByRole("button", { name: "Delete levels.py" }).count()) === 1, "a kept sketch's file cannot be deleted");
+      await other.close();
+    } finally {
+      await stranger.close();
+    }
+    await page.close();
+    return "two files in the link";
+  });
+
+  await check(97, "A traceback through a helper names it, and Go to line opens that tab at the line; a file with the helper's name from a library is not taken for it (S-242)", async () => {
+    const page = await freshEditor();
+    await noAutoRun(page);
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    await typeCode(page, "import funground as f\nimport helpers\n\nhelpers.boom()\n");
+    await makeFile(page, "helpers");
+    await typeCode(page, "def boom():\n    x = 1\n    return x / 0\n");
+    await fileTab(page, "Sketch 1").click();
+    await runButton(page).click();
+    const go = page.locator(".fg-msg [data-action^='Go to line']");
+    await go.waitFor({ timeout: 20000 });
+    assert((await go.innerText()) === "Go to line 3 in helpers.py", `the link says "${await go.innerText()}"`);
+    const summary = await page.locator(".fg-msg--error .play-status").innerText();
+    assert(summary.includes("ZeroDivisionError"), `the error says "${summary}"`);
+    // The error holds the screen, so the status that follows it is in the list.
+    await waitForVisitMessage(page, "error on line 3 of helpers.py", 5000);
+    assert((await page.locator(".cm-error-line").count()) === 0, "the main file's editor is marked, not the helper's");
+    await go.click();
+    assert((await fileTab(page, "helpers.py").getAttribute("aria-selected")) === "true", "the helper's tab did not open");
+    assert((await page.locator(".cm-error-line").innerText()).includes("x / 0"), `the marked line is "${await page.locator(".cm-error-line").innerText()}"`);
+    assert((await page.evaluate(() => getSelection().toString())).includes("return x / 0"), `the selection is "${await page.evaluate(() => getSelection().toString())}"`);
+    // an error in the main file goes to the main file, as it did
+    await fileTab(page, "Sketch 1").click();
+    await typeCode(page, "import funground as f\nimport helpers\n\nprint(undefined_name)\n");
+    await runButton(page).click();
+    await page.waitForFunction(() => document.querySelector(".fg-msg [data-action^='Go to line']")?.textContent === "Go to line 4");
+    await fileTab(page, "helpers.py").click();
+    await page.locator(".fg-msg [data-action^='Go to line']").click();
+    assert((await fileTab(page, "Sketch 1").getAttribute("aria-selected")) === "true", "Go to line 4 did not open the main tab");
+    await page.close();
+    return "helpers.py line 3; main line 4";
+  });
+
+  await check(98, "New file on an example keeps a copy in My sketches first and says so; cancelling the form keeps nothing (S-242)", async () => {
+    const page = await freshEditor(`&example=${FIRST_SKETCH}`);
+    const title = await page.locator(".fg-play__choose option:checked").innerText();
+    const original = await editorText(page);
+    assert((await mineNames(page)).length === 0, "My sketches is not empty");
+    await chooseFile(page, "New file");
+    assert((await page.locator(".fg-play__fileformtitle").innerText()).includes("kept in My sketches first"), `the form says "${await page.locator(".fg-play__fileformtitle").innerText()}"`);
+    await page.keyboard.press("Escape");
+    assert((await mineNames(page)).length === 0, "cancelling kept a copy");
+    await makeFile(page, "extra");
+    await tabIs(page, title);
+    await fileTab(page, "extra.py").waitFor();
+    assert((await mineNames(page)).join() === title, `My sketches lists ${await mineNames(page)}`);
+    const note = await mineNote(page).innerText();
+    assert(note.includes(`Kept as "${title}" in My sketches first`) && note.includes("Made extra.py"), `the note says "${note}"`);
+    assert((await fileTabNames(page)).join() === `${title},extra.py`, `the tabs are ${await fileTabNames(page)}`);
+    await fileTab(page, title).click();
+    assert((await editorText(page)) === original, "the copy does not hold the example's code");
+    assert((await page.locator(".fg-play__choose option", { hasText: title }).count()) >= 2, "the example is gone from the picker");
+    await page.close();
+    return "copy kept first";
+  });
+
+  // ---- the camera check page (S-311)
+  async function openCameraCheck() {
+    const page = await context.newPage();
+    watch(page);
+    await page.goto(`${EDITOR}/play/camera-check/`);
+    await page.locator("#cc-camera").waitFor();
+    return page;
+  }
+
+  await check(99, "the camera check lists the device, shows the camera's settings and capabilities and three pictures of the camera, and Copy all puts it all on the clipboard (S-311)", async () => {
+    const page = await openCameraCheck();
+    const device = await page.locator("#cc-device").innerText();
+    assert(device.includes("Browser: ") && device.includes("Pixel ratio: ") && device.includes("Cross-origin isolated: no"), `the device text is "${device}"`);
+    await page.locator("#cc-camera").click();
+    await page.waitForFunction(() => document.getElementById("cc-status").textContent.startsWith("The camera check is done"), null, { timeout: 60000 });
+    const text = await page.locator("#cc-camera-text").innerText();
+    for (const part of ["Label: ", "Settings now:", "frameRate:", "What it can do:", "focusMode", "1. Asked for nothing", "2. Asked as Play asks", 'Picture for "stretch" (the old way, squeezed): 640 x 480', 'Picture for "cover" (what a sketch gets, cut to fit): 640 x 480'])
+      assert(text.includes(part), `the camera text has no "${part}": ${text}`);
+    const sizes = await page.evaluate(() => ["cc-own", "cc-stretch", "cc-cover"].map((id) => {
+      const c = document.getElementById(id);
+      const data = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+      const colours = new Set();
+      for (let i = 0; i < data.length; i += 40) colours.add((data[i] << 16) | (data[i + 1] << 8) | data[i + 2]);
+      return { width: c.width, height: c.height, colours: colours.size };
+    }));
+    assert(sizes[1].width === 640 && sizes[1].height === 480 && sizes[2].width === 640 && sizes[2].height === 480, `the sketch pictures are ${JSON.stringify(sizes)}`);
+    assert(sizes.every((s) => s.colours > 8), `a picture is blank: ${JSON.stringify(sizes)}`);
+    const names = await page.evaluate(() => ["cc-stretch-caption", "cc-cover-caption"].map((id) => document.getElementById(id).textContent));
+    assert(names[0].includes("old way") && names[1].startsWith("What a sketch gets"), `the picture captions are ${JSON.stringify(names)}`);
+    await page.locator("#cc-copy").click();
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    assert(copied.startsWith("funground camera check") && copied.includes("THIS DEVICE") && copied.includes("Settings now:") && copied.includes("THE HAND MODEL"), `the clipboard holds "${copied.slice(0, 200)}"`);
+    await page.close();
+    // On a phone 360 px wide the page does not scroll sideways, with long report lines in (the maintainer's phone gave 651 px on 347).
+    const phone = await newContext({ viewport: { width: 360, height: 740 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
+    try {
+      const small = await phone.newPage();
+      watch(small);
+      await small.goto(`${EDITOR}/play/camera-check/`);
+      await small.locator("#cc-camera").waitFor();
+      await small.evaluate(() => {
+        const long = "deviceId: " + "a1b2c3d4".repeat(12) + "\n" + JSON.stringify({ capabilities: { deviceId: "x".repeat(90), groupId: "y".repeat(90) } });
+        for (const id of ["cc-device", "cc-camera-text", "cc-hand-text"]) document.getElementById(id).textContent = long;
+        for (const canvas of document.querySelectorAll("#camera-check canvas")) { canvas.width = 640; canvas.height = 480; }   // as the pictures are
+        document.getElementById("cc-focus").hidden = false;
+      });
+      const wide = await small.evaluate(() => document.documentElement.scrollWidth);
+      assert(wide <= 360, `the camera check is ${wide}px wide on a 360 px screen`);
+    } finally {
+      await phone.close();
+    }
+    return `${sizes.map((s) => `${s.width}x${s.height}`).join(", ")}; ${copied.split("\n").length} lines copied; no sideways scroll at 360`;
+  });
+
+  await check(100, "the camera check's hand model runs the real path once with each fit and reports the load time, answers a second and whether a hand was found (S-311)", async () => {
+    const page = await openCameraCheck();
+    await page.locator("#cc-hand").click();
+    await page.waitForFunction(() => document.getElementById("cc-status").textContent.startsWith("The hand check is done"), null, { timeout: 540000 });
+    const text = await page.locator("#cc-hand-text").innerText();
+    for (const fit of ["stretch", "cover"])
+      for (const part of [`Fit "${fit}":`, "Python ready after", "First answer", "Answers per second: ", "Hand found: "])
+        assert(text.includes(part), `the hand text has no "${part}" for ${fit}: ${text}`);
+    if (/could not download/.test(text)) throw new Skip("the hand model cannot be downloaded from here (no network to its host), so no hand can be found; the report itself was made");
+    assert(!/FAILED|did not start|no answer|Model failed/.test(text), `the hand check failed: ${text}`);
+    await page.close();
+    return text.split("\n").filter((l) => l.includes("Answers per second") || l.includes("Hand found")).join(" | ");
+  });
+
+  await check(101, "on a phone held sideways (844 x 390) the picture is fitted to the window's height as well, and still fits the width in portrait (S-311)", async () => {
+    const seen = [];
+    for (const [width, height] of [[844, 390], [390, 844]]) {
+      const phoneContext = await newContext({ viewport: { width, height }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
+      try {
+        const page = await phoneContext.newPage();
+        watch(page);
+        await page.goto(`${EDITOR}/play/?preview=${PREVIEW}&example=${FIRST_SKETCH}`);
+        await runButton(page).waitFor();                          // the picture's size does not wait for Python to load
+        await sleep(1500);
+        const m = await page.evaluate(() => {
+          const r = document.querySelector(".fg-play__frame").getBoundingClientRect();
+          return { width: r.width, height: r.height, scrollWidth: document.documentElement.scrollWidth, inner: [innerWidth, innerHeight] };
+        });
+        assert(m.scrollWidth <= width, `${width} x ${height}: the page is ${m.scrollWidth}px wide`);
+        assert(m.width <= width && Math.abs(m.width / m.height - 1.6) < 0.03, `${width} x ${height}: the picture is ${m.width} x ${m.height}`);
+        if (height < 500) assert(m.height < height - 20, `${width} x ${height}: the picture is ${m.height}px tall, as tall as the screen`);
+        seen.push(`${width}x${height}: picture ${Math.round(m.width)}x${Math.round(m.height)}`);
+      } finally {
+        await phoneContext.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  // ---- the camera's focus control (D-155)
+  // Chrome's fake camera may or may not offer focus (this Chrome's does), so these checks give the preview's page a camera of
+  // their own: the real fake camera's track with focus capabilities (or none) put on it, and a record of every constraint applied.
+  // The init script runs in every frame of the context and does nothing outside the preview's origin.
+  async function focusContext({ offer, facing = null, viewport = { width: 1280, height: 900 }, phone = false }) {
+    const where = await newContext({ viewport, ...(phone ? { isMobile: true, hasTouch: true, deviceScaleFactor: 3 } : {}) });
+    await where.addInitScript(({ offer: offered, facing: facingMode }) => {
+      if (location.hostname !== "127.0.0.1") return;
+      window.focusCalls = [];
+      const ask = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (constraints) => {
+        const stream = await ask(constraints);
+        const track = stream.getVideoTracks()[0];
+        const { focusMode, focusDistance, ...others } = track.getCapabilities();
+        const capabilities = offered ? { ...others, focusMode: ["manual", "continuous"], focusDistance: { min: 0.1, max: 1, step: 0.01 } } : others;
+        const settings = { ...track.getSettings(), ...(offered ? { focusMode: "manual", focusDistance: 0.4 } : {}), ...(facingMode ? { facingMode } : {}) };
+        track.getCapabilities = () => capabilities;
+        track.getSettings = () => ({ ...settings });
+        track.applyConstraints = async ({ advanced }) => {
+          window.focusCalls.push(advanced[0]);
+          Object.assign(settings, advanced[0]);
+        };
+        return stream;
+      };
+    }, { offer, facing });
+    return where;
+  }
+  const focusControl = (page) => page.locator(".fg-play__camfocus");
+  const focusCalls = (page) => frameOf(page, PREVIEW).evaluate(() => window.focusCalls);
+
+  async function runCameraSketch(where) {
+    const page = await openEditor("", "", where);
+    await clearDrafts(page);
+    await typeCode(page, CAMERA_SKETCH);
+    await page.locator(".fg-btn--run").click();
+    await waitForPicture(frameOf(page, PREVIEW), (p) => p.colours > 8 && p.centre.join() !== "0,0,0", 30000);
+    return page;
+  }
+
+  await check(102, "a camera that offers no focus, and a front camera that lists it, get no focus control while a camera sketch runs (D-155, D-156)", async () => {
+    const where = await focusContext({ offer: false });
+    try {
+      const page = await runCameraSketch(where);
+      await sleep(1000);                                       // the control would show as soon as the camera opened
+      assert(await focusControl(page).isHidden(), "the focus control shows although the camera offers no focus");
+      assert((await focusCalls(page)).length === 0, `the preview asked the camera for focus: ${JSON.stringify(await focusCalls(page))}`);
+      await page.close();
+    } finally {
+      await where.close();
+    }
+    // D-156: a front camera lists focus, as the Nokia's did, and still gets no control.
+    const front = await focusContext({ offer: true, facing: "user" });
+    try {
+      const page = await runCameraSketch(front);
+      await sleep(1000);
+      assert(await focusControl(page).isHidden(), "the focus control shows for a front camera (facingMode user)");
+      await page.close();
+    } finally {
+      await front.close();
+    }
+  });
+
+  await check(103, "a camera that offers focus gets a Focus control: Auto and the slider reach the camera, and it hides on Stop (D-155)", async () => {
+    const where = await focusContext({ offer: true, facing: "environment" });
+    try {
+      const page = await runCameraSketch(where);
+      const control = focusControl(page);
+      await control.waitFor({ state: "visible", timeout: 10000 });
+      const auto = control.getByRole("button", { name: "Auto" });
+      const slider = control.getByRole("slider");
+      assert((await auto.getAttribute("aria-pressed")) === "true", "Auto is not pressed although the camera keeps its own focus");
+      assert((await slider.getAttribute("min")) === "0.1" && (await slider.getAttribute("max")) === "1" && (await slider.inputValue()) === "0.4",
+        `the slider is ${await slider.getAttribute("min")} to ${await slider.getAttribute("max")} at ${await slider.inputValue()}`);
+      await slider.fill("0.8");
+      await page.waitForFunction(() => document.querySelector(".fg-play__camfocus button").getAttribute("aria-pressed") === "false");
+      await sleep(300);
+      assert(JSON.stringify((await focusCalls(page)).at(-1)) === JSON.stringify({ focusMode: "manual", focusDistance: 0.8 }), `the camera got ${JSON.stringify(await focusCalls(page))}`);
+      // a quick drag: no more than about ten moves a second, and the last position always arrives
+      const before = (await focusCalls(page)).length;
+      for (const value of ["0.5", "0.6", "0.7", "0.9", "0.3"]) await slider.fill(value);
+      await sleep(400);
+      const drag = (await focusCalls(page)).slice(before);
+      assert(drag.length >= 1 && drag.length <= 3 && drag.at(-1).focusDistance === 0.3, `a quick drag sent ${JSON.stringify(drag)}`);
+      await auto.click();
+      await sleep(300);
+      assert(JSON.stringify((await focusCalls(page)).at(-1)) === JSON.stringify({ focusMode: "continuous" }), `after Auto the camera got ${JSON.stringify((await focusCalls(page)).at(-1))}`);
+      assert((await auto.getAttribute("aria-pressed")) === "true", "Auto is not pressed after it was pressed");
+      await page.getByRole("button", { name: "Stop", exact: true }).click();
+      await control.waitFor({ state: "hidden", timeout: 5000 });
+      await runButton(page).click();                           // a new run: the control comes back with the camera
+      await control.waitFor({ state: "visible", timeout: 30000 });
+      await page.close();
+      return `${drag.length} of 5 quick moves sent`;
+    } finally {
+      await where.close();
+    }
+  });
+
+  await check(104, "on a phone 390 px wide the page does not scroll sideways while the Focus control shows (D-155)", async () => {
+    const where = await focusContext({ offer: true, viewport: { width: 390, height: 844 }, phone: true });
+    try {
+      const page = await runCameraSketch(where);
+      const control = focusControl(page);
+      // BF-15: on a phone the bar's Focus button shows while the camera offers focus, and opens the control under the picture
+      await page.getByRole("button", { name: "Camera focus" }).tap({ timeout: 10000 });
+      await control.waitFor({ state: "visible", timeout: 10000 });
+      const m = await page.evaluate(() => {
+        const r = document.querySelector(".fg-play__camfocus").getBoundingClientRect();
+        return { scrollWidth: document.documentElement.scrollWidth, left: r.left, right: r.right, height: r.height };
+      });
+      assert(m.scrollWidth <= 390, `the page is ${m.scrollWidth}px wide`);
+      assert(m.left >= 0 && m.right <= 390 && m.height > 0, `the control is at ${m.left} to ${m.right}`);
+      await page.close();
+      return `control ${Math.round(m.left)} to ${Math.round(m.right)} of 390`;
+    } finally {
+      await where.close();
+    }
+  });
+
+  // ---- the message area (BF-14, BF-D-048): the status, Play's notes and the sketch's errors in one place
+  const area = (page) => page.locator(".fg-msg");
+  const areaText = (page) => page.locator(".play-status").innerText();
+  const detailsDialog = (page) => page.locator("dialog.fg-play__dialog");
+  const PRINTING_SKETCH = 'import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n    print("one")\n    print("two")\n    print("three")\n\n\ndef draw():\n    f.background("gold")\n\n\nf.run()\n';
+
+  await check(105, "a note shows in the message area, Undo works from it, and the area goes back to the status afterwards (BF-14)", async () => {
+    const page = await freshEditor();
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    await chooseFile(page, "Delete");
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.includes('Deleted "Sketch 1"'));
+    const undo = area(page).getByRole("button", { name: "Undo", exact: true });
+    assert(await undo.isVisible(), "no Undo beside the note");
+    assert((await page.locator(".play-output").innerText()).trim() === "", "the note was written into Output");
+    await clickAt(page, undo);
+    await tabIs(page, "Sketch 1");
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.includes('"Sketch 1" is back.'));
+    assert((await area(page).getByRole("button", { name: "Undo" }).count()) === 0, "Undo stayed after it was used");
+    // The note goes by itself after 12 seconds and the status is on screen again.
+    await page.waitForFunction(() => /^Ready/.test(document.querySelector(".play-status").textContent), null, { timeout: 20000 });
+    assert(!(await areaText(page)).includes("is back"), "the note stayed");
+    await page.close();
+    return "Delete, Undo, then the status again";
+  });
+
+  await check(106, "an error shows in the message area with Go to line and What this means and holds the screen against a note; Details opens the traceback and Esc closes it; the next Run clears it (BF-14)", async () => {
+    const page = await freshEditor();
+    await noAutoRun(page);
+    await typeCode(page, SKETCH_WITH("f.circl(10, 10, 10)"));
+    await runButton(page).click();
+    await page.locator(".fg-msg--error").waitFor({ timeout: 30000 });
+    assert((await areaText(page)).includes("has no attribute 'circl'"), `the area says "${await areaText(page)}"`);
+    const alert = await page.locator("[role=alert]").innerText();
+    assert(alert.includes("circl"), `the alert says "${alert}"`);
+    assert((await area(page).locator("[role=status]").count()) === 1, "the message area is not one role=status region");
+    const means = area(page).locator("[data-action='What this means']");
+    assert((await means.getAttribute("href")).endsWith("#nameerror-or-attributeerror-on-an-f-name"), "What this means has another link");
+    // Go to line puts the cursor on the line of the error.
+    await clickEndOfLine(page, page.locator(".cm-line", { hasText: "import funground" }));
+    await area(page).getByRole("button", { name: "Go to line", exact: false }).click();
+    assert((await page.evaluate(() => getSelection().toString())).includes("f.circl"), `the selection is "${await page.evaluate(() => getSelection().toString())}"`);
+    // A note made while the error shows does not replace it on screen, but it is in the list.
+    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 15000 }), chooseFile(page, "Download .py")]);
+    assert(download.suggestedFilename().endsWith(".py"), "no download");
+    await waitForVisitMessage(page, "Saved ", 5000);
+    assert((await area(page).evaluate((e) => e.classList.contains("fg-msg--error"))) && (await areaText(page)).includes("circl"), `the note replaced the error: "${await areaText(page)}"`);
+    // Details: the traceback in a popup; Esc closes it and focus goes back to Details.
+    const details = area(page).getByRole("button", { name: "Details", exact: true });
+    await details.click();
+    await detailsDialog(page).waitFor({ state: "visible", timeout: 5000 });
+    const trace = await detailsDialog(page).locator("pre").innerText();
+    assert(trace.includes("Traceback") && trace.includes("circl"), `the popup holds "${trace.slice(0, 80)}"`);
+    await page.keyboard.press("Escape");
+    await detailsDialog(page).waitFor({ state: "hidden", timeout: 5000 });
+    assert(await page.evaluate(() => document.activeElement?.dataset?.action === "Details"), "focus did not go back to Details");
+    assert((await page.locator(".play-output .stderr").count()) > 0, "the traceback is not in Output");
+    assert((await page.locator(".fg-console .count").innerText()) === "1", "the error count changed");
+    // The next Run clears the error from the area.
+    await typeCode(page, SKETCH_WITH("f.background('gold')"));
+    await runButton(page).click();
+    await page.waitForFunction(() => !document.querySelector(".fg-msg--error") && /^(Starting|Running)/.test(document.querySelector(".play-status").textContent), null, { timeout: 30000 });
+    assert((await page.locator("[role=alert]").innerText()) === "", "the alert was not cleared");
+    await page.close();
+    return "error, Go to line, note kept off the screen, Details, cleared by Run";
+  });
+
+  await check(107, "the history button counts this visit's messages and its list shows them newest first, in full, with the time; Esc and a click outside close it (BF-14)", async () => {
+    const page = await freshEditor();
+    const more = page.getByRole("button", { name: "This visit's messages" });
+    const count = async () => Number((await more.innerText()).replace(/\D/g, ""));
+    const before = await count();
+    assert(before >= 1 && (await more.getAttribute("aria-expanded")) === "false", `the button says "${await more.innerText()}"`);
+    await chooseFile(page, "New sketch");
+    await tabIs(page, "Sketch 1");
+    const input = page.locator(".fg-play__filemenu input[type=file]");
+    await input.setInputFiles({ name: "big.py", mimeType: "text/plain", buffer: Buffer.alloc(210 * 1024, 120) });
+    await page.waitForFunction(() => document.querySelector(".play-status").textContent.includes("bigger than 200 KB"));
+    assert((await count()) >= before + 2, `the count is ${await count()} after two notes, it was ${before}`);
+    await more.click();
+    assert((await more.getAttribute("aria-expanded")) === "true", "the button does not say the list is open");
+    const items = page.locator(".fg-msg__item");
+    const texts = await items.locator(".fg-msg__text").allInnerTexts();
+    assert(texts.length === (await count()), `the list has ${texts.length} lines for a count of ${await count()}`);
+    assert(texts[0] === `"big.py" is bigger than 200 KB, so it was not opened. Sketches are small text files.`, `the newest line is "${texts[0]}"`);
+    assert(texts.findIndex((t) => t.startsWith('Made "Sketch 1"')) > 0, `the earlier note is not below it: ${JSON.stringify(texts)}`);
+    assert(texts.at(-1).startsWith("Loading Python"), `the oldest line is "${texts.at(-1)}"`);
+    assert(/^\d\d:\d\d$/.test(await items.first().locator("time").innerText()), "the line has no time");
+    await page.keyboard.press("Escape");
+    assert(await page.locator(".fg-msg__list").isHidden() && (await more.getAttribute("aria-expanded")) === "false", "Esc did not close the list");
+    await more.click();
+    await page.locator(".cm-content").click();
+    assert(await page.locator(".fg-msg__list").isHidden(), "a click outside did not close the list");
+    await page.close();
+    return `${texts.length} messages listed`;
+  });
+
+  await check(108, "focus mode keeps the message area: an error shows in it, and an Output chip counts what the sketch prints and opens the lines (BF-14)", async () => {
+    const page = await freshEditor();
+    await noAutoRun(page);
+    await page.getByRole("button", { name: "Focus", exact: true }).click();
+    assert(await area(page).isVisible(), "the message area is hidden in focus mode");
+    assert(!(await page.locator(".fg-console").isVisible()), "Output shows in focus mode");
+    assert(await page.locator(".fg-msg__chip").isHidden(), "the Output chip shows before the sketch printed");
+    await typeCode(page, SKETCH_WITH("f.circl(10, 10, 10)"));
+    await runButton(page).click();
+    await page.locator(".fg-msg--error").waitFor({ timeout: 30000 });
+    assert(await area(page).isVisible() && (await areaText(page)).includes("circl"), "the error is not in the area");
+    assert(await area(page).getByRole("button", { name: "Details", exact: true }).isVisible(), "no Details in focus mode");
+    await typeCode(page, PRINTING_SKETCH);
+    await runButton(page).click();
+    const chip = page.locator(".fg-msg__chip");
+    await page.waitForFunction(() => document.querySelector(".fg-msg__chip")?.textContent === "Output 3", null, { timeout: 30000 });
+    await chip.click();
+    await detailsDialog(page).waitFor({ state: "visible", timeout: 5000 });
+    assert((await detailsDialog(page).locator("pre").innerText()) === "one\ntwo\nthree", `the popup holds ${JSON.stringify(await detailsDialog(page).locator("pre").innerText())}`);
+    await page.keyboard.press("Escape");
+    await detailsDialog(page).waitFor({ state: "hidden", timeout: 5000 });
+    assert(await chip.isHidden(), "the chip stayed after it was opened");
+    assert(await page.evaluate(() => document.documentElement.classList.contains("fg-focus")), "Esc left focus mode with the popup open");
+    await page.close();
+    return "error in the strip; Output 3 opens one, two, three";
+  });
+
+  await check(109, "at 390 px wide the page does not scroll sideways with an error in the message area and the list open (BF-14)", async () => {
+    // The layout follows the window's width (play.css, max-width 900px), so a 390 px window shows the phone's layout.
+    {
+      const page = await openEditor();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.addStyleTag({ content: "body { margin: 0; }" });
+      await clearDrafts(page);
+      await typeCode(page, SKETCH_WITH("f.circl(10, 10, 10)"));
+      await page.locator(".fg-msg--error").waitFor({ timeout: 30000 });
+      await page.getByRole("button", { name: "This visit's messages" }).click();
+      await page.locator(".fg-msg__list").waitFor({ state: "visible" });
+      const m = await page.evaluate(() => {
+        const box = (selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return { left: r.left, right: r.right, height: r.height }; };
+        return { scrollWidth: document.documentElement.scrollWidth, area: box(".fg-msg"), list: box(".fg-msg__list") };
+      });
+      assert(m.scrollWidth <= 390, `the page is ${m.scrollWidth}px wide`);
+      assert(m.area.left >= 0 && m.area.right <= 390 && m.list.left >= 0 && m.list.right <= 390 && m.list.height > 0,
+        `the area is ${Math.round(m.area.left)} to ${Math.round(m.area.right)}, the list ${Math.round(m.list.left)} to ${Math.round(m.list.right)}`);
+      await page.close();
+      return `page ${m.scrollWidth}px, list ${Math.round(m.list.left)} to ${Math.round(m.list.right)}`;
+    }
+  });
+
+  // ---- Play on a phone (BF-15, BF-D-049): a screen whose narrow side is under 600px is a phone
+  const SIZES = [{ width: 390, height: 844 }, { width: 360, height: 720 }];
+  const phoneContext = (viewport) => newContext({ viewport, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  const openPhone = async (where) => {
+    const page = await where.newPage();
+    watch(page);
+    await page.goto(`${EDITOR}/play/?preview=${PREVIEW}`);
+    await runButton(page).waitFor();
+    await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+    return page;
+  };
+  const noSidewaysScroll = async (page, width, where) => {
+    const wide = await page.evaluate(() => document.documentElement.scrollWidth);
+    assert(wide <= width, `${where}: the page is ${wide}px wide on a ${width}px screen`);
+  };
+  const editable = (page) => page.evaluate(() => document.querySelector(".cm-content").getAttribute("contenteditable"));
+  const shot = (page, name) => (shotsDir ? page.screenshot({ path: path.join(shotsDir, name) }) : null);
+
+  await check(110, "on a phone the toolbar is one row (Run, Stop, the message, More); More opens its list and Esc closes it (BF-15)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        const rows = await page.evaluate(() => {
+          const middle = (e) => { const r = e.getBoundingClientRect(); return Math.round((r.top + r.bottom) / 2); };
+          const pick = (selector) => document.querySelector(selector);
+          return { run: middle(pick(".fg-btn--run")), stop: middle(pick(".fg-play__stop")), area: middle(pick(".fg-msg")), more: middle(pick(".fg-play__more")),
+            picker: middle(pick(".fg-play__picker")), help: middle(pick("[aria-label='Help']")), bottom: pick(".fg-play__bar").getBoundingClientRect().bottom };
+        });
+        assert(Math.max(rows.run, rows.stop, rows.area, rows.more) - Math.min(rows.run, rows.stop, rows.area, rows.more) <= 4, `Run, Stop, the message and More are not on one row: ${JSON.stringify(rows)}`);
+        assert(rows.picker < rows.run - 20 && Math.abs(rows.picker - rows.help) <= 4, `the list and Help are not on the row above: ${JSON.stringify(rows)}`);
+        assert(rows.bottom < 130, `the bar is ${Math.round(rows.bottom)}px tall`);
+        for (const hidden of [".fg-play__auto", ".fg-play__guides", ".fg-play__share", ".fg-play__focus", ".fg-play__notice", ".fg-play__how"]) {
+          assert(!(await page.locator(hidden).first().isVisible()), `${hidden} shows in the phone's bar`);
+        }
+        assert(await page.getByRole("button", { name: "Run", exact: true }).isVisible() && await page.getByRole("button", { name: "Stop", exact: true }).isVisible(), "Run or Stop has lost its name");
+        await noSidewaysScroll(page, size.width, "the bar");
+        await shot(page, `phone_${size.width}_bar.png`);
+
+        const more = page.getByRole("button", { name: "More", exact: true });
+        assert(!(await page.locator(".fg-play__moremenu").isVisible()), "More is open at first");
+        await more.tap();
+        const menu = page.locator(".fg-play__moremenu");
+        await menu.waitFor({ state: "visible" });
+        for (const name of ["Guides", "Share", "Save picture"]) assert(await menu.getByRole("button", { name, exact: true }).isVisible(), `${name} is not in More`);
+        assert(await menu.getByText("Auto-run").isVisible(), "Auto-run is not in More");
+        assert((await more.getAttribute("aria-expanded")) === "true", "More does not say it is open");
+        const box = await menu.boundingBox();
+        assert(box.x >= 0 && box.x + box.width <= size.width, `the list is at ${Math.round(box.x)} to ${Math.round(box.x + box.width)}`);
+        await noSidewaysScroll(page, size.width, "More open");
+        await shot(page, `phone_${size.width}_more.png`);
+        // Auto-run in the list is the toolbar's own tick box
+        await menu.getByLabel("Auto-run").uncheck();
+        assert(!(await page.locator(".fg-play__auto input").evaluate((e) => e.checked)), "the list's Auto-run did not turn Auto-run off");
+        await page.keyboard.press("Escape");
+        assert(!(await menu.isVisible()), "Esc did not close More");
+        assert((await page.evaluate(() => document.activeElement.getAttribute("aria-label"))) === "More", "the focus did not go back to More");
+        await more.tap();
+        await page.locator(".fg-play__editor").tap({ position: { x: 20, y: 20 } });
+        assert(!(await menu.isVisible()), "a tap outside did not close More");
+        seen.push(`${size.width}x${size.height}: bar ${Math.round(rows.bottom)}px`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(111, "on a phone the code starts in Read mode: a touch types nothing and opens no keyboard; Edit makes it editable and puts the cursor in (BF-15)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await clearDrafts(page);
+        assert((await editable(page)) === "false", "the editor is editable in Read mode");
+        const hint = page.locator(".fg-play__readhint");
+        await hint.scrollIntoViewIfNeeded();
+        assert((await hint.innerText()).includes("Read mode. Tap Edit to change the code."), `the hint says "${await hint.innerText()}"`);
+        const before = await editorText(page);
+        const at = await page.locator(".cm-line").nth(2).boundingBox();
+        await page.touchscreen.tap(at.x + 40, at.y + at.height / 2);
+        await page.keyboard.type("zzz");
+        assert((await editorText(page)) === before, "a touch and typing changed the code in Read mode");
+        assert(!(await page.evaluate(() => document.activeElement.closest(".cm-content") !== null)), "the code has the focus in Read mode");
+        await noSidewaysScroll(page, size.width, "Read mode");
+        await shot(page, `phone_${size.width}_read_mode.png`);
+
+        await page.getByRole("button", { name: "Edit", exact: true }).tap();
+        assert((await editable(page)) === "true", "Edit did not make the editor editable");
+        assert(await page.evaluate(() => document.activeElement.classList.contains("cm-content")), "Edit did not put the cursor in the code");
+        assert(await page.evaluate(() => document.querySelector(".fg-play").classList.contains("fg-editing")), "the editor did not take the screen");
+        assert(!(await hint.isVisible()), "the Read mode hint shows while editing");
+        seen.push(`${size.width}: read mode, then Edit`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(112, "editing on a phone: the strip (thumbnail, Undo, Redo, Run, Done) and the symbol row show, a key types at the cursor and Undo takes it back, the row scrolls sideways, Done goes back to Read mode (BF-15)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await clearDrafts(page);
+        await page.getByRole("button", { name: "Edit", exact: true }).tap();
+        const state = await page.evaluate(() => {
+          const box = (selector) => { const e = document.querySelector(selector); const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height, shown: e.offsetParent !== null || getComputedStyle(e).position === "fixed" }; };
+          const keys = [...document.querySelectorAll(".fg-play__symbols .fg-play__key")].map((k) => { const r = k.getBoundingClientRect(); return { text: k.textContent, label: k.getAttribute("aria-label"), width: r.width, height: r.height, right: r.right }; });
+          return { box: box(".fg-play"), strip: box(".fg-play__editstrip"), row: box(".fg-play__symbols"), thumb: box(".fg-play__frame"), bar: getComputedStyle(document.querySelector(".fg-play__bar")).display,
+            keys, inner: { width: innerWidth, height: innerHeight }, code: box(".fg-play__code") };
+        });
+        assert(state.bar === "none", "the toolbar shows while editing");
+        assert(Math.abs(state.box.height - state.inner.height) < 2 && state.box.top === 0, `the editing screen is not the whole window: ${JSON.stringify(state.box)}`);
+        assert(state.strip.top === 0 && state.strip.height >= 48 && state.strip.height <= 66, `the strip is ${state.strip.height}px tall`);
+        assert(state.thumb.top >= 0 && state.thumb.bottom <= state.strip.bottom + 1 && state.thumb.right - state.thumb.left > 40, `the thumbnail: ${JSON.stringify(state.thumb) + " strip " + JSON.stringify(state.strip)}`);
+        for (const name of ["Undo", "Redo", "Done"]) assert(await page.getByRole("button", { name, exact: true }).isVisible(), `${name} is not in the strip`);
+        assert(await page.getByRole("button", { name: "▶ Run", exact: true }).isVisible(), "Run is not in the strip");
+        assert(state.row.bottom <= state.inner.height + 1 && state.row.top > state.strip.bottom, "the symbol row is not at the bottom");
+        const first = state.keys.slice(0, 11).map((k) => k.text).join(" ");
+        assert(first === '( ) , . " _ = : # + -', `the first keys are ${first}`);
+        assert(state.keys.slice(0, 11).every((k) => k.width === 28 && k.height >= 40 && k.right <= size.width), "the first eleven keys are not 28 x 40 and inside the screen");
+        const rest = state.keys.slice(11).map((k) => k.text).join(" ");
+        assert(rest === "* [ ] / { } < > % ' ⇥ ⇤", `the other keys are ${rest}`);
+        assert(state.code.height > 150, `the code has ${state.code.height}px`);
+        await noSidewaysScroll(page, size.width, "editing");
+        await shot(page, `phone_${size.width}_editing.png`);
+
+        // a key types at the cursor, and the editor keeps the focus (so the keyboard stays up)
+        const before = await editorText(page);
+        await page.getByRole("button", { name: "(", exact: true }).tap();
+        const after = await editorText(page);
+        assert(after === "(" + before, `the key typed: ${JSON.stringify(after.slice(0, 20))}`);
+        assert(await page.evaluate(() => document.activeElement.classList.contains("cm-content")), "a key took the focus from the editor");
+        await page.getByRole("button", { name: "Undo", exact: true }).tap();
+        assert((await editorText(page)) === before, "Undo did not take the symbol back");
+        await page.getByRole("button", { name: "Redo", exact: true }).tap();
+        assert((await editorText(page)) === after, "Redo did not bring the symbol back");
+        await page.getByRole("button", { name: "Undo", exact: true }).tap();
+        assert(await page.evaluate(() => document.activeElement.classList.contains("cm-content")), "Undo took the focus from the editor");
+
+        // the row scrolls sideways by a swipe: a touch drag through the browser's own input
+        const scroll = await page.evaluate(() => { const r = document.querySelector(".fg-play__symbols"); return { client: r.clientWidth, whole: r.scrollWidth }; });
+        assert(scroll.whole > scroll.client + 40, `the row does not scroll: ${scroll.whole} in ${scroll.client}`);
+        const client = await page.context().newCDPSession(page);
+        const row = await page.locator(".fg-play__symbols").boundingBox();
+        const y = row.y + row.height / 2;
+        const touch = (type, x) => client.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
+        await touch("touchStart", row.x + row.width - 12);
+        for (let x = row.x + row.width - 12; x > row.x + 20; x -= 20) await touch("touchMove", x);
+        await touch("touchEnd");
+        await sleep(300);
+        const moved = await page.evaluate(() => document.querySelector(".fg-play__symbols").scrollLeft);
+        assert(moved > 40, `a swipe moved the row ${moved}px`);
+        assert((await editorText(page)) === before, "a swipe typed a symbol");
+        await page.getByRole("button", { name: "[", exact: true }).tap();
+        assert((await editorText(page)).startsWith("["), "a key of the swiped part did not type");
+        await page.getByRole("button", { name: "Undo", exact: true }).tap();
+        await shot(page, `phone_${size.width}_symbols_swiped.png`);
+        await noSidewaysScroll(page, size.width, "the row swiped");
+
+        // Run from the strip, then Done: Read mode again
+        await page.getByRole("button", { name: "▶ Run", exact: true }).tap();
+        await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 30000 });
+        await page.getByRole("button", { name: "Done", exact: true }).tap();
+        assert((await editable(page)) === "false", "Done left the editor editable");
+        assert(!(await page.evaluate(() => document.activeElement.classList.contains("cm-content"))), "Done left the cursor in the code");
+        assert(!(await page.evaluate(() => document.querySelector(".fg-play").classList.contains("fg-editing"))), "the editor still has the screen");
+        assert(await page.locator(".fg-btn--run").isVisible() && await page.locator(".fg-play__readhint").isVisible(), "the toolbar or the hint did not come back");
+        await noSidewaysScroll(page, size.width, "after Done");
+        seen.push(`${size.width}x${size.height}: row ${scroll.client} of ${scroll.whole}px, swiped ${Math.round(moved)}`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(113, "on a laptop the toolbar is as it was (no More, no Read mode, no strip); Code | Blocks is a switch and Blocks shows the blocks (BF-15)", async () => {
+    const where = await newContext({ viewport: { width: 1280, height: 800 } });
+    try {
+      const page = await openPhone(where);
+      await clearDrafts(page);
+      for (const [name, selector] of Object.entries({ "the word Play": ".fg-play__word", "Auto-run": ".fg-play__auto", Guides: ".fg-play__guides", Share: ".fg-play__share", "the Focus button": ".fg-play__focus" })) {
+        assert(await page.locator(selector).first().isVisible(), `${name} is not in the laptop's toolbar`);
+      }
+      for (const [name, selector] of Object.entries({ More: ".fg-play__more", "the Read mode hint": ".fg-play__readhint", "the editing strip": ".fg-play__editstrip", "the symbol row": ".fg-play__symbols", "the camera Focus button": ".fg-play__camfocusbtn" })) {
+        assert(!(await page.locator(selector).first().isVisible()), `${name} shows on a laptop`);
+      }
+      assert((await editable(page)) === "true", "the laptop's editor starts in Read mode");
+      assert(!(await page.locator(".fg-play__phoneonly").first().isVisible()), "something for phones shows on a laptop");
+      assert(!(await page.locator(".fg-phone-only").first().isVisible()), "a help line for phones shows");
+      const switchBox = page.locator(".fg-play__views");
+      assert(await switchBox.isVisible(), "no Code | Blocks switch");
+      const names = await switchBox.locator("button").allInnerTexts();
+      assert(names.join("|") === "Code|Blocks", `the switch has ${names}`);
+      await typeCode(page, "x = 1\n");
+      assert((await editorText(page)).startsWith("x = 1"), "typing does not work on a laptop");
+      await page.getByRole("button", { name: "Blocks", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector(".fg-play__blocks").offsetParent !== null
+        && [...document.querySelectorAll(".fg-play__view")].some((b) => b.textContent === "Blocks" && b.getAttribute("aria-pressed") === "true"), null, { timeout: 90000 })
+        .catch(async (e) => { throw new Error(`${e.message}; the status says "${await status(page)}"`); });
+      assert(!(await page.locator(".fg-play__code").isVisible()), "the code shows beside the blocks");
+      await page.getByRole("button", { name: "Code", exact: true }).click();
+      assert(await page.locator(".fg-play__code").isVisible() && !(await page.locator(".fg-play__blocks").isVisible()), "Code did not bring the code back");
+      await page.close();
+      return "toolbar as before, switch Code | Blocks works";
+    } finally {
+      await where.close();
+    }
+  });
+
+  // ---- Play on a phone, part two (BF-15 round 3, BF-D-050): one still screen, a canvas that folds, Output as a sheet, Clear for the messages,
+  // Auto-run on opening, one line of tabs, Undo and Redo for the blocks. The checks that need the learner's own Auto-run (on from the first load)
+  // make their contexts with { autoRunOnOpen: true }; the others begin from an idle page (see newContext).
+  const longSketch = (lines) => BLANK_TEXT_FOR_TEST + Array.from({ length: lines }, (_, i) => `# line ${i + 1} of a long sketch, long enough to need scrolling`).join("\n") + "\n";
+  const PRINT_SKETCH = "import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n    print(\"hello from the sheet\")\n\n\ndef draw():\n    f.background(\"gold\")\n\n\nf.run()\n";
+  const geometry = (page) => page.evaluate(() => {
+    const box = (selector) => {
+      const e = document.querySelector(selector);
+      if (!e) return null;
+      const r = e.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height, width: r.width };
+    };
+    return { inner: { width: innerWidth, height: innerHeight }, scrolling: { height: document.scrollingElement.scrollHeight, width: document.scrollingElement.scrollWidth },
+      play: box(".fg-play"), bar: box(".fg-play__bar"), picture: box(".fg-play__picture"), caption: box(".fg-play__caption"), tab: box(".fg-play__tab"),
+      editor: box(".fg-play__editor"), code: box(".fg-play__code"), blocks: box(".fg-play__blocks"), hint: box(".fg-play__readhint"), sheet: box(".fg-console") };
+  });
+  const canvasChip = (page) => page.locator(".fg-play__canvaschip");
+  const sheetChip = (page) => page.locator(".fg-play__sheetchip");
+  const showsBlocks = (page) => page.waitForFunction(() => [...document.querySelectorAll(".fg-play__view")].some((b) => b.textContent === "Blocks"
+    && b.getAttribute("aria-pressed") === "true"), null, { timeout: 90000 })
+    .catch(async (e) => { throw new Error(`${e.message}; the status says "${await status(page)}"`); });
+  const hasRun = (page, timeout = 40000) => page.waitForFunction(() => /^(Starting|Running|Finished)/.test(document.querySelector(".play-status").textContent), null, { timeout })
+    .catch(async (e) => { throw new Error(`${e.message}; the status says "${await status(page)}"`); });
+  const historyCountOf = async (page) => Number((await page.getByRole("button", { name: "This visit's messages" }).innerText()).replace(/\D/g, ""));
+
+  await check(114, "on a phone the screen holds still: it never scrolls, the editor ends at the screen's foot and the Read mode hint is there whatever the sketch's length (BF-D-050)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        await clearDrafts(page);
+        await typeCode(page, longSketch(150));
+        await page.locator(".fg-play__readhint").waitFor({ state: "visible" });
+        const g = await geometry(page);
+        assert(g.scrolling.height <= g.inner.height + 1 && g.scrolling.width <= g.inner.width, `the page is ${g.scrolling.width} x ${g.scrolling.height} on a ${g.inner.width} x ${g.inner.height} screen`);
+        assert(Math.abs(g.play.top) < 1 && Math.abs(g.play.bottom - g.inner.height) < 1.5, `Play is ${Math.round(g.play.top)} to ${Math.round(g.play.bottom)} on a screen ${g.inner.height} tall`);
+        assert(Math.abs(g.editor.bottom - g.inner.height) < 1.5, `the editor ends at ${Math.round(g.editor.bottom)}, the screen at ${g.inner.height}`);
+        assert(g.hint.bottom <= g.inner.height && g.hint.bottom >= g.inner.height - 12 && g.hint.top > g.tab.bottom, `the hint is ${Math.round(g.hint.top)} to ${Math.round(g.hint.bottom)} on a screen ${g.inner.height} tall`);
+        assert(g.bar.top < g.picture.top && g.picture.bottom <= g.caption.top + 1 && g.caption.bottom <= g.tab.top + 1 && g.tab.bottom <= g.code.top + 1,
+          `the order from the top is not bar, canvas, thin line, tabs, code: ${JSON.stringify({ bar: g.bar.top, picture: g.picture.top, caption: g.caption.top, tab: g.tab.top, code: g.code.top })}`);
+        assert(g.code.height > 150, `the code has ${Math.round(g.code.height)}px`);
+        const inside = await page.evaluate(() => { const s = document.querySelector(".cm-scroller"); return { whole: s.scrollHeight, shown: s.clientHeight }; });
+        assert(inside.whole > inside.shown + 200, `the code does not scroll inside its box: ${inside.whole} in ${inside.shown}`);
+        // a push at the page does not move it
+        await page.evaluate(() => window.scrollTo(0, 500));
+        assert((await page.evaluate(() => window.scrollY)) === 0, "the page scrolled");
+        assert(!(await page.locator(".fg-play__fab").isVisible()), "the floating Run shows on a phone");
+        await noSidewaysScroll(page, size.width, "the still screen");
+        await shot(page, `phone_${size.width}x${size.height}_1_unfolded.png`);
+
+        // Edit starts from this layout: the editing screen is the whole of the visual viewport, with the strip and its thumbnail
+        await page.getByRole("button", { name: "Edit", exact: true }).tap();
+        const editing = await geometry(page);
+        assert(await page.evaluate(() => document.querySelector(".fg-play").classList.contains("fg-editing")), "Edit did not start editing");
+        assert(Math.abs(editing.play.height - editing.inner.height) < 2 && editing.play.top === 0, `the editing screen is ${editing.play.top} to ${editing.play.bottom}`);
+        assert(await page.locator(".fg-play__frame").isVisible() && await page.getByRole("button", { name: "Done", exact: true }).isVisible(), "the strip or its thumbnail is missing");
+        await page.getByRole("button", { name: "Done", exact: true }).tap();
+        const back = await geometry(page);
+        assert(Math.abs(back.editor.bottom - back.inner.height) < 1.5 && back.hint.height > 0, "Done did not bring the still screen back");
+        seen.push(`${size.width}x${size.height}: page ${g.scrolling.height}px, code ${Math.round(g.code.height)}px, hint at ${Math.round(g.hint.bottom)}`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(115, "the canvas folds: ▴ Canvas folds it and gives the room to the code, ▾ Canvas brings it back, Run unfolds it, the fold is kept while the page is open, and the zoom is in the thin line (BF-D-050)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        await clearDrafts(page);
+        const chip = canvasChip(page);
+        assert((await chip.innerText()) === "▴ Canvas" && (await chip.getAttribute("aria-expanded")) === "true", `the chip says "${await chip.innerText()}"`);
+        const open = await geometry(page);
+        assert(open.picture.height > 100 && open.caption.height <= 64, `the canvas is ${Math.round(open.picture.height)}px and the thin line ${Math.round(open.caption.height)}px`);
+        // the zoom is in the thin line, with targets of 40 px
+        for (const name of ["Zoom out", "Zoom in"]) {
+          const button = await page.getByRole("button", { name, exact: true }).boundingBox();
+          assert(button && button.width >= 40 && button.height >= 40 && button.y >= open.caption.top - 1 && button.y + button.height <= open.caption.bottom + 1, `${name} is not a 40 px target in the thin line: ${JSON.stringify(button)}`);
+        }
+        const fit = await page.locator(".fg-play__zoomfit").boundingBox();
+        assert(fit.height >= 40, "Fit is not a 40 px target");
+        const sheetBox = await sheetChip(page).boundingBox();
+        assert(sheetBox.height >= 36 && sheetBox.y >= open.caption.top - 1, "the Output chip is not in the thin line");
+        await page.getByRole("button", { name: "Zoom in", exact: true }).tap();
+        assert((await page.locator(".fg-play__zoomfit").getAttribute("aria-pressed")) === "false", "Zoom in did not leave Fit");
+        await page.locator(".fg-play__zoomfit").tap();
+        assert((await page.locator(".fg-play__zoomfit").getAttribute("aria-pressed")) === "true", "Fit did not come back");
+        await noSidewaysScroll(page, size.width, "the thin line");
+
+        await chip.tap();
+        const folded = await geometry(page);
+        assert((await chip.innerText()) === "▾ Canvas" && (await chip.getAttribute("aria-expanded")) === "false", `the folded chip says "${await chip.innerText()}"`);
+        assert(!(await page.locator(".fg-play__picture").isVisible()), "the canvas shows folded");
+        assert(folded.editor.height >= open.editor.height + open.picture.height - 4, `the editor went from ${Math.round(open.editor.height)} to ${Math.round(folded.editor.height)}px with a canvas of ${Math.round(open.picture.height)}px`);
+        assert(Math.abs(folded.editor.bottom - folded.inner.height) < 1.5 && folded.scrolling.height <= folded.inner.height + 1, "the folded screen does not hold still");
+        assert(/\d+ × \d+/.test(await page.locator(".fg-play__size").innerText()), "the folded line does not say the canvas's size");
+        assert(!(await page.getByRole("button", { name: "Zoom in", exact: true }).isVisible()), "the zoom shows with the canvas folded");
+        assert(await sheetChip(page).isVisible(), "the Output chip is gone when folded");
+        await shot(page, `phone_${size.width}x${size.height}_2_folded.png`);
+
+        // the fold is kept while the page is open: another example opens folded
+        const other = await page.evaluate(() => [...document.querySelectorAll(".fg-play__choose option")].find((o) => o.value !== document.querySelector(".fg-play__choose").value && o.value.includes("_")).value);
+        await page.locator(".fg-play__choose").selectOption(other);
+        await page.waitForFunction((id) => document.querySelector(".fg-play__choose").value === id, other);
+        assert((await chip.innerText()) === "▾ Canvas", "another example unfolded the canvas");
+        // Run (the bar's) unfolds it
+        await page.getByRole("button", { name: "Run", exact: true }).tap();
+        assert((await chip.innerText()) === "▴ Canvas" && (await page.locator(".fg-play__picture").isVisible()), "Run did not unfold the canvas");
+        await page.getByRole("button", { name: "Stop", exact: true }).tap();
+        // the editing strip's Run unfolds it too, and a folded canvas is still the strip's thumbnail
+        await chip.tap();
+        await page.getByRole("button", { name: "Edit", exact: true }).tap();
+        const strip = await page.locator(".fg-play__frame").boundingBox();
+        assert(strip && strip.y < 60 && strip.width > 40, `the thumbnail is missing while editing with a folded canvas: ${JSON.stringify(strip)}`);
+        await page.getByRole("button", { name: "▶ Run", exact: true }).tap();
+        await page.getByRole("button", { name: "Done", exact: true }).tap();
+        assert((await chip.innerText()) === "▴ Canvas", "the editing strip's Run did not unfold the canvas");
+        seen.push(`${size.width}x${size.height}: editor ${Math.round(open.editor.height)} to ${Math.round(folded.editor.height)}px`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(116, "in the Blocks view on a phone the canvas starts folded; Code brings back what it was (BF-D-050)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        await clearDrafts(page);
+        const chip = canvasChip(page);
+        assert((await chip.innerText()) === "▴ Canvas", "the canvas does not start unfolded in Code");
+        await page.getByRole("button", { name: "Blocks", exact: true }).tap();
+        await showsBlocks(page);
+        assert((await chip.innerText()) === "▾ Canvas" && !(await page.locator(".fg-play__picture").isVisible()), "the canvas is not folded in Blocks");
+        await sleep(500);
+        const g = await geometry(page);
+        assert(g.blocks.height > 250 && Math.abs(g.blocks.bottom - g.inner.height) < 1.5, `the blocks are ${Math.round(g.blocks.top)} to ${Math.round(g.blocks.bottom)} on a screen ${g.inner.height} tall`);
+        assert(g.scrolling.height <= g.inner.height + 1, "the page scrolls in Blocks");
+        await shot(page, `phone_${size.width}x${size.height}_4_blocks_folded.png`);
+        await page.getByRole("button", { name: "Code", exact: true }).tap();
+        assert((await chip.innerText()) === "▴ Canvas" && (await page.locator(".fg-play__picture").isVisible()), "Code did not bring the canvas back");
+        // folded before the blocks: folded after
+        await chip.tap();
+        await page.getByRole("button", { name: "Blocks", exact: true }).tap();
+        await showsBlocks(page);
+        await page.getByRole("button", { name: "Code", exact: true }).tap();
+        assert((await chip.innerText()) === "▾ Canvas", "Code unfolded a canvas that was folded before the blocks");
+        // Run in the blocks unfolds it, and the view stays blocks
+        await page.getByRole("button", { name: "Blocks", exact: true }).tap();
+        await showsBlocks(page);
+        await page.getByRole("button", { name: "Run", exact: true }).tap();
+        assert((await chip.innerText()) === "▴ Canvas", "Run did not unfold the canvas in Blocks");
+        seen.push(`${size.width}x${size.height}: blocks ${Math.round(g.blocks.height)}px tall`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(117, "on a phone Output is a sheet: the chip counts what was printed and opens it from the foot, Esc, Close and a tap outside close it, Clear empties it; an error stays in the message line (BF-D-050)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        await clearDrafts(page);
+        await typeCode(page, PRINT_SKETCH);
+        await page.getByRole("button", { name: "Run", exact: true }).tap();
+        await page.waitForFunction(() => document.querySelector(".fg-play__sheetcount")?.textContent === "1" && !document.querySelector(".fg-play__sheetcount").hidden, null, { timeout: 40000 });
+        const before = await geometry(page);
+        assert(!(await page.locator(".fg-console").isVisible()), "Output shows above the canvas before it is opened");
+        await shot(page, `phone_${size.width}x${size.height}_3a_output_chip_with_count.png`);
+        await sheetChip(page).tap();
+        const sheet = page.locator(".fg-console");
+        await sheet.waitFor({ state: "visible" });
+        const open = await geometry(page);
+        assert(Math.abs(open.sheet.bottom - open.inner.height) < 1.5, `the sheet ends at ${Math.round(open.sheet.bottom)} on a screen ${open.inner.height} tall`);
+        assert(open.sheet.height > open.inner.height * 0.4 && open.sheet.height < open.inner.height * 0.6, `the sheet is ${Math.round(open.sheet.height)}px of ${open.inner.height}`);
+        assert(Math.abs(open.picture.top - before.picture.top) < 1 && Math.abs(open.picture.height - before.picture.height) < 1, "the sheet moved the canvas");
+        assert((await sheet.innerText()).includes("hello from the sheet"), `the sheet says "${await sheet.innerText()}"`);
+        assert(await page.locator(".fg-play__sheetcount").isHidden(), "the count stays after the sheet was opened");
+        assert(open.scrolling.height <= open.inner.height + 1, "the page scrolls with the sheet open");
+        for (const name of ["Clear", "Close"]) {
+          const button = await sheet.getByRole("button", { name, exact: true }).boundingBox();
+          assert(button && button.height >= 36 && button.x + button.width <= size.width, `${name} is not a target on the screen: ${JSON.stringify(button)}`);
+        }
+        await shot(page, `phone_${size.width}x${size.height}_3_output_sheet.png`);
+        await page.keyboard.press("Escape");
+        assert(!(await sheet.isVisible()), "Esc did not close the sheet");
+        assert(await page.evaluate(() => document.activeElement.classList.contains("fg-play__sheetchip")), "the focus did not go back to the chip");
+        await sheetChip(page).tap();
+        await sheet.waitFor({ state: "visible" });
+        await page.locator(".fg-play__tab").tap({ position: { x: 4, y: 4 } });
+        assert(!(await sheet.isVisible()), "a tap outside did not close the sheet");
+        await sheetChip(page).tap();
+        await sheet.getByRole("button", { name: "Close", exact: true }).tap();
+        assert(!(await sheet.isVisible()), "Close did not close the sheet");
+        // a line printed while the sheet is closed counts again; Clear empties the sheet
+        await page.getByRole("button", { name: "Run", exact: true }).tap();
+        await page.waitForFunction(() => document.querySelector(".fg-play__sheetcount")?.textContent === "1" && !document.querySelector(".fg-play__sheetcount").hidden, null, { timeout: 40000 });
+        await sheetChip(page).tap();
+        await sheet.getByRole("button", { name: "Clear", exact: true }).tap();
+        assert((await page.locator(".fg-console__body").evaluate((e) => e.children.length)) === 0, "Clear left lines in the sheet");
+        await page.keyboard.press("Escape");
+        // an error is in the message line, with Go to line, and no sheet is opened for it
+        await typeCode(page, SKETCH_WITH("f.circl(10, 10, 10)"));
+        await page.locator(".fg-msg--error").waitFor({ timeout: 40000 });
+        const line = await page.locator(".fg-msg--error").boundingBox();
+        assert(line.x >= 0 && line.x + line.width <= size.width, "the error line is off the screen");
+        assert(await page.locator(".fg-msg--error").getByRole("button", { name: /^Go to line/ }).isVisible(), "the error has no Go to line");
+        assert(!(await sheet.isVisible()), "the sheet opened for an error");
+        await noSidewaysScroll(page, size.width, "the error line");
+        seen.push(`${size.width}x${size.height}: sheet ${Math.round(open.sheet.height)}px`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(118, "the message list ends with \"N messages this visit\" and a Clear that empties it and the count; another example starts the count again (BF-D-050)", async () => {
+    // the laptop
+    {
+      const page = await openEditor();
+      await clearDrafts(page);
+      await page.locator(".fg-play__auto input").uncheck();
+      await page.reload();
+      await page.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      await page.locator(".fg-play__auto input").uncheck();
+      await runButton(page).click();
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 30000 });
+      await page.getByRole("button", { name: "Stop", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Stopped.", null, { timeout: 30000 });
+      const count = await historyCountOf(page);
+      assert(count >= 3, `the count is ${count}`);
+      const more = page.getByRole("button", { name: "This visit's messages" });
+      await more.click();
+      const list = page.locator(".fg-msg__list");
+      assert((await list.locator(".fg-msg__foot span").innerText()) === `${count} messages this visit`, `the footer says "${await list.locator(".fg-msg__foot span").innerText()}"`);
+      await list.getByRole("button", { name: "Clear", exact: true }).click();
+      assert((await list.locator(".fg-msg__item").count()) === 0, "Clear left messages in the list");
+      assert((await more.innerText()) === "0 ▾", `the count says "${await more.innerText()}"`);
+      assert((await list.locator(".fg-msg__foot span").innerText()) === "No messages this visit" && await list.getByRole("button", { name: "Clear", exact: true }).isDisabled(), "the footer of an empty list is wrong");
+      assert((await status(page)) === "Stopped.", "Clear emptied the line on screen");
+      await more.click();
+      await runButton(page).click();
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 30000 });
+      assert((await historyCountOf(page)) >= 1, "a new message did not count after Clear");
+      await page.getByRole("button", { name: "Stop", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Stopped.", null, { timeout: 30000 });
+      // another example: the count starts again, with the one line the opening says
+      const other = await page.evaluate(() => [...document.querySelectorAll(".fg-play__choose option")].find((o) => o.value !== document.querySelector(".fg-play__choose").value && o.value.includes("_")).value);
+      await page.locator(".fg-play__choose").selectOption(other);
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Ready. Press Run.", null, { timeout: 30000 });
+      assert((await historyCountOf(page)) === 1, `after another example the count is ${await historyCountOf(page)}`);
+      assert((await visitMessages(page)).join("|") === "Ready. Press Run.", `the list holds ${await visitMessages(page)}`);
+      await page.close();
+    }
+    // a phone: the list with Clear fits the screen
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        await page.getByRole("button", { name: "Run", exact: true }).tap();
+        await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 40000 });
+        await page.getByRole("button", { name: "This visit's messages" }).tap();
+        const list = page.locator(".fg-msg__list");
+        await list.waitFor({ state: "visible" });
+        const clear = await list.getByRole("button", { name: "Clear", exact: true }).boundingBox();
+        const box = await list.boundingBox();
+        assert(clear && clear.x + clear.width <= size.width && clear.y + clear.height <= size.height && box.x >= 0 && box.x + box.width <= size.width, `the list is ${JSON.stringify(box)}, Clear ${JSON.stringify(clear)}`);
+        await noSidewaysScroll(page, size.width, "the message list");
+        await shot(page, `phone_${size.width}x${size.height}_5_messages.png`);
+        await list.getByRole("button", { name: "Clear", exact: true }).tap();
+        assert((await page.getByRole("button", { name: "This visit's messages" }).innerText()) === "0 ▾", "Clear did not reset the count on a phone");
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return "laptop and phone";
+  });
+
+  await check(119, "Auto-run on opening: with Auto-run on, a sketch the learner opens (the first load, the list, the arrows) runs by itself; with it off, nothing does; a shared link and a lesson's example wait for Run (BF-D-050)", async () => {
+    const where = await newContext({ viewport: { width: 1280, height: 900 }, autoRunOnOpen: true, permissions: ["clipboard-read", "clipboard-write"] });
+    try {
+      // the first load, Auto-run on: the starter runs without a press
+      const page = await openEditor("", "", where);
+      await hasRun(page);
+      await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque);
+      // the list: stop it, then another example opens and runs
+      const ids = await page.evaluate(() => [...document.querySelectorAll(".fg-play__choose option")].map((o) => o.value).filter((v) => v.includes("_") && !v.startsWith("course-")));
+      await page.getByRole("button", { name: "Stop", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Stopped.", null, { timeout: 30000 });
+      await page.locator(".fg-play__choose").selectOption(ids[1]);
+      await hasRun(page);
+      await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque);
+      // the arrows: Next opens the next example and runs it
+      await page.getByRole("button", { name: "Stop", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Stopped.", null, { timeout: 30000 });
+      await page.getByRole("button", { name: /^Next/ }).click();
+      await hasRun(page);
+      assert(await page.locator(".fg-play__choose").inputValue() === ids[2], "Next did not open the next example");
+      // a running sketch is stopped first, as open() does: choosing another while one runs ends with the new one running
+      await page.locator(".fg-play__choose").selectOption(ids[0]);
+      await page.waitForFunction((id) => document.querySelector(".fg-play__choose").value === id && /^(Starting|Running|Finished)/.test(document.querySelector(".play-status").textContent), ids[0], { timeout: 40000 });
+      // Auto-run off: an example opens and waits
+      await page.locator(".fg-play__auto input").uncheck();
+      await page.getByRole("button", { name: "Stop", exact: true }).click().catch(() => {});
+      await page.locator(".fg-play__choose").selectOption(ids[1]);
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent === "Ready. Press Run.", null, { timeout: 30000 });
+      await sleep(3000);
+      assert((await status(page)) === "Ready. Press Run.", `with Auto-run off the status is "${await status(page)}"`);
+      // Auto-run on again, and a shared link: it opens and waits (someone else's code)
+      await page.locator(".fg-play__auto input").check();
+      await page.getByRole("button", { name: "Share" }).click();
+      await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Link copied"));
+      const link = await page.locator(".play-link").inputValue();
+      const shared = await openEditor("", link.slice(link.indexOf("#")), where);
+      await sleep(3000);
+      assert((await status(shared)).startsWith("Shared sketch: press Run"), `the shared sketch's status is "${await status(shared)}"`);
+      assert(!(await picture(frameOf(shared, PREVIEW))).opaque, "the shared sketch ran by itself");
+      await shared.close();
+      // a lesson's example: the learner predicts before the first Run
+      const lesson = await openEditor("&example=course-01_positions", "", where);
+      await sleep(3000);
+      assert((await status(lesson)) === "Ready. Press Run.", `the lesson's status is "${await status(lesson)}"`);
+      assert(!(await picture(frameOf(lesson, PREVIEW))).opaque, "a lesson's example ran by itself");
+      await lesson.close();
+      // a link to an example (the gallery pages link that way) runs
+      const linked = await openEditor(`&example=${FIRST_SKETCH}`, "", where);
+      await hasRun(linked);
+      await linked.close();
+      await page.close();
+      return "first load, list, Next: run; off, shared, lesson: wait; a link to an example: runs";
+    } finally {
+      await where.close();
+    }
+  });
+
+  await check(120, "on a phone the tab row is one line with a long file name: the name is cut short with an ellipsis, then Code | Blocks, then File (BF-D-050)", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        await where.addInitScript(([list, last]) => { localStorage.setItem("funground.play.sketches", list); localStorage.setItem("funground.play.last", last); },
+          [JSON.stringify([{ id: "longname", name: "A very long name for my sketch that goes on and on", code: BLANK_TEXT_FOR_TEST, created: 1, updated: 1 }]), JSON.stringify("my:longname")]);
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        const t = await page.evaluate(() => {
+          const box = (selector) => { const e = document.querySelector(selector); const r = e.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, height: r.height, scroll: e.scrollWidth, client: e.clientWidth }; };
+          return { name: box(".fg-play__name"), views: box(".fg-play__views"), file: box(".fg-play__filebtn"), tab: box(".fg-play__tab"), text: document.querySelector(".fg-play__name").textContent,
+            overflow: getComputedStyle(document.querySelector(".fg-play__name")).textOverflow };
+        });
+        assert(t.text.startsWith("A very long name"), `the sketch is called "${t.text}"`);
+        assert(t.tab.height <= 56, `the tab row is ${Math.round(t.tab.height)}px tall: it wraps`);
+        const middle = (b) => (b.top + b.bottom) / 2;
+        assert(Math.abs(middle(t.name) - middle(t.views)) <= 4 && Math.abs(middle(t.views) - middle(t.file)) <= 4, `the name, the switch and File are not on one line: ${JSON.stringify([t.name.top, t.views.top, t.file.top])}`);
+        assert(t.name.right <= t.views.left && t.views.right <= t.file.left && t.file.right <= size.width, "the order is not name, Code | Blocks, File inside the screen");
+        assert(t.name.scroll > t.name.client && t.overflow === "ellipsis", `the name is not cut short with an ellipsis: ${t.name.scroll} in ${t.name.client}, ${t.overflow}`);
+        await noSidewaysScroll(page, size.width, "the tab row");
+        // the File menu opens inside the screen from the right end, with Show code in it
+        await page.locator(".fg-play__filebtn").tap();
+        const menu = await page.locator(".fg-play__menu").boundingBox();
+        assert(menu.x >= 0 && menu.x + menu.width <= size.width, `the File menu is at ${Math.round(menu.x)} to ${Math.round(menu.x + menu.width)}`);
+        await page.keyboard.press("Escape");
+        seen.push(`${size.width}: tab row ${Math.round(t.tab.height)}px, name ${t.name.client} of ${t.name.scroll}px`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+
+  await check(121, "Show code (phone) starts off and Python on blocks (laptop) on; what the learner chose is kept, on or off, and wins (BF-D-050)", async () => {
+    const lines = (page) => page.locator(".fg-play__lines input").evaluate((e) => e.checked);
+    const saved = (page) => page.evaluate(() => localStorage.getItem("funground.play.blocklines"));
+    const choose = (page, on) => page.locator(".fg-play__lines input").evaluate((e, value) => { e.checked = value; e.dispatchEvent(new Event("change")); }, on);
+    const where = await phoneContext(SIZES[1]);
+    const desk = await newContext({ viewport: { width: 1280, height: 800 } });
+    try {
+      const phonePage = await openPhone(where);
+      await clearDrafts(phonePage);
+      await phonePage.reload();
+      await phonePage.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      assert((await lines(phonePage)) === false, "Python on blocks is on at first on a phone");
+      await choose(phonePage, true);
+      assert((await saved(phonePage)) === "true", `a choice of on is saved as ${await saved(phonePage)}`);
+      await phonePage.reload();
+      await phonePage.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      assert((await lines(phonePage)) === true, "a saved choice of on did not win on a phone");
+      await choose(phonePage, false);
+      assert((await saved(phonePage)) === "false", `a choice of off is saved as ${await saved(phonePage)}`);
+      const deskPage = await openPhone(desk);
+      await clearDrafts(deskPage);
+      await deskPage.reload();
+      await deskPage.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      assert((await lines(deskPage)) === true, "Python on blocks is off at first on a laptop");
+      await deskPage.evaluate(() => localStorage.setItem("funground.play.blocklines", "false"));      // what an older Play saved for "off"
+      await deskPage.reload();
+      await deskPage.waitForFunction(() => document.querySelector(".fg-btn--run")?.disabled === false, null, { timeout: 60000 });
+      assert((await lines(deskPage)) === false, "a saved choice of off did not win on a laptop");
+      await phonePage.close();
+      await deskPage.close();
+      return "phone off, laptop on; saved on and off win";
+    } finally {
+      await where.close();
+      await desk.close();
+    }
+  });
+
+  // Undo and Redo for the blocks (BF-D-050). The editor must have undo() and redo() (the bundle blockly-fun is building for this); until
+  // the vendored bundle has them, check 122 tests the wiring with stand-ins, and check 123 (the real undo) is skipped.
+  const bundleHasUndo = (page) => page.evaluate(() => { const e = document.querySelector(".fg-play__blocks").blocksEditor; return typeof e?.undo === "function" && typeof e?.redo === "function"; });
+
+  await check(122, "Blocks: Undo blocks and Redo blocks show beside Code | Blocks only while the blocks show, at every size, and call the editor's undo and redo; the tab row stays one line (BF-D-050)", async () => {
+    const notes = [];
+    const contexts = [["laptop", () => newContext({ viewport: { width: 1280, height: 800 } }), 1280], ["phone", () => phoneContext(SIZES[1]), 360]];
+    for (const [name, make, width] of contexts) {
+      const where = await make();
+      try {
+        const page = await openPhone(where);
+        await page.addStyleTag({ content: "body { margin: 0; }" });
+        await clearDrafts(page);
+        const undo = page.getByRole("button", { name: "Undo blocks", exact: true });
+        const redo = page.getByRole("button", { name: "Redo blocks", exact: true });
+        assert(!(await undo.isVisible()) && !(await redo.isVisible()), `${name}: Undo blocks shows in the Code view`);
+        const tap = (locator) => (name === "phone" ? locator.tap() : locator.click());
+        await tap(page.getByRole("button", { name: "Blocks", exact: true }));
+        await showsBlocks(page);
+        let real = await bundleHasUndo(page);
+        const calls = [];
+        if (!real) {
+          // the vendored bundle is older than this feature: stand-ins record the calls (the buttons ask the editor each time they are shown)
+          await page.evaluate(() => {
+            const e = document.querySelector(".fg-play__blocks").blocksEditor;
+            window.__calls = [];
+            e.undo = () => window.__calls.push("undo");
+            e.redo = () => window.__calls.push("redo");
+          });
+          await tap(page.getByRole("button", { name: "Code", exact: true }));
+          await tap(page.getByRole("button", { name: "Blocks", exact: true }));
+          await showsBlocks(page);
+          notes.push(`${name}: STAND-INS (the vendored bundle has no undo)`);
+        } else {
+          notes.push(`${name}: the bundle's own undo`);
+        }
+        assert(await undo.isVisible() && await redo.isVisible(), `${name}: Undo blocks and Redo blocks are not shown with the blocks`);
+        const boxes = [await undo.boundingBox(), await redo.boundingBox(), await page.locator(".fg-play__views").boundingBox()];
+        const t = await page.locator(".fg-play__tab").boundingBox();
+        assert(boxes[0].x + boxes[0].width <= boxes[2].x + 1 && boxes[1].x + boxes[1].width <= boxes[2].x + 1, `${name}: the buttons are not before Code | Blocks`);
+        assert(Math.abs(boxes[0].y - boxes[2].y) < 12 && t.height <= 60 && t.x + t.width <= width, `${name}: the tab row is ${Math.round(t.height)}px tall`);
+        if (name === "phone") assert(boxes[0].height >= 36 && boxes[0].width >= 40, `the buttons are ${boxes[0].width} x ${boxes[0].height}`);
+        await noSidewaysScroll(page, width, `${name}: blocks tab row`);
+        if (!real) {
+          await tap(undo);
+          await tap(redo);
+          assert((await page.evaluate(() => window.__calls)).join() === "undo,redo", `the editor was called with ${await page.evaluate(() => window.__calls)}`);
+        }
+        await tap(page.getByRole("button", { name: "Code", exact: true }));
+        assert(!(await undo.isVisible()), `${name}: Undo blocks stays in the Code view`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return notes.join("; ");
+  });
+
+  await check(123, "Blocks: Undo blocks takes back a change to a block and Redo blocks brings it back (BF-D-050)", async () => {
+    const page = await openEditor();
+    await clearDrafts(page);
+    await typeCode(page, "import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    f.circle(100, 50, 40)\n\n\nf.run()\n");
+    await page.getByRole("button", { name: "Blocks", exact: true }).click();
+    await showsBlocks(page);
+    if (!(await bundleHasUndo(page))) {
+      await page.close();
+      throw new Skip("the vendored blockly-fun bundle has no editor.undo() yet; the new bundle (BF-D-050) is being built, and this check runs once it is vendored");
+    }
+    await page.evaluate(() => document.querySelector(".fg-play__blocks").blocksEditor.workspace.getBlocksByType("bf_circle")[0].getInputTargetBlock("D").setFieldValue("77", "NUM"));
+    await page.waitForFunction(() => [...document.querySelectorAll(".cm-line")].some((l) => l.textContent.includes("f.circle(100, 50, 77)")), null, { timeout: 5000 });
+    await page.getByRole("button", { name: "Undo blocks", exact: true }).click();
+    await page.waitForFunction(() => [...document.querySelectorAll(".cm-line")].some((l) => l.textContent.includes("f.circle(100, 50, 40)")), null, { timeout: 5000 });
+    await page.getByRole("button", { name: "Redo blocks", exact: true }).click();
+    await page.waitForFunction(() => [...document.querySelectorAll(".cm-line")].some((l) => l.textContent.includes("f.circle(100, 50, 77)")), null, { timeout: 5000 });
+    await page.close();
+    return "undo and redo of a value change";
+  });
+
+  await check(124, "Blocks on a phone are the list of rows (BF-16, BF-D-053 c): a row per statement and no Blockly page, no switch over the rows, Show code in the File menu writes them as Python, a run's error outlines the row of its line", async () => {
+    const seen = [];
+    for (const size of SIZES) {
+      const where = await phoneContext(size);
+      try {
+        const page = await openPhone(where);
+        await clearDrafts(page);
+        await typeCode(page, "import funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    f.circle(100, 50, nope)\n\n\nf.run()\n");
+        await page.getByRole("button", { name: "Blocks", exact: true }).tap();
+        await showsBlocks(page);
+        await page.waitForSelector(".fg-play__blocks .bfl-row", { timeout: 30000 });
+        const rows = await page.locator(".fg-play__blocks .bfl-row").count();
+        assert(rows >= 3, `only ${rows} rows`);
+        assert((await page.locator(".fg-play__blocks .blocklySvg").count()) === 0, "a Blockly page is drawn on a phone");
+        await noSidewaysScroll(page, size.width, "the rows");
+        assert((await page.locator(".fg-play__blocks .bfl-top, .fg-play__blocks .bfp-switch").count()) === 0, "the rows have a switch over them");
+        const top = await page.evaluate(() => document.querySelector(".fg-play__blocks .bfl-row").getBoundingClientRect().top - document.querySelector(".fg-play__blocks").getBoundingClientRect().top);
+        assert(top < 20, `the first row starts ${Math.round(top)}px into the blocks' box`);
+        await page.locator(".fg-play__filebtn").tap();
+        await page.getByLabel("Show code").check();
+        await page.waitForFunction(() => document.querySelector(".fg-play__blocks .bfl-list")?.textContent.includes("f.circle("), null, { timeout: 5000 });
+        await page.getByLabel("Show code").uncheck();
+        await page.waitForFunction(() => !document.querySelector(".fg-play__blocks .bfl-list")?.classList.contains("bfl-code"), null, { timeout: 5000 });
+        await page.keyboard.press("Escape");
+        await page.getByRole("button", { name: "Run", exact: true }).tap();
+        await page.waitForSelector(".fg-play__blocks .bfl-error", { timeout: 60000 });
+        const marked = await page.locator(".fg-play__blocks .bfl-error").innerText();
+        assert(/circle/.test(marked), `the error outlines "${marked}", not the circle's row`);
+        await shot(page, `phone_${size.width}x${size.height}_9_blocks_error.png`);
+        seen.push(`${size.width}x${size.height}: ${rows} rows, error on "${marked.trim().slice(0, 30)}"`);
+        await page.close();
+      } finally {
+        await where.close();
+      }
+    }
+    return seen.join("; ");
+  });
+  await check(126, "An example's helper file opens as a tab: the example runs with it, an edit of it is a draft that survives a reload, and Reset brings it back (S-242)", async () => {
+    const EXAMPLE = "models-17_replay_on_any_drawing";      // imports puppet.py; needs no model
+    const index = JSON.parse(readFileSync(path.join(RUNNER, "runtime", "examples", "index.json"), "utf8"));
+    const listed = index.find((example) => example.id === EXAMPLE);
+    if (!listed?.files?.includes("puppet.py")) throw new Skip(`the runtime has no ${EXAMPLE} with puppet.py (give --runner a newer one)`);
+    const page = await freshEditor(`&example=${EXAMPLE}`);
+    await noAutoRun(page);
+    const tabs = await fileTabNames(page);
+    assert(tabs.length === 2 && tabs[1] === "puppet.py", `the example has the tabs ${tabs}`);
+    assert((await page.getByRole("button", { name: "Delete puppet.py" }).count()) === 0, "an example's file can be deleted");
+    assert(!(await page.getByRole("button", { name: "Reset" }).isVisible()), "Reset is shown before any edit");
+    await fileTab(page, "puppet.py").click();
+    const helper = await editorText(page);
+    assert(helper.startsWith('"""A cut-out puppet'), `puppet.py shows ${JSON.stringify(helper.slice(0, 40))}`);
+    await runButton(page).click();
+    await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque);
+    assert((await page.locator(".fg-play__error").count()) === 0 || !(await page.locator(".fg-play__error").isVisible()), "the example stopped with an error");
+    await typeCode(page, "X = 1\n");
+    await sleep(300);
+    await reloadEditor(page);
+    await fileTab(page, "puppet.py").click();
+    assert((await editorText(page)) === "X = 1\n", `after a reload puppet.py shows ${JSON.stringify((await editorText(page)).slice(0, 40))}`);
+    await page.getByRole("button", { name: "Reset" }).click();
+    await fileTab(page, "puppet.py").click();
+    const back = await editorText(page);        // the editor draws only the lines in view, so the opening is compared
+    assert(back.slice(0, 500) === helper.slice(0, 500) && !back.startsWith("X = 1"),
+      `Reset did not bring puppet.py back: it shows ${JSON.stringify(back.slice(0, 40))}`);
+    await page.close();
+    return "puppet.py as a tab";
   });
 } finally {
   await browser.close();

@@ -32,8 +32,10 @@ const referenceUrl = (url) => new URL(url.replace(/\.md(#|$)/, "/$1"), SITE).hre
  * @param {(text: string, kind?: string) => void} options.say  a line in Play's status
  * @param {() => void} options.onClose  the view closed itself (the text changed and does not read as blocks)
  * @param {() => Promise<object|null>} options.catalogue  funground's catalogue (completions.json), null if it did not load
+ * @param {() => boolean} options.phone  true on a phone (BF-15): the blocks editor is made with layout: "phone"
+ * @param {() => void} options.onHistory  the blocks changed, so Undo and Redo may have too (BF-D-050)
  */
-export function createBlocksView({ box, getText, setText, send, say, onClose, catalogue = async () => null, pythonLine = () => true }) {
+export function createBlocksView({ box, getText, setText, send, say, onClose, catalogue = async () => null, pythonLine = () => true, phone = () => false, onHistory = () => {} }) {
   let bf = null;
   let editor = null;
   let active = false;
@@ -69,12 +71,26 @@ export function createBlocksView({ box, getText, setText, send, say, onClose, ca
       catalogue: names,
       helpBase: referenceUrl,
       pythonLine: pythonLine(),
+      layout: phone() ? "phone" : "wide",         // BF-16: on a phone, the list of rows (BF-D-053 c)
       onChange(text) {
+        onHistory();
         if (!active || converting || text === getText()) return;
         written = text;
         setText(text);
       },
-    });    box.blocksEditor = editor;    // for tools/test_editor.mjs (check 84): the workspace, without a global
+    });
+    box.blocksEditor = editor;    // for tools/test_editor.mjs (check 84): the workspace, without a global
+    showPython(pythonLine());
+  }
+
+  /**
+   * The Python with the blocks: in the wide layout the line under each block; on a phone (BF-16) the rows' look, "code" or "blocks". A
+   * bundle with no looks (editor.look() gives null, or there is no such method) has only the line.
+   */
+  function showPython(on) {
+    if (!editor) return;
+    if (typeof editor.look === "function" && editor.look() !== null) editor.look(on ? "code" : "blocks");
+    else if (editor.settings().pythonLine !== on) editor.settings({ pythonLine: on });
   }
 
   /** Reads the editor's text as blocks. False (and the reason said) when it cannot. */
@@ -158,11 +174,36 @@ export function createBlocksView({ box, getText, setText, send, say, onClose, ca
 
   return {
     show, hide, changed, answer,
-    /** The line of Python under each block, on or off: the blocks are drawn again, the Python stays the same. */
-    setPythonLine(on) {
-      if (editor && editor.settings().pythonLine !== on) editor.settings({ pythonLine: on });
-    },
+    /** The Python with the blocks, on or off (showPython): the blocks are drawn again, the Python stays the same. */
+    setPythonLine: showPython,
     resize: () => editor?.resize(),
+    /**
+     * A run's error on line `line` of the Python (BF-16): on a phone the row that wrote the line gets a red outline and a tap shows
+     * `message`. The wide layout marks nothing (the code editor has the mark); nor does a bundle without the method.
+     */
+    markError(line, message) {
+      if (typeof editor?.markError === "function") editor.markError(line, message);
+    },
+    clearErrors: () => { if (typeof editor?.clearErrors === "function") editor.clearErrors(); },
+    /**
+     * Undo and Redo of the blocks (BF-D-050): the editor's own history, which also takes back moves and value changes. A bundle built before
+     * the editor had them has no such methods: `hasHistory` is false and the buttons stay hidden. `canUndo` and `canRedo` say whether
+     * there is something to step to (true if the editor does not say).
+     */
+    get hasHistory() { return typeof editor?.undo === "function" && typeof editor?.redo === "function"; },
+    canUndo: () => (typeof editor?.canUndo === "function" ? !!editor.canUndo() : true),
+    canRedo: () => (typeof editor?.canRedo === "function" ? !!editor.canRedo() : true),
+    undo: () => { if (typeof editor?.undo === "function") editor.undo(); },
+    redo: () => { if (typeof editor?.redo === "function") editor.redo(); },
+    /** The screen became a phone, or stopped being one (BF-15). A bundle without a layout method is left as it is. */
+    setPhone(on) {
+      if (!editor) return;
+      const wanted = on ? "phone" : "wide";
+      // switching saves the program and draws the workspace again: onChange comes once with the same Python, which read() and onChange ignore
+      if (typeof editor.layout === "function" && editor.layout() !== wanted) editor.layout(wanted);
+      showPython(pythonLine());
+      editor.resize();
+    },
     get active() { return active; },
   };
 }

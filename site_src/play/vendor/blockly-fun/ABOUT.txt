@@ -5,9 +5,9 @@ The blocks view of Play (`../../blocks.js`, story S-288). These files are `npm r
 
 | File | What |
 |---|---|
-| `blockly-fun.js` | The blocks editor as one ES module, with Blockly 13.4.0's core and English messages inside (868 KB, 240 KB gzipped). Loaded the first time a learner shows the blocks |
+| `blockly-fun.js` | The blocks editor as one ES module, with Blockly 13.4.0's core and English messages inside (929 KB). Loaded the first time a learner shows the blocks |
 | `blockly_fun/` | The converter (Python to blocks), sent to the preview's Python with each `check` |
 | `media/` | Blockly's icons and sounds |
 
-Built from blockly-fun commit c9544ce (branch `bf-catalogue`). To update: build there and copy `dist/` here whole.
+Built from blockly-fun commit 5496e1e (branch `bf16-phone-list`, BF-16: the layouts wide and phone, the phone being BF-D-053's list of rows; no switch over the rows, the host chooses the look). To update: build there and copy `dist/` here whole.
 Licences: blockly-fun Apache-2.0, Blockly Apache-2.0.

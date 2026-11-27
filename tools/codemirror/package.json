@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Builds site_src/play/vendor/codemirror.js, the code editor of the Play page. Run: npm install, then npm run build.",
   "scripts": {
-    "build": "esbuild entry.js --bundle --minify --format=esm --legal-comments=none --outfile=../../site_src/play/vendor/codemirror.js"
+    "build": "node build.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "6.20.3",

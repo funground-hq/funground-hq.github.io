@@ -20,6 +20,7 @@ changes nothing in the funground checkout. Three jobs, and a fourth with ``--run
    that repository's ``tools/build_runtime.py``): copy the browser runner to ``play/runner/``, list the
    examples it can run in ``play/examples.json``, and give each of those gallery pages a "Play with it online"
    button that opens it on the Play page, the editor (S-151).
+   It also writes ``play/stdlib_modules.json``, Python's module names (S-242): a file of a sketch may not use one.
 5. Copy funground's ``funground/completions.json`` (the editor's suggestions, S-196) to ``play/completions.json``,
    if the checkout has it.
 6. With ``--runner`` and funground's ``examples/course/play.json`` (S-216): list the course's experiments on the Play
@@ -240,7 +241,9 @@ def read_examples(funground: Path, areas: dict[str, str]) -> list[Example]:
         area = path.parent.name
         rank = list(areas).index(area) if area in areas else len(areas)
         return rank, area, path.name
-    paths = sorted((funground / "examples" / "gallery").glob("*/*.py"), key=order)
+    # The numbered files, as funground's gallery lists them: an unnumbered file beside them (models/puppet.py) is a
+    # helper some of them import, not an example of its own (S-321).
+    paths = sorted((funground / "examples" / "gallery").glob("*/[0-9][0-9]_*.py"), key=order)
     return [read_example(path) for path in paths]
 
 
@@ -655,8 +658,15 @@ def play_examples(entries: list[dict], areas: dict[str, str], funground: Path) -
     return listed + (course_examples(course, entries, funground) if course else [])
 
 
+def write_stdlib_names(docs: Path) -> None:
+    """Python's module names, for Play (S-242): a file of a sketch may not be called by one, or `import` would find
+    Python's module first. They are read from the Python that assembles the site, never typed here."""
+    names = sorted(sys.stdlib_module_names)
+    (docs / "play" / "stdlib_modules.json").write_text(json.dumps(names), encoding="utf-8", newline="\n")
+
+
 def write_play(runner: Path, docs: Path, entries: list[dict], funground: Path) -> int:
-    """Copy the runner and its runtime to play/runner/ and write play/examples.json."""
+    """Copy the runner and its runtime to play/runner/ and write play/examples.json and play/stdlib_modules.json."""
     target = docs / "play" / "runner"
     target.mkdir(parents=True, exist_ok=True)
     for name in RUNNER_FILES:
@@ -664,6 +674,7 @@ def write_play(runner: Path, docs: Path, entries: list[dict], funground: Path) -
     shutil.copytree(runner / "runtime", target / "runtime")
     examples = play_examples(entries, read_areas(funground), funground)
     (docs / "play" / "examples.json").write_text(json.dumps(examples, indent=1), encoding="utf-8", newline="\n")
+    write_stdlib_names(docs)
     return len(examples)
 
 

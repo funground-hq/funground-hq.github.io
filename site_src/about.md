@@ -15,6 +15,9 @@ the maintainer set the goals and reviewed the work. How the AI was used is writt
   them, use them for anything.
 - funground's dependencies and fonts keep their own licences. They are listed in
   [THIRD_PARTY_LICENSES.md](https://github.com/funground-hq/funground/blob/main/THIRD_PARTY_LICENSES.md).
+- This website and Play are built with other free software and fonts: CodeMirror, Blockly, Pyodide,
+  ONNX Runtime Web and three open fonts. Their licences and copyright lines are on the
+  [third-party notices](notices.md) page.
 
 ## Credits
 
