@@ -597,7 +597,7 @@ try {
   await check(127, "Stop on a sketch that cannot stop in time: once Python has started again, the status says Ready, not Starting Python again", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    await page.getByLabel("Auto-run", { exact: true }).uncheck();
+    await page.locator(".fg-play__bar > .fg-play__auto").getByLabel("Auto-run", { exact: true }).uncheck();
     await typeCode(page, "import time\nimport funground as f\n\n\ndef setup():\n    f.size(200, 100)\n\n\ndef draw():\n    time.sleep(3)\n\n\nf.run()\n");
     await runButton(page).click();
     await page.waitForFunction(() => document.querySelector(".play-status").textContent.startsWith("Running"), null, { timeout: 30000 });
@@ -612,7 +612,7 @@ try {
   await check(128, "a sketch whose Python fails fatally (S-333): the status says Python starts again and why, then Ready, and the next run works", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    await page.getByLabel("Auto-run", { exact: true }).uncheck();
+    await page.locator(".fg-play__bar > .fg-play__auto").getByLabel("Auto-run", { exact: true }).uncheck();
     // A call through a null function pointer is a wasm trap: Pyodide cannot be used after it.
     await typeCode(page, "import ctypes\nctypes.CFUNCTYPE(None)(0)()\n");
     await runButton(page).click();
@@ -629,7 +629,7 @@ try {
   await check(129, "a sketch that loops before it starts (while True at the top): Stop works while it says Starting, and the next run works", async () => {
     const page = await openEditor();
     await clearDrafts(page);
-    await page.getByLabel("Auto-run", { exact: true }).uncheck();
+    await page.locator(".fg-play__bar > .fg-play__auto").getByLabel("Auto-run", { exact: true }).uncheck();
     await typeCode(page, "print('busy')\nwhile True:\n    pass\n");
     await runButton(page).click();
     await page.waitForFunction(() => document.querySelector(".play-output")?.textContent.includes("busy"), null, { timeout: 60000 });
@@ -2569,7 +2569,7 @@ print("written")
     const { picture: drawn } = await waitForPicture(frameOf(page, PREVIEW), (p) => p.opaque && p.width >= 100 && p.centre[0] > 200 && p.centre[1] < 60 && p.centre[2] < 60);
     assert((await page.locator(".play-output .stderr").count()) === 0, "the sketch printed an error");
     await page.reload();
-    await filesSummary(page).click();
+    await chooseFile(page, "My files");      // My files is in the File menu (BF-D-045)
     await page.waitForFunction(() => [...document.querySelectorAll(".fg-play__file .fg-play__filename")].map((n) => n.textContent).join() === "my_photo.png,other.png");
     await page.close();
     return `renamed, opened by the sketch (centre ${drawn.centre}), still renamed after a reload`;
