@@ -66,7 +66,7 @@ def main(argv: list[str]) -> int:
 
     gallery_pages = [p for p in (docs / "gallery").glob("*/*.md")]
     if len(argv) == 3:
-        examples = list((Path(argv[2]) / "examples" / "gallery").glob("*/*.py"))
+        examples = list((Path(argv[2]) / "examples" / "gallery").glob("*/[0-9][0-9]_*.py"))   # numbered files, as assemble.py: a helper (models/puppet.py) has no page
         if len(examples) != len(gallery_pages):
             problems.append(f"gallery: {len(examples)} examples but {len(gallery_pages)} pages")
 
